@@ -4,7 +4,7 @@
 
 local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
 local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
-local ChoiceGroup = require("libs.ui.src.ChoiceGroup")
+local Button = require("libs.ui.src.Button")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentationLayout")
 
@@ -50,9 +50,9 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field revealCanvas { scale: number, origin: { x: number, y: number } }?
 ---@field reveal OakIntroStateSubjectRectangle?
 ---@field stage OakIntroStateRectangle
----@field genderChoiceGroup table?
----@field confirmationChoiceGroup table?
----@field selectedProfileCard table?
+---@field genderButtons table?
+---@field confirmationButtons table?
+---@field selectedProfileButton table?
 ---@field virtualKeyColumns integer?
 ---@field genderFocus integer
 ---@field subject OakIntroStateSubjectRectangle?
@@ -62,7 +62,6 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field selectorRegion OakIntroStateRectangle?
 ---@field selectorPanel OakIntroStateRectangle?
 ---@field selectorInset number?
----@field genderCanvas { scale: number, origin: { x: number, y: number } }?
 
 ---@class OakIntroStateView: OakIntroControllerView
 ---@field phase string
@@ -436,20 +435,23 @@ function OakIntroState:_pointer(x, y)
   if self.dialogueController and self.dialogueController:isModal() then
     self:_sync()
     return
-  elseif layout.confirmationChoiceGroup then
-    local selected = ChoiceGroup.hitTest(layout.confirmationChoiceGroup, x, y)
-    if selected ~= nil then
-      self.controller:press(selected == 0 and "yes" or "no")
-      self:_sync()
-      return
+  elseif layout.confirmationButtons then
+    for choice = 0, 1 do
+      local entry = layout.confirmationButtons[choice]
+      if entry and Button.contains(entry.button, x, y) then
+        self.controller:press(entry.key)
+        self:_sync()
+        return
+      end
     end
-  elseif layout.genderChoiceGroup then
-    local gender = ChoiceGroup.hitTest(layout.genderChoiceGroup, x, y)
-    if gender ~= nil then
-      self.controller:press(gender == 0 and "left" or "right")
-      self.controller:press("confirm")
-      self:_sync()
-      return
+  elseif layout.genderButtons then
+    for gender = 0, 1 do
+      local entry = layout.genderButtons[gender]
+      if entry and Button.contains(entry.button, x, y) then
+        self.controller:press(entry.key)
+        self:_sync()
+        return
+      end
     end
   elseif view.phase == "name_edit" then
     for _, entry in pairs(layout.nameKeys or layout.nameGrid) do

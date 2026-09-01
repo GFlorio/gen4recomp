@@ -230,29 +230,38 @@ function T.pointer_hits_the_same_drawn_virtual_key_geometry()
   Assert.deepEqual(controller.text, { "é" })
 end
 
-function T.pointer_hits_the_same_choice_group_used_by_presentation()
+function T.pointer_hits_the_same_button_geometry_used_by_presentation()
   local state, controller = stateHarness()
+  controller.phase = "gender_select"
+  local genderLayout = state:view().layout
+  state:mousepressed(
+    genderLayout.genderButtons[1].button.rect.x + genderLayout.genderButtons[1].button.rect.width / 2,
+    genderLayout.genderButtons[1].button.rect.y + genderLayout.genderButtons[1].button.rect.height / 2,
+    1
+  )
+  Assert.deepEqual(controller.pressed, { "female" })
+
   controller.phase = "gender_confirm"
   controller.choice = { kind = "gender", selected = 0 }
   local layout = state:view().layout
-  Assert.isNil(layout.genderChoiceGroup)
+  Assert.isNil(layout.genderButtons)
   state:mousepressed(
-    layout.selectedProfileCard.rect.x + layout.selectedProfileCard.rect.width / 2,
-    layout.selectedProfileCard.rect.y + layout.selectedProfileCard.rect.height / 2,
+    layout.selectedProfileButton.button.rect.x + layout.selectedProfileButton.button.rect.width / 2,
+    layout.selectedProfileButton.button.rect.y + layout.selectedProfileButton.button.rect.height / 2,
     1
   )
-  Assert.deepEqual(controller.pressed, {})
+  Assert.deepEqual(controller.pressed, { "female" })
   state:mousepressed(
-    layout.confirmationChoiceGroup.items[0].rect.x + 1,
-    layout.confirmationChoiceGroup.items[0].rect.y + 1,
+    layout.confirmationButtons[0].button.rect.x + 1,
+    layout.confirmationButtons[0].button.rect.y + 1,
     1
   )
   state:mousepressed(
-    layout.confirmationChoiceGroup.items[1].rect.x + 1,
-    layout.confirmationChoiceGroup.items[1].rect.y + 1,
+    layout.confirmationButtons[1].button.rect.x + 1,
+    layout.confirmationButtons[1].button.rect.y + 1,
     1
   )
-  Assert.deepEqual(controller.pressed, { "yes", "no" })
+  Assert.deepEqual(controller.pressed, { "female", "yes", "no" })
 end
 
 function T.pointer_cannot_activate_gender_selection_during_host_composition()
@@ -260,7 +269,7 @@ function T.pointer_cannot_activate_gender_selection_during_host_composition()
   controller.phase = "gender_composition_transition"
   controller.compositionProgress = 0
   local layout = state:view().layout
-  Assert.isNil(layout.genderChoiceGroup)
+  Assert.isNil(layout.genderButtons)
   state:mousepressed(320, 240, 1)
   state:touchpressed(1, 320, 240)
   Assert.deepEqual(controller.pressed, {})

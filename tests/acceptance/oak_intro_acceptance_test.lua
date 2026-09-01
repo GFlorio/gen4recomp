@@ -617,7 +617,7 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
     App.resize(420, 800)
     Assert.equal(App.state.state:view().layout.viewport.width, 420)
     Assert.equal(App.state.state:view().genderFocus, 1)
-    local card = App.state.state:view().layout.genderChoiceGroup.items[App.state.state:view().genderFocus].rect
+    local card = App.state.state:view().layout.genderButtons[App.state.state:view().genderFocus].button.rect
     App.state.state:touchpressed("finger-1", card.x + 1, card.y + 1)
     Assert.equal(App.state.state:view().phase, "gender_confirm")
 

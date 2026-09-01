@@ -5,14 +5,10 @@
 ---@class OakIntroRenderer
 ---@field graphics table
 ---@field text FieldTextRenderer
----@field genderSelector table generated selector chrome/pulse/accent/tone semantics
 ---@field assets table
 ---@field bindings table
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
-local ChoiceGroup = require("libs.ui.src.ChoiceGroup")
-local PaintList = require("libs.ui.src.PaintList")
-local OakChoiceStyles = require("game.hgss.src.newgame.OakChoiceStyles")
 local REQUIRED_ASSETS = {
   "oak",
   "marill",
@@ -47,41 +43,7 @@ local function releaseAll(resources)
   end
 end
 
--- Generated choice surfaces are represented as ordinary single-frame assets so
--- the renderer retains one image acquisition and release owner.
-local function choiceAssets(manifest)
-  local assets = {}
-  local function single(id, image, width, height)
-    assets[id] = {
-      image = image,
-      width = width,
-      height = height,
-      sampling = "nearest",
-      frames = { { x = 0, y = 0, image = image, width = width, height = height, duration = 1 } },
-    }
-  end
-  for _, gender in ipairs({ "male", "female" }) do
-    local button = manifest.genderSelector.buttons[gender]
-    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
-      local mask = button[kind]
-      single("genderSelector." .. gender .. "." .. kind, mask.image, mask.width, mask.height)
-    end
-    for _, choice in ipairs({ "yes", "no" }) do
-      local confirmation = manifest.profileConfirmation.buttons[gender][choice]
-      for _, kind in ipairs({ "base", "focus" }) do
-        local surface = confirmation[kind]
-        single(
-          "profileConfirmation." .. gender .. "." .. choice .. "." .. kind,
-          surface.image,
-          surface.width,
-          surface.height
-        )
-      end
-    end
-  end
-  return assets
-end
-
+-- Generated intro widgets share one image acquisition and release owner.
 local function loadResources(manifest, graphics, imageLoader)
   local bindings, acquired = {}, {}
   local imagesByPath = {}
@@ -106,9 +68,6 @@ local function loadResources(manifest, graphics, imageLoader)
         },
       },
     }
-    for assetId, asset in pairs(choiceAssets(manifest)) do
-      assets[assetId] = asset
-    end
     for assetId, asset in pairs(assets) do
       bindings[assetId] = {}
       for frameIndex, frame in ipairs(asset.frames) do
@@ -148,37 +107,6 @@ function OakIntroRenderer.new(options)
   for _, assetId in ipairs(REQUIRED_ASSETS) do
     assert(assets[assetId], "Oak renderer requires generated asset " .. assetId)
   end
-  local selector = options.manifest.genderSelector
-  assert(type(selector) == "table", "Oak renderer requires the generated gender selector semantics")
-  assert(
-    selector.neutral == nil and type(selector.defaultTone) == "table" and type(selector.buttons) == "table",
-    "Oak renderer requires v6 gender selector semantics"
-  )
-  assert(type(options.manifest.profileConfirmation) == "table", "Oak renderer requires profile confirmation semantics")
-  for _, gender in ipairs({ "male", "female" }) do
-    local button = selector.buttons[gender]
-    assert(type(button) == "table", "Oak renderer is missing the gender selector " .. gender .. " button")
-    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
-      local mask = button[kind]
-      assert(
-        type(mask) == "table"
-          and type(mask.image) == "string"
-          and type(mask.width) == "number"
-          and type(mask.height) == "number"
-          and mask.width > 0
-          and mask.height > 0,
-        "Oak renderer is missing the gender selector " .. gender .. " " .. kind
-      )
-    end
-    local confirmation = options.manifest.profileConfirmation.buttons[gender]
-    assert(type(confirmation) == "table", "Oak renderer is missing profile confirmation " .. gender)
-    for _, choice in ipairs({ "yes", "no" }) do
-      for _, kind in ipairs({ "base", "focus" }) do
-        local surface = confirmation[choice][kind]
-        assert(type(surface) == "table" and type(surface.image) == "string")
-      end
-    end
-  end
   local graphics = options.graphics or love.graphics
   local text = assert(options.text, "Oak renderer requires the shared FieldTextRenderer")
   assert(type(text.drawText) == "function", "Oak renderer requires FieldTextRenderer.drawText")
@@ -204,7 +132,6 @@ function OakIntroRenderer.new(options)
   end
   return setmetatable({
     assets = renderedAssets,
-    genderSelector = selector,
     graphics = graphics,
     text = text,
     images = images,
@@ -262,21 +189,59 @@ local function drawBackground(self, region)
   self.graphics.draw(binding.image, binding.quad, region.x, region.y, 0, sx, sy)
 end
 
-function OakIntroRenderer:_executePaintList(paintList)
-  for _, command in ipairs(paintList:commands()) do
-    if command.kind == "image" then
-      drawAsset(self, command.assetKey, 1, command.rect, nil, nil, command.tint)
-    else
-      local destination = command.rect
-      local lineHeight = assert(self.text.fontDef and self.text.fontDef.lineHeight)
-      local width = self.text:textWidth(command.text)
-      self.graphics.push()
-      self.graphics.translate(destination.x + destination.width / 2, destination.y + destination.height / 2)
-      self.graphics.scale(command.scale, command.scale)
-      self.text:drawText(command.text, -width / 2, -lineHeight / 2)
-      self.graphics.pop()
-    end
+local function drawPrimitiveButton(self, button, colors)
+  local graphics = self.graphics
+  graphics.setColor(colors.face[1], colors.face[2], colors.face[3], 1)
+  graphics.rectangle("fill", button.faceRect.x, button.faceRect.y, button.faceRect.width, button.faceRect.height)
+  graphics.setColor(colors.highlight[1], colors.highlight[2], colors.highlight[3], 1)
+  graphics.rectangle("fill", button.top.x, button.top.y, button.top.width, button.top.height)
+  graphics.rectangle("fill", button.left.x, button.left.y, button.left.width, button.left.height)
+  graphics.setColor(colors.shadow[1], colors.shadow[2], colors.shadow[3], 1)
+  graphics.rectangle("fill", button.bottom.x, button.bottom.y, button.bottom.width, button.bottom.height)
+  graphics.rectangle("fill", button.right.x, button.right.y, button.right.width, button.right.height)
+end
+
+local function genderColors(selected, focusBlinkDelta)
+  local brightness = selected and (focusBlinkDelta or 0) / 255 or 0
+  if selected then
+    return {
+      face = { 0.62 + brightness, 0.38 + brightness, 0.40 + brightness },
+      highlight = { 0.96, 0.70, 0.70 },
+      shadow = { 0.34, 0.10, 0.12 },
+    }
   end
+  return {
+    face = { 0.62, 0.64, 0.66 },
+    highlight = { 0.90, 0.92, 0.94 },
+    shadow = { 0.30, 0.32, 0.35 },
+  }
+end
+
+local function confirmationColors(selected)
+  if selected then
+    return {
+      face = { 0.28, 0.68, 0.72 },
+      highlight = { 0.78, 0.98, 1.0 },
+      shadow = { 0.08, 0.28, 0.34 },
+    }
+  end
+  return {
+    face = { 0.70, 0.73, 0.76 },
+    highlight = { 0.96, 0.98, 1.0 },
+    shadow = { 0.34, 0.37, 0.41 },
+  }
+end
+
+local function drawCenteredText(self, text, contentRect)
+  local lineHeight = assert(self.text.fontDef and self.text.fontDef.lineHeight)
+  local width = self.text:textWidth(text)
+  local scale = math.min(contentRect.width / width, contentRect.height / lineHeight)
+  assert(scale > 0, "Oak choice text does not fit its button")
+  self.graphics.push()
+  self.graphics.translate(contentRect.x + contentRect.width / 2, contentRect.y + contentRect.height / 2)
+  self.graphics.scale(scale, scale)
+  self.text:drawText(text, -width / 2, -lineHeight / 2)
+  self.graphics.pop()
 end
 
 ---@param view table
@@ -305,26 +270,26 @@ function OakIntroRenderer:_draw(view)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
-    local paintList = PaintList.new()
     if view.phase == "gender_select" then
-      ChoiceGroup.paint(
-        assert(layout.genderChoiceGroup),
-        paintList,
-        OakChoiceStyles.paintProfileChoice,
-        { selector = self.genderSelector, focusBlinkDelta = assert(view.focusBlinkDelta) }
-      )
-    elseif layout.selectedProfileCard then
-      OakChoiceStyles.paintStaticProfileCard(paintList, layout.selectedProfileCard, { selector = self.genderSelector })
+      for gender = 0, 1 do
+        local entry = assert(layout.genderButtons and layout.genderButtons[gender])
+        local selected = view.genderFocus == gender
+        drawPrimitiveButton(self, entry.button, genderColors(selected, selected and view.focusBlinkDelta or 0))
+        drawAsset(self, entry.portraitId, 1, entry.portraitRect)
+      end
+    elseif layout.selectedProfileButton then
+      local entry = layout.selectedProfileButton
+      drawPrimitiveButton(self, entry.button, genderColors(true, 0))
+      drawAsset(self, entry.portraitId, 1, entry.portraitRect)
     end
-    self:_executePaintList(paintList)
   end
-  if layout.confirmationChoiceGroup then
-    local paintList = PaintList.new()
-    ChoiceGroup.paint(layout.confirmationChoiceGroup, paintList, OakChoiceStyles.paintConfirmationChoice, {
-      gender = view.genderFocus == 0 and "male" or "female",
-      labels = assert(view.choiceLabels),
-    })
-    self:_executePaintList(paintList)
+  if layout.confirmationButtons then
+    local labels = assert(view.choiceLabels)
+    for choice = 0, 1 do
+      local entry = assert(layout.confirmationButtons[choice])
+      drawPrimitiveButton(self, entry.button, confirmationColors(view.confirmationChoice.selected == choice))
+      drawCenteredText(self, assert(labels[choice]), entry.button.contentRect)
+    end
   end
   graphics.setColor(1, 1, 1, 1)
   if view.phase == "name_edit" and view.name ~= "" then

@@ -6,7 +6,7 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
-local ChoiceGroup = require("libs.ui.src.ChoiceGroup")
+local Button = require("libs.ui.src.Button")
 
 local T = {}
 
@@ -45,32 +45,31 @@ local function genderSelector()
   }
 end
 
-local function genderChoiceGroup()
-  return ChoiceGroup.resolve({
-    selectedIndex = 0,
-    items = {
-      {
-        key = "male",
-        rect = { x = 10, y = 10, width = 40, height = 60 },
-        payload = {
-          portraitId = "male",
-          portraitRect = { x = 10, y = 10, width = 40, height = 60 },
-          buttonRect = { x = 20, y = 10, width = 40, height = 60 },
-          button = { backing = {}, pulseMask = {}, accentMask = {} },
-        },
-      },
-      {
-        key = "female",
-        rect = { x = 100, y = 10, width = 40, height = 60 },
-        payload = {
-          portraitId = "female",
-          portraitRect = { x = 100, y = 10, width = 40, height = 60 },
-          buttonRect = { x = 110, y = 10, width = 40, height = 60 },
-          button = { backing = {}, pulseMask = {}, accentMask = {} },
-        },
-      },
+local function genderButtons()
+  return {
+    [0] = {
+      key = "male",
+      button = Button.resolve({
+        rect = { x = 10, y = 10, width = 60, height = 80 },
+        bevelWidth = 2,
+        contentInsetX = 4,
+        contentInsetY = 4,
+      }),
+      portraitId = "gender_male",
+      portraitRect = { x = 20, y = 20, width = 40, height = 60 },
     },
-  })
+    [1] = {
+      key = "female",
+      button = Button.resolve({
+        rect = { x = 90, y = 10, width = 60, height = 80 },
+        bevelWidth = 2,
+        contentInsetX = 4,
+        contentInsetY = 4,
+      }),
+      portraitId = "gender_female",
+      portraitRect = { x = 100, y = 20, width = 40, height = 60 },
+    },
+  }
 end
 
 local function manifest()
@@ -238,9 +237,8 @@ T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
   Assert.equal(filters["background.png"].mag, "linear")
   Assert.equal(filters["oak.png"].min, "nearest")
   Assert.equal(filters["oak.png"].mag, "nearest")
-  Assert.deepEqual(filters["gender-selector-male-backing.png"], { min = "nearest", mag = "nearest" })
   Assert.deepEqual(filters["gender_male.png"], { min = "nearest", mag = "nearest" })
-  Assert.isNil(filters["gender-selector-neutral.png"], "obsolete selector neutral surface is not loaded")
+  Assert.isNil(filters["gender-selector-male-backing.png"], "obsolete selector surfaces are not loaded")
   renderer:dispose()
   for _, image in ipairs(graphics.images) do
     Assert.isTrue(image.released)
@@ -299,7 +297,7 @@ T.gender_gradient_covers_the_full_viewport_not_a_composition_region = function()
   gender.primaryWidget = nil
   gender.layout.viewport = { x = 11, y = 13, width = 1600, height = 900 }
   gender.layout.oakRegion = { x = 11, y = 13, width = 500, height = 900 }
-  gender.layout.genderChoiceGroup = genderChoiceGroup()
+  gender.layout.genderButtons = genderButtons()
   gender.genderFocus = 0
   gender.focusBlinkDelta = 0
 
@@ -478,7 +476,7 @@ T.gender_focus_leaves_portrait_draw_color_untinted = function()
   local gender = view()
   gender.phase = "gender_select"
   gender.primaryWidget = nil
-  gender.layout.genderChoiceGroup = genderChoiceGroup()
+  gender.layout.genderButtons = genderButtons()
   gender.genderFocus = 0
   gender.focusBlinkDelta = 8
 
@@ -486,31 +484,29 @@ T.gender_focus_leaves_portrait_draw_color_untinted = function()
 
   local maleColor, femaleColor
   for _, draw in ipairs(graphics.draws) do
-    if draw.image and draw.image.path == "male.png" then
+    if draw.image and draw.image.path == "gender_male.png" then
       maleColor = draw.color
-    elseif draw.image and draw.image.path == "female.png" then
+    elseif draw.image and draw.image.path == "gender_female.png" then
       femaleColor = draw.color
     end
   end
   Assert.notNil(maleColor, "male portrait must be drawn")
   Assert.notNil(femaleColor, "female portrait must be drawn")
-  Assert.deepEqual(maleColor, { 1, 1, 1, 1 }, "focused portrait must not be recolored; only the selector frame pulses")
+  Assert.deepEqual(maleColor, { 1, 1, 1, 1 }, "focused portrait must not be recolored")
   Assert.deepEqual(femaleColor, { 1, 1, 1, 1 }, "unfocused portrait must not be recolored")
   renderer:dispose()
 end
 
--- The renderer must consume the generated neutral surface/mask/default-tone
--- selector semantics to draw the source button-frame pulse; a manifest that
--- omits them cannot silently produce a working (but invisible) selector.
-T.gender_selector_construction_requires_the_generated_frame_semantics = function()
+T.renderer_does_not_require_generated_profile_control_surfaces = function()
   local graphics = FakeGraphics.new({
     imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
   })
   local manifestValue = manifest()
   manifestValue.genderSelector = nil
+  manifestValue.profileConfirmation = nil
   local ok = pcall(function()
     OakIntroRenderer.new({
-      manifest = manifestValue, -- lacks genderSelector: no neutral surface/pulseMask/accentMask/defaultTone
+      manifest = manifestValue,
       graphics = graphics,
       imageLoader = function(path)
         local image = graphics.newImage()
@@ -520,10 +516,7 @@ T.gender_selector_construction_requires_the_generated_frame_semantics = function
       text = textRenderer(),
     })
   end)
-  Assert.isFalse(
-    ok,
-    "the renderer must require generated genderSelector semantics to render the source frame pulse, not construct silently without them"
-  )
+  Assert.isTrue(ok, "primitive controls do not require generated profile control surfaces")
 end
 
 return GraphicsSmoke.suite(T)

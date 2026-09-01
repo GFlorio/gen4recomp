@@ -2,7 +2,7 @@
 -- placement relationships, never a fixed render surface.
 
 local OakIntroLayout = {}
-local ChoiceGroup = require("libs.ui.src.ChoiceGroup")
+local Button = require("libs.ui.src.Button")
 
 local function clamp(value, low, high)
   return math.max(low, math.min(high, value))
@@ -47,16 +47,6 @@ local function canvasPoint(canvas, sourcePointValue)
   return {
     x = canvas.origin.x + sourcePointValue.x * canvas.scale,
     y = canvas.origin.y + sourcePointValue.y * canvas.scale,
-  }
-end
-
-local function canvasBounds(canvas, sourceBounds)
-  return {
-    x = canvas.origin.x + sourceBounds.x * canvas.scale,
-    y = canvas.origin.y + sourceBounds.y * canvas.scale,
-    width = sourceBounds.width * canvas.scale,
-    height = sourceBounds.height * canvas.scale,
-    scale = canvas.scale,
   }
 end
 
@@ -129,37 +119,45 @@ local function containedPanel(region, aspect)
   return rect(region.x + (region.width - width) / 2, region.y + (region.height - height) / 2, width, height)
 end
 
----@param selectorPanel { x: number, y: number, width: number, height: number }
----@param reference { width: number, height: number }
----@return { scale: number, origin: { x: number, y: number }, panel: table, reference: table }
-local function genderCanvas(selectorPanel, reference)
-  local canvas = canvasForRegion(selectorPanel, reference)
-  canvas.panel = selectorPanel
-  canvas.reference = reference
-  return canvas
-end
-
-local function genderChoiceRect(choiceWidget, genderCanvasValue, sourceCenterPoint)
-  local hostCenter = canvasPoint(genderCanvasValue, sourceCenterPoint)
+---@param widgetValue { width: number, height: number }
+---@param contentRect { x: number, y: number, width: number, height: number }
+---@return { x: number, y: number, width: number, height: number, scale: number }
+local function fitWidget(widgetValue, contentRect)
+  local scale = math.min(contentRect.width / widgetValue.width, contentRect.height / widgetValue.height)
+  assert(scale > 0, "Oak profile art scale must be positive")
+  local width, height = widgetValue.width * scale, widgetValue.height * scale
   return {
-    x = hostCenter.x - choiceWidget.anchor.x * genderCanvasValue.scale,
-    y = hostCenter.y - choiceWidget.anchor.y * genderCanvasValue.scale,
-    width = choiceWidget.width * genderCanvasValue.scale,
-    height = choiceWidget.height * genderCanvasValue.scale,
-    scale = genderCanvasValue.scale,
+    x = contentRect.x + (contentRect.width - width) / 2,
+    y = contentRect.y + (contentRect.height - height) / 2,
+    width = width,
+    height = height,
+    scale = scale,
   }
 end
 
-local function mappedChoiceRect(canvas, sourceBounds)
-  return canvasBounds(canvas, sourceBounds)
+local function buttonMetrics(buttonRect)
+  local minimum = math.min(buttonRect.width, buttonRect.height)
+  local bevel = math.min(5, math.max(1, math.floor(minimum * 0.035 + 0.5)))
+  local inset = math.min(10, math.max(2, math.floor(minimum * 0.04 + 0.5)))
+  return bevel, inset, inset
 end
 
-local function relocatedTextRect(buttonRect, sourceButton, sourceText)
+local function resolveButton(buttonRect)
+  local bevel, contentInsetX, contentInsetY = buttonMetrics(buttonRect)
+  return Button.resolve({
+    rect = buttonRect,
+    bevelWidth = bevel,
+    contentInsetX = contentInsetX,
+    contentInsetY = contentInsetY,
+  })
+end
+
+local function splitVertical(region, gap)
+  local height = (region.height - gap) / 2
+  assert(height > 0, "Oak confirmation buttons do not fit their region")
   return {
-    x = buttonRect.x + (sourceText.x - sourceButton.x) / sourceButton.width * buttonRect.width,
-    y = buttonRect.y + (sourceText.y - sourceButton.y) / sourceButton.height * buttonRect.height,
-    width = sourceText.width / sourceButton.width * buttonRect.width,
-    height = sourceText.height / sourceButton.height * buttonRect.height,
+    resolveButton(rect(region.x, region.y, region.width, height)),
+    resolveButton(rect(region.x, region.y + height + gap, region.width, height)),
   }
 end
 
@@ -275,94 +273,73 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     )
     result.selectorInset = selectorInset
     result.selectorPanel = containedPanel(insetRegion, 4 / 3)
-    local gCanvas = genderCanvas(result.selectorPanel, reference)
-    result.genderCanvas = gCanvas
-    local selector = assert(manifest.genderSelector)
-    local genderItems = {}
+    local panel = assert(result.selectorPanel)
+    local panelMinimum = math.min(panel.width, panel.height)
+    local outerInset = math.min(24, math.max(6, math.floor(panelMinimum * 0.06 + 0.5)))
+    local controlGap = math.min(24, math.max(8, math.floor(panel.width * 0.04 + 0.5)))
+    outerInset = math.min(outerInset, (math.min(panel.width, panel.height) - 1) / 2)
+    local columnWidth = (panel.width - outerInset * 2 - controlGap) / 2
+    assert(columnWidth > 0, "Oak gender buttons do not fit their panel")
+    local genderSlots = {}
     for gender, id in ipairs({ "male", "female" }) do
-      local w = widget(manifest, "gender_" .. id)
-      local button = assert(selector.buttons[id])
-      local portrait = genderChoiceRect(w, gCanvas, w.sourceCenter)
-      genderItems[#genderItems + 1] = {
+      local buttonRect = rect(
+        panel.x + outerInset + (gender - 1) * (columnWidth + controlGap),
+        panel.y + outerInset,
+        columnWidth,
+        panel.height - outerInset * 2
+      )
+      local button = resolveButton(buttonRect)
+      local portrait = fitWidget(widget(manifest, "gender_" .. id), button.contentRect)
+      genderSlots[gender - 1] = {
         key = id,
-        rect = mappedChoiceRect(gCanvas, button.hitBounds),
-        payload = {
-          gender = gender,
-          portraitId = id,
-          portraitRect = portrait,
-          buttonRect = mappedChoiceRect(gCanvas, button.bounds),
-          button = button,
-        },
+        button = button,
+        portraitId = "gender_" .. id,
+        portraitRect = portrait,
       }
     end
     if view.phase == "gender_select" then
-      result.genderChoiceGroup = ChoiceGroup.resolve({ selectedIndex = view.genderFocus, items = genderItems })
-      result.selectedProfileCard = assert(result.genderChoiceGroup.items[view.genderFocus])
+      result.genderButtons = genderSlots
     else
-      result.selectedProfileCard = assert(genderItems[view.genderFocus + 1])
+      result.selectedProfileButton = assert(genderSlots[view.genderFocus])
     end
   end
   if view.confirmationChoice then
-    local gender = view.genderFocus == 0 and "male" or "female"
     if view.phase == "gender_confirm" then
-      local selectedCard = assert(result.selectedProfileCard)
-      assert(selectedCard.key == gender)
-      local confirmation = assert(manifest.profileConfirmation.buttons[gender])
-      local items = {}
-      for index, choice in ipairs({ "yes", "no" }) do
-        local source = assert(confirmation[choice])
-        items[index] = {
-          key = choice,
-          rect = mappedChoiceRect(assert(result.genderCanvas), source.bounds),
-          payload = {
-            textRect = mappedChoiceRect(assert(result.genderCanvas), source.textBounds),
-            textScale = assert(result.genderCanvas).scale,
-            button = source,
-          },
-        }
-      end
-      result.confirmationChoiceGroup = ChoiceGroup.resolve({
-        selectedIndex = view.confirmationChoice.selected,
-        items = items,
-      })
+      local panel = assert(result.selectorPanel)
+      local selectedColumn = view.genderFocus
+      local selectedProfileButton = assert(result.selectedProfileButton)
+      assert(selectedProfileButton.key == (selectedColumn == 0 and "male" or "female"))
+      local controlGap = math.min(24, math.max(8, math.floor(panel.width * 0.04 + 0.5)))
+      local confirmationColumn = selectedColumn == 0 and 1 or 0
+      local columnWidth = selectedProfileButton.button.rect.width
+      local columnX = panel.x
+        + (panel.width - columnWidth * 2 - controlGap) / 2
+        + confirmationColumn * (columnWidth + controlGap)
+      local columnRegion =
+        rect(columnX, selectedProfileButton.button.rect.y, columnWidth, selectedProfileButton.button.rect.height)
+      local gapSize = math.min(16, math.max(6, math.floor(columnRegion.height * 0.06 + 0.5)))
+      local buttons = splitVertical(columnRegion, gapSize)
+      result.confirmationButtons = {
+        [0] = { key = "yes", button = buttons[1] },
+        [1] = { key = "no", button = buttons[2] },
+      }
     elseif view.phase == "name_confirm" then
-      local confirmation = assert(manifest.profileConfirmation.buttons[gender])
-      local gapSize =
-        math.min(12, math.max(6, math.floor(math.min(sceneContent.width, sceneContent.height) * 0.02 + 0.5)))
-      local availableHeight = math.max(gapSize + 1, sceneContent.height * 0.32)
-      local scale = math.min(sceneContent.width * 0.62 / 115, (availableHeight - gapSize) / 113)
-      assert(scale > 0, "Oak name confirmation scale must be positive")
-      local buttonWidth = 115 * scale
-      local panelHeight = 113 * scale + gapSize
+      local sceneMinimum = math.min(sceneContent.width, sceneContent.height)
+      local stackWidth = math.min(sceneContent.width * 0.5, 280)
+      local stackHeight = math.min(sceneContent.height * 0.36, 180)
+      local gapSize = math.min(16, math.max(6, math.floor(sceneMinimum * 0.02 + 0.5)))
+      stackHeight = math.max(stackHeight, gapSize + 2)
       local panel = rect(
-        sceneContent.x + (sceneContent.width - buttonWidth) / 2,
-        sceneContent.y + sceneContent.height - panelHeight,
-        buttonWidth,
-        panelHeight
+        sceneContent.x + (sceneContent.width - stackWidth) / 2,
+        sceneContent.y + sceneContent.height - stackHeight,
+        stackWidth,
+        stackHeight
       )
-      local items = {}
-      for index, choice in ipairs({ "yes", "no" }) do
-        local source = assert(confirmation[choice])
-        local buttonRect = rect(
-          panel.x,
-          index == 1 and panel.y or panel.y + 57 * scale + gapSize,
-          source.bounds.width * scale,
-          source.bounds.height * scale
-        )
-        items[index] = {
-          key = choice,
-          rect = buttonRect,
-          payload = {
-            textRect = relocatedTextRect(buttonRect, source.bounds, source.textBounds),
-            textScale = scale,
-            button = source,
-          },
-        }
-      end
-      result.confirmationChoiceGroup = ChoiceGroup.resolve({
-        selectedIndex = view.confirmationChoice.selected,
-        items = items,
-      })
+      local buttons = splitVertical(panel, gapSize)
+      result.confirmationButtons = {
+        [0] = { key = "yes", button = buttons[1] },
+        [1] = { key = "no", button = buttons[2] },
+      }
     end
   end
   if view.phase == "name_edit" then

@@ -565,9 +565,36 @@ function OakIntroController:_enterNameEditor()
   self:_event("name_editor", "opened")
 end
 
+function OakIntroController:_playSelectionEffect()
+  self._audio:play("SEQ_SE_DP_SELECT")
+end
+
+function OakIntroController:_focusGender(index)
+  local changed = self._genderSelection:selectedIndex() ~= index
+  self._genderSelection:setSelectedIndex(index)
+  if changed then
+    self._focusTimer = 0
+    self._focusBlinkDelta = 0
+    self:_playSelectionEffect()
+  end
+  return changed
+end
+
+function OakIntroController:_activateGender(index)
+  assert(self._phase == "gender_select", "gender activation is only valid during selection")
+  self._genderSelection:setSelectedIndex(index)
+  self._focusTimer = 0
+  self._focusBlinkDelta = 0
+  self:_playSelectionEffect()
+  self._phase = "gender_confirm"
+  self:_setMessage(index == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female")
+  return true
+end
+
 function OakIntroController:_resolveConfirmation(selected)
   assert(self._confirmationChoice ~= nil, "Oak confirmation choice is not active")
   assert(selected == 0 or selected == 1, "Oak confirmation selection is invalid")
+  self:_playSelectionEffect()
   local kind = self._confirmationChoice.kind
   self._confirmationChoice = nil
   if kind == "gender" then
@@ -599,8 +626,12 @@ function OakIntroController:press(action)
   end
   if self._confirmationChoice then
     if action == "up" or action == "down" then
-      self._confirmationChoice.selection:setSelectedIndex(action == "up" and 0 or 1)
-      self._audio:play("SEQ_SE_DP_SELECT")
+      local index = action == "up" and 0 or 1
+      local changed = self._confirmationChoice.selection:selectedIndex() ~= index
+      self._confirmationChoice.selection:setSelectedIndex(index)
+      if changed then
+        self:_playSelectionEffect()
+      end
       return true
     end
     if action == "confirm" then
@@ -614,16 +645,13 @@ function OakIntroController:press(action)
     end
     return false
   end
+  if self._phase == "gender_select" and (action == "male" or action == "female") then
+    return self:_activateGender(action == "male" and 0 or 1)
+  end
   if action == "left" and self._phase == "gender_select" then
-    self._genderSelection:setSelectedIndex(0)
-    self._focusTimer = 0
-    self._focusBlinkDelta = 0
-    self._audio:play("SEQ_SE_DP_SELECT")
+    self:_focusGender(0)
   elseif action == "right" and self._phase == "gender_select" then
-    self._genderSelection:setSelectedIndex(1)
-    self._focusTimer = 0
-    self._focusBlinkDelta = 0
-    self._audio:play("SEQ_SE_DP_SELECT")
+    self:_focusGender(1)
   elseif
     self._phase == "name_edit" and (action == "left" or action == "right" or action == "up" or action == "down")
   then
@@ -669,12 +697,7 @@ function OakIntroController:press(action)
       self._focusBlinkDelta = 0
     end
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
-    self._focusTimer = 0
-    self._focusBlinkDelta = 0
-    self._phase = "gender_confirm"
-    self:_setMessage(
-      self._genderSelection:selectedIndex() == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female"
-    )
+    return self:_activateGender(self._genderSelection:selectedIndex())
   elseif (action == "cancel" or action == "no") and self._phase == "gender_confirm" then
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")

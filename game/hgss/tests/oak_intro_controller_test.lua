@@ -100,6 +100,16 @@ local function audio()
   }
 end
 
+local function selectionEffects(trace)
+  local count = 0
+  for _, event in ipairs(trace) do
+    if event.name == "effect" and event.value == "SEQ_SE_DP_SELECT" then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function controller(options)
   options = options or {}
   local time = options.clock or clock(12, 0)
@@ -249,6 +259,25 @@ local function genderConfirmation(selectFemale, options)
   Assert.equal(state:view().phase, "gender_confirm")
   state:messageCompleted(selectFemale and "profile.gender_confirm.female" or "profile.gender_confirm.male")
   Assert.deepEqual(state:view().confirmationChoice, { kind = "gender", selected = 0 })
+  return state
+end
+
+local function genderSelection(options)
+  local state = controller(options)
+  state:start()
+  state:tick(40)
+  state:press("confirm")
+  state:tick(6 + 30)
+  state:press("confirm")
+  state:tick(26)
+  state:press("confirm")
+  advanceToPhase(state, "oak_live_alongside")
+  state:press("confirm")
+  advanceThroughHide(state)
+  state:press("confirm")
+  state:press("confirm")
+  state:tick(26)
+  Assert.equal(state:view().phase, "gender_select")
   return state
 end
 
@@ -455,6 +484,51 @@ function T.focused_yes_remains_affirmative_for_gender_and_name()
   local name = nameConfirmation()
   name:press("confirm")
   Assert.equal(name:view().phase, "final_dialogue")
+end
+
+function T.profile_focus_and_activation_play_one_selection_effect_per_meaningful_action()
+  local sounds = audio()
+  local state = genderSelection({ audio = sounds })
+  local before = selectionEffects(sounds.trace)
+
+  state:press("left")
+  Assert.equal(selectionEffects(sounds.trace), before, "a boundary focus no-op must be silent")
+  state:press("right")
+  Assert.equal(selectionEffects(sounds.trace), before + 1, "an actual gender focus change must play once")
+  state:press("right")
+  Assert.equal(selectionEffects(sounds.trace), before + 1, "a repeated boundary focus no-op must be silent")
+
+  before = selectionEffects(sounds.trace)
+  state:press("confirm")
+  Assert.equal(state:view().phase, "gender_confirm")
+  Assert.equal(selectionEffects(sounds.trace), before + 1, "gender activation must play once")
+
+  local confirmationBefore = selectionEffects(sounds.trace)
+  state:messageCompleted("profile.gender_confirm.female")
+  state:press("up")
+  Assert.equal(selectionEffects(sounds.trace), confirmationBefore, "a confirmation focus no-op must be silent")
+  state:press("down")
+  Assert.equal(selectionEffects(sounds.trace), confirmationBefore + 1, "confirmation focus change must play once")
+  state:press("no")
+  Assert.equal(selectionEffects(sounds.trace), confirmationBefore + 2, "confirmation activation must play once")
+end
+
+function T.direct_gender_actions_share_the_confirmation_activation_sound()
+  local sounds = audio()
+  local state = genderSelection({ audio = sounds })
+  local before = selectionEffects(sounds.trace)
+  state:press("female")
+  Assert.equal(state:view().phase, "gender_confirm")
+  Assert.equal(state:view().genderFocus, 1)
+  Assert.equal(selectionEffects(sounds.trace), before + 1)
+
+  local directMaleSounds = audio()
+  local directMale = genderSelection({ audio = directMaleSounds })
+  local directBefore = selectionEffects(directMaleSounds.trace)
+  directMale:press("male")
+  Assert.equal(directMale:view().phase, "gender_confirm")
+  Assert.equal(directMale:view().genderFocus, 0)
+  Assert.equal(selectionEffects(directMaleSounds.trace), directBefore + 1)
 end
 
 function T.confirmation_yes_and_no_resolve_only_from_the_active_choice()
