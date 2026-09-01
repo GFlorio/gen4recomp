@@ -145,7 +145,6 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field advanceScriptedAction fun(self: FieldActorManager, actorId: string, progressTicks: integer, durationTicks: integer)
 ---@field commitScriptedAction fun(self: FieldActorManager, actorId: string)
 ---@field cancelScriptedMovement fun(self: FieldActorManager, actorId: string)
----@field settleScriptedAction fun(self: FieldActorManager, actorId: string)
 ---@field isScriptedMoving fun(self: FieldActorManager, actorId: string): boolean
 ---@field _advanceAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, action: table)
 ---@field _beginAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, direction: FieldDirection, context: table): boolean
@@ -1379,20 +1378,12 @@ function FieldActorManager:step(tick, context)
   for _, mapId in ipairs(sortedMapIds(self.maps)) do
     local entry = assert(self.maps[mapId])
     for _, actor in ipairs(entry.order) do
+      actor:advancePresentationTick()
       local autonomousAction = entry.autonomousActions[actor.actorId]
       if autonomousAction then
         self:_advanceAutonomousAction(entry, actor, autonomousAction)
       else
         local hasAutonomousPresentationCarry = entry.autonomousPresentationCarry[actor.actorId] == true
-        -- Scripted pause_animation freezes the actor's pose animation; the
-        -- pose clock only advances while the actor is not paused. A scripted
-        -- action drives its own poseTick through advanceScriptedAction, so the
-        -- manager must not double-advance it here.
-        if actor:isScriptedMoving() then
-          -- poseTick is driven by scripted advancement.
-        elseif not actor.animationPaused then
-          actor.poseTick = actor.poseTick + 1
-        end
         if
           actor.resident
           and not actor:isScriptedMoving()
@@ -1984,7 +1975,8 @@ function FieldActorManager:beginScriptedAction(actorId, action)
   local kind = action.action
   -- Face is instantaneous: apply the facing directly, then still flow
   -- through the generic actor transaction below (with a stay-put start/dest).
-  -- Every face settles to idle like any other non-locomotion action.
+  -- Face uses the explicit static presentation transition while delay and
+  -- emote retain the actor's selected locomotion presentation.
   if kind == "face" and action.direction ~= nil then
     actor:setFacing(action.direction)
   end
@@ -2098,16 +2090,6 @@ function FieldActorManager:cancelScriptedMovement(actorId)
       -- worldY stays as committed surface height; actor.worldY already correct.
     end
   end
-end
-
--- Called once a movement plan is fully exhausted, when there is no further
--- action to begin (the usual locomotion-to-idle settle point). Guarantees
--- the actor never keeps its final action's presentation after the task ends.
----@param actorId string
----@param self FieldActorManager
-function FieldActorManager:settleScriptedAction(actorId)
-  local actor = requireActor(self, actorId)
-  actor:settlePresentation()
 end
 
 ---@param actorId string

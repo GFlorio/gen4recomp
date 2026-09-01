@@ -28,6 +28,9 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field facing FieldDirection
 ---@field pose string
 ---@field poseTick integer
+---@field private _retainedDriver { action: string, speed: string?, distance: string? }?
+---@field private _retainedProgressTicks integer
+---@field private _scriptedPresentationAdvanced boolean
 ---@field presentationOffset { x: number, y: number } render-only locomotion offset; zero outside its owning action
 ---@field activeEmoteKind string? the active semantic emote (e.g. "exclamation") while an emote action is live, else nil
 ---@field visible boolean
@@ -46,6 +49,7 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field commitScriptedAction fun(self: FieldObjectActor): table?
 ---@field cancelScriptedAction fun(self: FieldObjectActor)
 ---@field isScriptedMoving fun(self: FieldObjectActor): boolean
+---@field advancePresentationTick fun(self: FieldObjectActor)
 ---@field settlePresentation fun(self: FieldObjectActor)
 ---@field currentAction fun(self: FieldObjectActor): string?
 ---@field scriptedMotionState fun(self: FieldObjectActor): table?
@@ -62,6 +66,10 @@ local FACINGS = { north = true, south = true, west = true, east = true }
 -- applied before any host/camera transform). Two footstep bounces per cycle.
 local WALK_IN_PLACE_BOB_AMPLITUDE = 0.15
 
+local function isLocomotionAction(action)
+  return action == "walk" or action == "walk_in_place" or action == "jump"
+end
+
 -- Render-only vertical bob for a walk-in-place cycle, derived deterministically
 -- from the action's own fixed progress/duration ticks (never from draw
 -- frequency). Two bounded bounces per cycle, zero at both boundaries.
@@ -74,6 +82,25 @@ local function walkInPlaceBobOffset(progressTicks, durationTicks)
   end
   local t = progressTicks / durationTicks
   return (WALK_IN_PLACE_BOB_AMPLITUDE / 2) * (1 - math.cos(4 * math.pi * t))
+end
+
+local function clearRetainedPresentation(actor)
+  actor._retainedDriver = nil
+  actor._retainedProgressTicks = 0
+end
+
+local function advanceRetainedPresentation(actor)
+  local driver = actor._retainedDriver
+  if not driver then
+    return
+  end
+  local oldProgressTicks = actor._retainedProgressTicks
+  local newProgressTicks = oldProgressTicks + 1
+  local oldPoseProgress = MovementCalibration.poseProgressTicks(driver, oldProgressTicks)
+  local newPoseProgress = MovementCalibration.poseProgressTicks(driver, newProgressTicks)
+  actor._retainedProgressTicks = newProgressTicks
+  actor.pose = "walk"
+  actor.poseTick = actor.poseTick + newPoseProgress - oldPoseProgress
 end
 
 -- Identity is derived only from map and object-event identity, so it survives
@@ -117,6 +144,9 @@ function FieldObjectActor.new(opts)
     facing = facing,
     pose = "idle",
     poseTick = 0,
+    _retainedDriver = nil,
+    _retainedProgressTicks = 0,
+    _scriptedPresentationAdvanced = false,
     -- Render-only locomotion presentation offset (walk-in-place bob); never
     -- mutates worldX/worldY/worldZ, which stay the logical/committed anchor.
     presentationOffset = { x = 0, y = 0 },
@@ -228,16 +258,15 @@ function FieldObjectActor:beginAction(descriptor, owner)
   -- it; every other action (including a later emote with a different kind)
   -- starts from a clean slate.
   self.activeEmoteKind = descriptor.action == "emote" and descriptor.name or nil
-  -- Locomotion pose is true exactly while a locomotion action is active.
-  -- Everything else (face/delay/emote/gesture) settles to idle here so a
-  -- non-locomotion action never inherits a stale walking pose, while a
-  -- contiguous locomotion successor re-enters "walk" without an observable
-  -- idle frame or a reset pose clock.
-  if descriptor.action == "walk" or descriptor.action == "walk_in_place" or descriptor.action == "jump" then
+  -- Locomotion pose is true while a locomotion action is active. Delay and
+  -- emote preserve the source-selected presentation; face and gesture are
+  -- explicit static presentation transitions.
+  if isLocomotionAction(descriptor.action) then
     if not self.animationPaused then
       self.pose = "walk"
     end
-  else
+  elseif descriptor.action == "face" or descriptor.action == "gesture" then
+    clearRetainedPresentation(self)
     self.pose = "idle"
     self.poseTick = 0
   end
@@ -251,6 +280,9 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
   local m = self._motion
   if not m then
     return
+  end
+  if m.owner == "script" then
+    self._scriptedPresentationAdvanced = true
   end
   m.progressTicks = progressTicks
   m.durationTicks = durationTicks
@@ -282,14 +314,17 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldZ = m.startWorldZ
     self.worldY = m.startWorldY
   end
-  -- Advance pose clock once per eligible tick while walking/jumping/
-  -- walk_in_place. Presentation progress is calibrated independently from
-  -- the fixed simulation progress used by geometry and completion.
+  -- Advance pose clock once per eligible tick for locomotion and retained
+  -- delay/emote presentation. Presentation progress is calibrated
+  -- independently from the fixed simulation progress used by geometry and
+  -- completion.
   if not self.animationPaused then
-    if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" then
+    if isLocomotionAction(m.action) then
       local poseProgress = MovementCalibration.poseProgressTicks(m, progressTicks)
       self.pose = "walk"
       self.poseTick = m.startPoseTick + poseProgress
+    elseif m.action == "delay" or m.action == "emote" then
+      advanceRetainedPresentation(self)
     end
   end
   if progressTicks == durationTicks then
@@ -326,6 +361,14 @@ function FieldObjectActor:commitAction()
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
+  if isLocomotionAction(m.action) then
+    self._retainedDriver = {
+      action = m.action,
+      speed = m.speed,
+      distance = m.distance,
+    }
+    self._retainedProgressTicks = m.progressTicks
+  end
   self._motion = nil
   return result
 end
@@ -361,11 +404,20 @@ function FieldObjectActor:isScriptedMoving()
   return self._motion ~= nil and self._motion.owner == "script"
 end
 
--- Force a stable idle baseline with no residual presentation offset. A
--- completed movement plan has no further action to `beginScriptedAction`
--- (which is where locomotion-to-idle settling normally happens), so the task
--- calls this once the whole sequence is exhausted to guarantee the actor
--- never keeps showing its final locomotion action's walking pose.
+function FieldObjectActor:advancePresentationTick()
+  if self._scriptedPresentationAdvanced then
+    self._scriptedPresentationAdvanced = false
+    return
+  end
+  if self._motion ~= nil or self.animationPaused then
+    return
+  end
+  if self._retainedDriver then
+    advanceRetainedPresentation(self)
+  end
+end
+
+-- Force a stable idle baseline with no residual presentation offset.
 function FieldObjectActor:settlePresentation()
   assert(self._motion == nil, "cannot settle presentation while an action is active")
   self.pose = "idle"
@@ -373,6 +425,8 @@ function FieldObjectActor:settlePresentation()
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
+  clearRetainedPresentation(self)
+  self._scriptedPresentationAdvanced = false
 end
 
 -- The active semantic action kind (`walk`, `walk_in_place`, `jump`, `face`,

@@ -1802,17 +1802,17 @@ function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
   Assert.isTrue(isOccupied(mgr, 61, 9, 3, 0))
 end
 
-function T.pose_clock_advances_only_for_visible_actors()
+function T.idle_pose_clock_stays_stable_for_visible_actors()
   local mgr, eventState = manager({ object({ eventFlag = 401 }) })
   mgr:step(1)
   mgr:step(2)
-  Assert.equal(mgr:getById("map:61:object:0").poseTick, 2)
+  Assert.equal(mgr:getById("map:61:object:0").poseTick, 0)
   eventState:setFlag(401)
   mgr:step(3)
   eventState:clearFlag(401)
-  -- A restored actor starts a fresh pose clock rather than resuming a hidden one.
+  -- A rematerialized actor starts a fresh stable idle presentation.
   mgr:step(4)
-  Assert.equal(mgr:getById("map:61:object:0").poseTick, 1)
+  Assert.equal(mgr:getById("map:61:object:0").poseTick, 0)
 end
 
 function T.autonomous_range_uses_signed_source_origin_bounds()

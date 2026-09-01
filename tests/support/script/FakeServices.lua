@@ -274,12 +274,6 @@ function FakeActors:cancelScriptedMovement(actorId)
   actor._scriptedAction = nil
 end
 
--- Fake presentation is untracked (no pose field), so settling is a no-op:
--- only the production actor stack observes this transition.
-function FakeActors:settleAction(actorId)
-  assert(self.actors[actorId], "fake actor missing: " .. actorId)
-end
-
 function FakeActors:isScriptedMoving(actorId)
   local actor = self.actors[actorId]
   return actor ~= nil and actor._scriptedAction ~= nil

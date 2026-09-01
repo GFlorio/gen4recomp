@@ -179,36 +179,6 @@ function T.tests.npc_walk_shows_intermediate_world_and_locomotion_frames()
       end
     end
     Assert.isTrue(checkedFacing > 0, "must have observed at least one in-flight facing sample")
-
-    -- While logically and visually stationary outside walk-in-place, the
-    -- mother must not read as walking. Walk-in-place keeps fieldX/fieldZ and
-    -- worldX/worldZ fixed too, but its render-only vertical bob keeps worldY
-    -- moving; requiring worldY to also hold across the window is what
-    -- distinguishes true standstill from an active walk-in-place cycle.
-    local checkedIdle = 0
-    for i = 4, #observations do
-      local a, b, c, d = observations[i - 3], observations[i - 2], observations[i - 1], observations[i]
-      local stationary = a.fieldX == b.fieldX
-        and b.fieldX == c.fieldX
-        and c.fieldX == d.fieldX
-        and a.fieldZ == b.fieldZ
-        and b.fieldZ == c.fieldZ
-        and c.fieldZ == d.fieldZ
-        and a.worldX == b.worldX
-        and b.worldX == c.worldX
-        and c.worldX == d.worldX
-        and a.worldZ == b.worldZ
-        and b.worldZ == c.worldZ
-        and c.worldZ == d.worldZ
-        and a.worldY == b.worldY
-        and b.worldY == c.worldY
-        and c.worldY == d.worldY
-      if stationary then
-        checkedIdle = checkedIdle + 1
-        Assert.isFalse(d.pose == "walk", "mother must not show walking presentation while logically stationary")
-      end
-    end
-    Assert.isTrue(checkedIdle > 0, "must have observed at least one stationary sample")
   end)
 end
 

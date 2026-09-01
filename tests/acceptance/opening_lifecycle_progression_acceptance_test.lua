@@ -369,6 +369,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
 
     local plans = {}
     local planOrder = {}
+    local presentationTimeline = {}
     local function marillTask()
       for _, task in ipairs(game.runtime.scripts.scheduler:tasks()) do
         if task.status == "active" and task.taskType == "movement" and task.state.actor == MARILL_ID then
@@ -413,6 +414,12 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
       end
       local actor = game.runtime.actors:getById(MARILL_ID)
       local task = marillTask()
+      local commandTaskId = task and task.taskId or nil
+      local commandAction = nil
+      if task then
+        local action = task.state.sequence[task.state.actionIndex + 1]
+        commandAction = action and action.action or nil
+      end
       if task and actor then
         local state = task.state
         local action = state.sequence[state.actionIndex + 1]
@@ -523,6 +530,39 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
           game:step()
         end
       end
+      local afterActor = game.runtime.actors:getById(MARILL_ID)
+      if afterActor then
+        local afterRecord = assert(drawRecord(), "a live Marill must have a production draw record")
+        local activeTask = marillTask()
+        local activeAction = nil
+        if activeTask then
+          local state = activeTask.state
+          local action = state.sequence[state.actionIndex + 1]
+          activeAction = action and action.action or nil
+        end
+        local frameIndex = withCompiledVisual(afterRecord, function(visual)
+          local selected, fellBack =
+            FieldActorPose.frameIndex(visual, afterRecord.facing, afterRecord.pose, afterRecord.poseTick)
+          Assert.isFalse(fellBack, "Marill's real visual must provide every live selected pose")
+          return selected
+        end)
+        presentationTimeline[#presentationTimeline + 1] = {
+          worldTick = game:snapshot().tick,
+          commandTaskId = commandTaskId,
+          commandAction = commandAction,
+          activeTaskId = activeTask and activeTask.taskId or nil,
+          activeAction = activeAction,
+          fieldX = afterActor.fieldX,
+          fieldZ = afterActor.fieldZ,
+          worldX = afterRecord.world.x,
+          worldY = afterRecord.world.y,
+          worldZ = afterRecord.world.z,
+          pose = afterRecord.pose,
+          poseTick = afterRecord.poseTick,
+          facing = afterRecord.facing,
+          frameIndex = frameIndex,
+        }
+      end
       if
         world:getVar(VAR_SCENE_PLAYERS_HOUSE_1F) == 2
         and not game:snapshot().fieldLocked
@@ -536,6 +576,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     end
 
     Assert.equal(#planOrder, 4, "the scene must run exactly four Marill movement plans")
+    Assert.isTrue(#presentationTimeline > 0, "the live Marill must have a continuous presentation timeline")
 
     local function appendExpected(out, descriptor, repetitions)
       local ticks = MovementCalibration.actionTicks(descriptor)
@@ -623,7 +664,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
       end
       if index < #third.records then
         local actionTick = (index - 1) % 4
-        local expectedPoseDelta = actionTick == 3 and 4 or actionTick
+        local expectedPoseDelta = actionTick
         local actionStart = third.records[index - actionTick]
         Assert.equal(
           record.poseTick,
@@ -706,6 +747,101 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     assertRepeatedFaceStaysStatic(second.records, "the friend movement")
     assertRepeatedFaceStaysStatic(fourth.records, "the final movement")
 
+    -- The first plan's trailing Delay32 and the interval before the second
+    -- Marill plan are both sampled independently of task presence. The delay
+    -- keeps the committed normal-walk cadence at its fixed anchor, and the
+    -- taskless interval continues that cadence while the friend descends.
+    local firstTaskId = planOrder[1]
+    local secondTaskId = planOrder[2]
+    local firstTaskLastIndex = nil
+    local secondTaskFirstIndex = nil
+    local trailingDelay = {}
+    local firstPlanSawWalk = false
+    for index, record in ipairs(presentationTimeline) do
+      if record.commandTaskId == firstTaskId then
+        firstTaskLastIndex = index
+        if record.commandAction == "walk" then
+          firstPlanSawWalk = true
+        elseif firstPlanSawWalk and record.commandAction == "delay" then
+          trailingDelay[#trailingDelay + 1] = record
+        end
+      end
+      if secondTaskFirstIndex == nil and record.activeTaskId == secondTaskId then
+        secondTaskFirstIndex = index
+      end
+    end
+    Assert.notNil(firstTaskLastIndex, "the continuous trace must include the first Marill movement task")
+    Assert.notNil(secondTaskFirstIndex, "the continuous trace must include the second Marill movement task")
+    Assert.equal(
+      #trailingDelay,
+      32,
+      "the first plan's trailing Delay32 must remain continuously observable (got " .. #trailingDelay .. ")"
+    )
+
+    local delayAnchor = trailingDelay[1]
+    for index, record in ipairs(trailingDelay) do
+      Assert.equal(record.pose, "walk", "Marill keeps walking pose throughout Delay32 at tick " .. index)
+      Assert.equal(record.fieldX, delayAnchor.fieldX, "Delay32 keeps Marill's committed fieldX")
+      Assert.equal(record.fieldZ, delayAnchor.fieldZ, "Delay32 keeps Marill's committed fieldZ")
+      Assert.equal(record.worldX, delayAnchor.worldX, "Delay32 keeps Marill's world X anchor")
+      Assert.equal(record.worldY, delayAnchor.worldY, "Delay32 keeps Marill's world Y anchor")
+      Assert.equal(record.worldZ, delayAnchor.worldZ, "Delay32 keeps Marill's world Z anchor")
+      if index > 1 then
+        Assert.equal(
+          record.poseTick,
+          trailingDelay[index - 1].poseTick + 1,
+          "normal retained cadence advances on each Delay32 tick"
+        )
+      end
+    end
+
+    local tasklessWait = {}
+    for index = firstTaskLastIndex + 1, secondTaskFirstIndex - 1 do
+      local record = presentationTimeline[index]
+      if record.commandTaskId == nil and record.activeTaskId == nil then
+        tasklessWait[#tasklessWait + 1] = record
+      end
+    end
+    Assert.isTrue(
+      #tasklessWait >= 2,
+      "the continuous trace must include at least two taskless Marill ticks during the friend's stair descent"
+    )
+    local tasklessAnchor = tasklessWait[1]
+    local tasklessFrames = {}
+    for index, record in ipairs(tasklessWait) do
+      Assert.equal(record.pose, "walk", "Marill keeps walking pose while no movement task is active")
+      Assert.equal(record.fieldX, tasklessAnchor.fieldX, "taskless wait keeps Marill's fieldX anchor")
+      Assert.equal(record.fieldZ, tasklessAnchor.fieldZ, "taskless wait keeps Marill's fieldZ anchor")
+      Assert.equal(record.worldX, tasklessAnchor.worldX, "taskless wait keeps Marill's world X anchor")
+      Assert.equal(record.worldY, tasklessAnchor.worldY, "taskless wait keeps Marill's world Y anchor")
+      Assert.equal(record.worldZ, tasklessAnchor.worldZ, "taskless wait keeps Marill's world Z anchor")
+      if index > 1 then
+        Assert.equal(
+          record.poseTick,
+          tasklessWait[index - 1].poseTick + 1,
+          "normal retained cadence advances on every taskless world tick"
+        )
+      end
+      tasklessFrames[record.frameIndex] = true
+    end
+    local tasklessFrameCount = 0
+    for _ in pairs(tasklessFrames) do
+      tasklessFrameCount = tasklessFrameCount + 1
+    end
+    Assert.isTrue(tasklessFrameCount >= 2, "taskless stair-wait selects at least two real Marill walking frames")
+
+    local faceReset = nil
+    for _, record in ipairs(presentationTimeline) do
+      if record.commandTaskId == secondTaskId and record.commandAction == "face" and record.facing == "west" then
+        faceReset = record
+        break
+      end
+    end
+    Assert.notNil(faceReset, "the second plan must execute its explicit FaceWest action")
+    local reset = assert(faceReset)
+    Assert.equal(reset.pose, "idle", "FaceWest explicitly resets Marill to static presentation")
+    Assert.equal(reset.poseTick, 0, "FaceWest resets Marill's static pose phase")
+
     local emoteSeen = false
     for _, record in ipairs(second.records) do
       if record.action == "emote" and record.afterEmoteKind == "exclamation" then
@@ -729,22 +865,22 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     withCompiledVisual(firstFastRepetition[1], function(visual)
       local northWalk = assert(visual.directions.north.walk, "Marill's compiled north walk pose is required")
       local firstFrame = assert(northWalk.frames[1])
-      local secondFrame = assert(northWalk.frames[2])
+      local expectedPoseTicks = { 2, 4, 6, 8 }
       local selected = {}
-      for _, record in ipairs(firstFastRepetition) do
+      for index, record in ipairs(firstFastRepetition) do
         Assert.equal(record.action, "walk_in_place", "the first fast repetition remains walk-in-place")
         Assert.equal(record.direction, "north", "the first fast repetition faces north")
         Assert.equal(record.repeatIndex, 0, "the first fast repetition has the source repetition index")
         Assert.equal(record.pose, "walk", "the first fast repetition uses walking presentation")
+        Assert.equal(record.poseTick, expectedPoseTicks[index], "the first fast repetition keeps its target pose phase")
         local expectedFrame = assert(FieldActorPose.frameIndex(visual, record.facing, record.pose, record.poseTick))
         Assert.equal(record.frameIndex, expectedFrame, "the trace records the production-selected frame")
         selected[#selected + 1] = record.frameIndex
       end
       Assert.equal(selected[1], firstFrame.frameIndex, "the first fast tick selects the source first frame")
-      Assert.isTrue(
-        selected[#selected] == secondFrame.frameIndex,
-        "the first fast repetition selects the source second frame before it ends"
-      )
+      -- The scheduler-owned completion tick is already advanced; the manager
+      -- must not double-advance this presentation tick.
+      Assert.equal(selected[#selected], firstFrame.frameIndex, "phase 8 remains on the source first frame")
     end)
     local firstTileX, firstTileZ = walkInPlaceRecords[1].fieldX, walkInPlaceRecords[1].fieldZ
     local distinctY = {}

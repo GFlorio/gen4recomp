@@ -24,7 +24,6 @@
 ---@field beginScriptedAction fun(self: ScriptActorManager, actorId: string, action: table)
 ---@field advanceScriptedAction fun(self: ScriptActorManager, actorId: string, progressTicks: integer, durationTicks: integer)
 ---@field commitScriptedAction fun(self: ScriptActorManager, actorId: string)
----@field settleScriptedAction fun(self: ScriptActorManager, actorId: string)
 ---@field cancelScriptedMovement fun(self: ScriptActorManager, actorId: string)
 ---@field isScriptedMoving fun(self: ScriptActorManager, actorId: string): boolean
 ---@field isPausable fun(self: ScriptActorManager, actorId: string): boolean
@@ -254,20 +253,6 @@ function ScriptActorWorld:commitScriptedAction(actorId)
   end
   assert(self._manager.commitScriptedAction, "actor manager missing commitScriptedAction")
   self._manager:commitScriptedAction(actorId)
-end
-
--- Settle presentation to idle once a movement plan is fully exhausted, when
--- there is no further action to begin through beginScriptedAction (the usual
--- locomotion-to-idle settle point). The player owns its own separate
--- presentation state, so this is a no-op for "player" like the other
--- actor-only presentation calls.
----@param actorId string
-function ScriptActorWorld:settleAction(actorId)
-  if actorId == "player" then
-    return
-  end
-  assert(self._manager.settleScriptedAction, "actor manager missing settleScriptedAction")
-  self._manager:settleScriptedAction(actorId)
 end
 
 function ScriptActorWorld:cancelScriptedMovement(actorId)

@@ -158,11 +158,10 @@ function T.clearFlag_then_showObject_materializes_in_same_tick_without_advancing
   local actor = assert(mgr:getById("map:61:object:0"), "actor must be live after clearFlag + sync")
   Assert.equal(actor.poseTick, 0, "zero-time presence sync must not increment poseTick")
 
-  -- A normal fixed advancement must still happen exactly once via the session,
-  -- but here we verify the manager's own fixed advancement rule: the sync
-  -- helper alone does not advance time, while step does.
+  -- Taskless actors retain their stable idle presentation; only a retained
+  -- cadence advances during the manager's presentation tick.
   mgr:step(101)
-  Assert.equal(actor.poseTick, 1, "normal step must advance poseTick exactly once")
+  Assert.equal(actor.poseTick, 0, "normal step must not advance an idle pose clock")
 end
 
 function T.genuinely_missing_actor_still_faults()

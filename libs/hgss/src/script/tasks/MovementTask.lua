@@ -199,11 +199,6 @@ function MovementTask._advancePlan(state, ctx)
   while true do
     local action = state.sequence[state.actionIndex + 1]
     if action == nil then
-      -- The plan is exhausted: there is no further action to begin, which is
-      -- normally where locomotion presentation settles to idle. Settle here
-      -- so a sequence that ends on a locomotion action never leaves the
-      -- actor showing its final walking/bob presentation.
-      ctx.services.actors:settleAction(state.actor)
       state.completed = true
       return true
     end
