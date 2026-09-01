@@ -94,7 +94,6 @@ local function genderManifest()
     height = 96,
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
-    sourceCenter = { x = 64, y = 104 },
     frames = {
       {
         image = "assets/generated/intro/gender-male.png",
@@ -117,7 +116,6 @@ local function genderManifest()
     height = 96,
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
-    sourceCenter = { x = 192, y = 104 },
     frames = {
       {
         image = "assets/generated/intro/gender-female.png",
@@ -192,21 +190,10 @@ manifest = function()
     }
     if id == "ball_open" or id == "marill_appear" or id == "marill" then
       widgets[id].sourceCenter = { x = 160, y = 80 }
-    elseif id == "gender_male" then
-      widgets[id].sourceCenter = { x = 64, y = 104 }
-    elseif id == "gender_female" then
-      widgets[id].sourceCenter = { x = 192, y = 104 }
     end
   end
-  local function mask(gender, kind, bounds)
-    return {
-      image = "assets/generated/intro/gender-selector-" .. gender .. "-" .. kind .. ".png",
-      width = bounds.width,
-      height = bounds.height,
-    }
-  end
   return {
-    schemaVersion = 6,
+    schemaVersion = 7,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -216,81 +203,6 @@ manifest = function()
       sampling = "linear",
     },
     widgets = widgets,
-    genderSelector = {
-      defaultTone = { r = 200, g = 200, b = 200 },
-      buttons = {
-        male = {
-          bounds = { x = 18, y = 25, width = 93, height = 148 },
-          hitBounds = { x = 18, y = 25, width = 93, height = 148 },
-          backing = { image = "assets/generated/intro/gender-selector-male-backing.png", width = 93, height = 148 },
-          pulseMask = mask("male", "pulseMask", { x = 18, y = 25, width = 93, height = 148 }),
-          accentMask = mask("male", "accentMask", { x = 18, y = 25, width = 93, height = 148 }),
-        },
-        female = {
-          bounds = { x = 144, y = 25, width = 95, height = 148 },
-          hitBounds = { x = 144, y = 25, width = 95, height = 148 },
-          backing = { image = "assets/generated/intro/gender-selector-female-backing.png", width = 95, height = 148 },
-          pulseMask = mask("female", "pulseMask", { x = 144, y = 25, width = 95, height = 148 }),
-          accentMask = mask("female", "accentMask", { x = 144, y = 25, width = 95, height = 148 }),
-        },
-      },
-    },
-    profileConfirmation = {
-      buttons = {
-        male = {
-          yes = {
-            bounds = { x = 138, y = 26, width = 115, height = 57 },
-            textBounds = { x = 136, y = 48, width = 104, height = 24 },
-            base = { image = "assets/generated/intro/profile-confirmation-male-yes-base.png", width = 115, height = 57 },
-            focus = {
-              image = "assets/generated/intro/profile-confirmation-male-yes-focus.png",
-              width = 115,
-              height = 57,
-            },
-          },
-          no = {
-            bounds = { x = 138, y = 108, width = 115, height = 56 },
-            textBounds = { x = 136, y = 128, width = 104, height = 24 },
-            base = { image = "assets/generated/intro/profile-confirmation-male-no-base.png", width = 115, height = 56 },
-            focus = {
-              image = "assets/generated/intro/profile-confirmation-male-no-focus.png",
-              width = 115,
-              height = 56,
-            },
-          },
-        },
-        female = {
-          yes = {
-            bounds = { x = 10, y = 26, width = 115, height = 57 },
-            textBounds = { x = 16, y = 48, width = 104, height = 24 },
-            base = {
-              image = "assets/generated/intro/profile-confirmation-female-yes-base.png",
-              width = 115,
-              height = 57,
-            },
-            focus = {
-              image = "assets/generated/intro/profile-confirmation-female-yes-focus.png",
-              width = 115,
-              height = 57,
-            },
-          },
-          no = {
-            bounds = { x = 10, y = 108, width = 115, height = 56 },
-            textBounds = { x = 16, y = 128, width = 104, height = 24 },
-            base = {
-              image = "assets/generated/intro/profile-confirmation-female-no-base.png",
-              width = 115,
-              height = 56,
-            },
-            focus = {
-              image = "assets/generated/intro/profile-confirmation-female-no-focus.png",
-              width = 115,
-              height = 56,
-            },
-          },
-        },
-      },
-    },
   }
 end
 
@@ -405,7 +317,7 @@ end
 
 function T.tests.host_native_layout_contract_across_representative_viewports()
   local checked = IntroAssetCache.validateManifest(manifest())
-  Assert.isTrue(checked, "scenario requires a valid schema-6 semantic manifest")
+  Assert.isTrue(checked, "scenario requires a valid schema-7 semantic manifest")
   for _, size in ipairs({ { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
     local state = OakIntroState.new({
       controller = controller(),

@@ -447,7 +447,6 @@ function T.critical_widget_geometry_and_centers_survive_palette_resolution(romFs
   local widgets = bundle.manifest.widgets
 
   local expectedCenters = {
-    gender_female = { x = 192, y = 104 },
     ball_open = { x = 160, y = 80 },
     marill_appear = { x = 160, y = 80 },
     marill = { x = 160, y = 80 },
@@ -460,27 +459,6 @@ function T.critical_widget_geometry_and_centers_survive_palette_resolution(romFs
       id .. " retains finite transformed source bounds"
     )
     Assert.isTrue(#widget.frames > 0, id .. " retains at least one decoded animation frame")
-  end
-end
-
-function T.gender_selector_frame_highlight_semantics_are_generated(romFs)
-  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
-  local bundle = assert(IntroAssetCompiler.compile(romFs))
-  local selector = bundle.manifest.genderSelector
-  if selector == nil then
-    error(
-      "compiled intro manifest has no semantic gender-selector button frame data (backing plus per-button "
-        .. "pulse-tone and accent masks); the renderer would have to tint portraits instead",
-      0
-    )
-  end
-  Assert.notNil(selector.defaultTone, "source default tone is preserved for the sine pulse")
-  for _, gender in ipairs({ "male", "female" }) do
-    local button = assert(selector.buttons and selector.buttons[gender], gender .. " selector button entry present")
-    Assert.notNil(button.backing, gender .. " source backing surface is present")
-    Assert.notNil(button.pulseMask, gender .. " pulse-tone mask is present")
-    Assert.notNil(button.accentMask, gender .. " selected/unselected accent mask is present")
-    Assert.notNil(button.bounds, gender .. " selector button source bounds are present")
   end
 end
 

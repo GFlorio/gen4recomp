@@ -140,16 +140,36 @@ function T.both_source_gender_portraits_remain_visible_inside_button_content(sco
     local view = selectorView(entry.manifest, 256, 192)
     local renderer = rendererFor(scope, entry.cache, entry.manifest)
     local actual = render(scope, renderer, view)
+    local backgroundView = selectorView(entry.manifest, 256, 192)
+    backgroundView.phase = "background"
+    backgroundView.layout = OakIntroLayout.compute(256, 192, backgroundView, {}, entry.manifest)
+    local background = render(scope, renderer, backgroundView)
     for gender = 0, 1 do
       local entryLayout = view.layout.genderButtons[gender]
       local portrait = entryLayout.portraitRect
       local content = entryLayout.button.contentRect
-      Assert.isTrue(portrait.x > content.x and portrait.y > content.y)
-      Assert.isTrue(portrait.x + portrait.width < content.x + content.width)
-      Assert.isTrue(portrait.y + portrait.height < content.y + content.height)
-      local _, _, _, alpha =
-        actual:getPixel(math.floor(portrait.x + portrait.width / 2), math.floor(portrait.y + portrait.height / 2))
-      Assert.isTrue(alpha > 0, entry.versionId .. " portrait is not visible")
+      Assert.isTrue(portrait.x >= content.x and portrait.y >= content.y)
+      Assert.isTrue(portrait.x + portrait.width <= content.x + content.width)
+      Assert.isTrue(portrait.y + portrait.height <= content.y + content.height)
+      local visible = false
+      for y = math.floor(portrait.y), math.ceil(portrait.y + portrait.height) - 1 do
+        for x = math.floor(portrait.x), math.ceil(portrait.x + portrait.width) - 1 do
+          local actualRed, actualGreen, actualBlue = actual:getPixel(x, y)
+          local backgroundRed, backgroundGreen, backgroundBlue = background:getPixel(x, y)
+          if
+            quantize(actualRed) ~= quantize(backgroundRed)
+            or quantize(actualGreen) ~= quantize(backgroundGreen)
+            or quantize(actualBlue) ~= quantize(backgroundBlue)
+          then
+            visible = true
+            break
+          end
+        end
+        if visible then
+          break
+        end
+      end
+      Assert.isTrue(visible, entry.versionId .. " portrait is not visible")
     end
   end
 end

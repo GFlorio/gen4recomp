@@ -25,18 +25,18 @@ function T.reveal_source_configuration_uses_resource_set_five_sequences_and_pale
   end
 end
 
-function T.gender_selector_configuration_declares_animation_sources_and_centers()
+function T.gender_selector_configuration_declares_animation_sources()
   local config = require("romdump.src.config.IntroAssets")
   for id, expected in pairs({
-    male = { resourceSet = 1, sourceCenter = { x = 64, y = 104 } },
-    female = { resourceSet = 2, sourceCenter = { x = 192, y = 104 } },
+    male = { resourceSet = 1 },
+    female = { resourceSet = 2 },
   }) do
     local entry = assert(config.genderSelectors[id])
     Assert.equal(entry.animationIndex, 0)
     local expectedOverride = id == "female" and 1 or 0
     Assert.equal(entry.paletteOverride, expectedOverride)
     Assert.equal(entry.resourceSet, expected.resourceSet)
-    Assert.deepEqual(entry.sourceCenter, expected.sourceCenter)
+    Assert.isNil(entry.sourceCenter)
     Assert.equal(entry.resourceResolution, config.ball_open.resourceResolution)
   end
 end
@@ -207,64 +207,6 @@ local function syntheticCompilerSource(animationFrames, objectPalette)
   return source, restore, archive.reads
 end
 
-function T.gender_selector_compiles_bounded_opaque_cards_and_aligned_masks()
-  local Compiler = compiler()
-  local source, restore = syntheticCompilerSource()
-  local ok, result = xpcall(function()
-    return Compiler.compile(source)
-  end, debug.traceback)
-  restore()
-  if not ok then
-    error(result, 0)
-  end
-
-  Assert.isNil(result.manifest.genderSelector.neutral)
-  Assert.isNil(result.manifest.widgets.gender_background)
-  local config = require("romdump.src.config.IntroAssets")
-  for _, gender in ipairs({ "male", "female" }) do
-    local bounds = result.manifest.genderSelector.buttons[gender].bounds
-    Assert.deepEqual(bounds, config.genderChoiceBounds[gender])
-    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
-      local surface = result.manifest.genderSelector.buttons[gender][kind]
-      local width, height, rgba = PngReader.rgba(assert(result.assets[surface.image]))
-      Assert.equal(width, bounds.width)
-      Assert.equal(height, bounds.height)
-      if kind == "backing" then
-        local _, _, _, alpha = PngReader.pixel(rgba, width, 0, 0)
-        Assert.equal(alpha, 255, "card backing is opaque")
-      end
-    end
-  end
-end
-
-function T.profile_confirmation_compiles_source_aspect_base_and_focus_surfaces()
-  local Compiler = compiler()
-  local source, restore = syntheticCompilerSource()
-  local ok, result = xpcall(function()
-    return Compiler.compile(source)
-  end, debug.traceback)
-  restore()
-  if not ok then
-    error(result, 0)
-  end
-
-  local config = require("romdump.src.config.IntroAssets")
-  for _, gender in ipairs({ "male", "female" }) do
-    for _, choice in ipairs({ "yes", "no" }) do
-      local expected = config.profileConfirmation.genders[gender][choice]
-      local actual = result.manifest.profileConfirmation.buttons[gender][choice]
-      Assert.deepEqual(actual.bounds, expected.bounds)
-      Assert.deepEqual(actual.textBounds, expected.textBounds)
-      for _, kind in ipairs({ "base", "focus" }) do
-        local surface = actual[kind]
-        local width, height = PngReader.rgba(assert(result.assets[surface.image]))
-        Assert.equal(width, expected.bounds.width)
-        Assert.equal(height, expected.bounds.height)
-      end
-    end
-  end
-end
-
 function T.gender_selectors_compile_their_configured_cell_animations()
   local Compiler = compiler()
   local source, restore, reads = syntheticCompilerSource()
@@ -280,7 +222,6 @@ function T.gender_selectors_compile_their_configured_cell_animations()
     local widget = result.manifest.widgets[id]
     Assert.equal(widget.width, 24)
     Assert.equal(widget.height, 24)
-    Assert.notNil(widget.sourceCenter)
     Assert.isTrue(#widget.frames > 0)
   end
   local resolvedReads = {}
@@ -499,74 +440,15 @@ local function fixtureBundle(cache, marker)
         },
       },
     }
-    if id == "gender_male" then
-      widgets[id].sourceCenter = { x = 64, y = 104 }
-    elseif id == "gender_female" then
-      widgets[id].sourceCenter = { x = 192, y = 104 }
-    elseif id == "ball_open" or id == "marill_appear" or id == "marill" then
+    if id == "ball_open" or id == "marill_appear" or id == "marill" then
       widgets[id].sourceCenter = { x = 128, y = 90 }
     end
     assets[image] = "png"
   end
-  local genderSelector = { buttons = { male = {}, female = {} } }
-  genderSelector.defaultTone = { r = 200, g = 200, b = 200 }
-  local genderBounds = {
-    male = { x = 18, y = 25, width = 93, height = 148 },
-    female = { x = 144, y = 25, width = 95, height = 148 },
-  }
-  local profileConfirmation = { buttons = {} }
-  for _, gender in ipairs({ "male", "female" }) do
-    local bounds = genderBounds[gender]
-    genderSelector.buttons[gender].bounds = bounds
-    genderSelector.buttons[gender].hitBounds = bounds
-    genderSelector.buttons[gender].backing = {
-      image = cache.assetDir() .. "/gender-selector-" .. gender .. "-backing.png",
-      width = bounds.width,
-      height = bounds.height,
-    }
-    assets[genderSelector.buttons[gender].backing.image] = "png"
-    profileConfirmation.buttons[gender] = {}
-    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
-      local maskImage = cache.assetDir() .. "/gender-selector-" .. gender .. "-" .. kind .. ".png"
-      genderSelector.buttons[gender][kind] = {
-        image = maskImage,
-        width = bounds.width,
-        height = bounds.height,
-      }
-      assets[maskImage] = "png"
-    end
-    for _, choice in ipairs({ "yes", "no" }) do
-      local y = choice == "yes" and 26 or 108
-      local height = choice == "yes" and 57 or 56
-      local buttonBounds = { x = gender == "male" and 138 or 10, y = y, width = 115, height = height }
-      local textBounds = {
-        x = gender == "male" and 136 or 16,
-        y = choice == "yes" and 48 or 128,
-        width = 104,
-        height = 24,
-      }
-      profileConfirmation.buttons[gender][choice] = {
-        bounds = buttonBounds,
-        textBounds = textBounds,
-        base = {
-          image = cache.assetDir() .. "/" .. gender .. "-" .. choice .. "-base.png",
-          width = 115,
-          height = height,
-        },
-        focus = {
-          image = cache.assetDir() .. "/" .. gender .. "-" .. choice .. "-focus.png",
-          width = 115,
-          height = height,
-        },
-      }
-      assets[profileConfirmation.buttons[gender][choice].base.image] = "png"
-      assets[profileConfirmation.buttons[gender][choice].focus.image] = "png"
-    end
-  end
   return {
     marker = marker,
     manifest = {
-      schemaVersion = 6,
+      schemaVersion = 7,
       variant = "heartgold",
       sourceReference = { width = 256, height = 192 },
       background = {
@@ -577,8 +459,6 @@ local function fixtureBundle(cache, marker)
         provenance = { fixture = true },
       },
       widgets = widgets,
-      genderSelector = genderSelector,
-      profileConfirmation = profileConfirmation,
     },
     dependencies = {
       schema = cache.PROVENANCE_SCHEMA,
@@ -587,6 +467,23 @@ local function fixtureBundle(cache, marker)
     },
     assets = assets,
   }
+end
+
+function T.v7_bundle_publishes_without_profile_control_files()
+  local cache = introCache()
+  local CacheWriter = writer()
+  local backend = FakeCache.new()
+  local live = CacheFs.forVersion("heartgold", backend)
+  local bundle = fixtureBundle(cache, "intro-cache-v7:fixture:ready")
+
+  Assert.isNil(bundle.manifest.genderSelector)
+  Assert.isNil(bundle.manifest.profileConfirmation)
+  Assert.isTrue(CacheWriter.write(live, bundle))
+  Assert.isTrue(cache.isReady(live, bundle.marker), "retained files are sufficient for readiness")
+
+  local missing = fixtureBundle(cache, "intro-cache-v7:fixture:missing")
+  missing.assets[missing.manifest.widgets.oak.frames[1].image] = nil
+  Assert.isFalse(pcall(CacheWriter.write, live, missing), "missing retained widget files reject publication")
 end
 
 function T.source_failures_are_attributed_and_do_not_publish_partial_output()

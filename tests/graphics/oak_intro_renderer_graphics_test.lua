@@ -20,31 +20,6 @@ local function textRenderer()
   }
 end
 
-local function genderSelector()
-  local function mask(id)
-    return { image = id .. ".png", width = 4, height = 4 }
-  end
-  return {
-    defaultTone = { r = 200, g = 200, b = 200 },
-    buttons = {
-      male = {
-        bounds = { x = 0, y = 0, width = 4, height = 4 },
-        hitBounds = { x = 0, y = 0, width = 4, height = 4 },
-        backing = { image = "gender-selector-male-backing.png", width = 4, height = 4 },
-        pulseMask = mask("gender-selector-male-pulse"),
-        accentMask = mask("gender-selector-male-accent"),
-      },
-      female = {
-        bounds = { x = 0, y = 0, width = 4, height = 4 },
-        hitBounds = { x = 0, y = 0, width = 4, height = 4 },
-        backing = { image = "gender-selector-female-backing.png", width = 4, height = 4 },
-        pulseMask = mask("gender-selector-female-pulse"),
-        accentMask = mask("gender-selector-female-accent"),
-      },
-    },
-  }
-end
-
 local function genderButtons()
   return {
     [0] = {
@@ -108,24 +83,10 @@ local function manifest()
   }
   local background = assets.background
   assets.background = nil
-  local confirmation = { buttons = { male = {}, female = {} } }
-  for _, gender in ipairs({ "male", "female" }) do
-    for _, choice in ipairs({ "yes", "no" }) do
-      local height = choice == "yes" and 4 or 4
-      confirmation.buttons[gender][choice] = {
-        bounds = { x = 0, y = 0, width = 4, height = height },
-        textBounds = { x = 0, y = 0, width = 4, height = 4 },
-        base = { image = "confirmation-" .. gender .. "-" .. choice .. "-base.png", width = 4, height = height },
-        focus = { image = "confirmation-" .. gender .. "-" .. choice .. "-focus.png", width = 4, height = height },
-      }
-    end
-  end
   return {
-    schemaVersion = 6,
+    schemaVersion = 7,
     background = background,
     widgets = assets,
-    genderSelector = genderSelector(),
-    profileConfirmation = confirmation,
   }
 end
 
@@ -502,8 +463,6 @@ T.renderer_does_not_require_generated_profile_control_surfaces = function()
     imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
   })
   local manifestValue = manifest()
-  manifestValue.genderSelector = nil
-  manifestValue.profileConfirmation = nil
   local ok = pcall(function()
     OakIntroRenderer.new({
       manifest = manifestValue,
