@@ -326,6 +326,15 @@ local function writeCurrentFieldRecord(c, mapId, transitionEnvironment)
   c:writeLua(FieldMapDataCache.fieldPath(mapId), field)
 end
 
+local function writeFieldObjectRecord(c, object)
+  writeFieldRecord(c, 60, {
+    background = {},
+    objects = { object },
+    warps = {},
+    coordinates = {},
+  })
+end
+
 function T.current_field_data_requires_a_valid_transition_environment()
   for _, environment in ipairs({ "cave", "outdoors", "building" }) do
     local c = cache()
@@ -360,28 +369,95 @@ end
 
 function T.field_data_rejects_objects_without_semantic_movement_types()
   local cases = {
-    { movement = nil },
-    { movement = 3 },
-    { movement = 3, movementType = "wander_around" },
-    { movementType = "3" },
-    { movementType = "unknown" },
+    { movement = nil, xRange = 0, yRange = 0 },
+    { movement = 3, xRange = 0, yRange = 0 },
+    { movement = 3, movementType = "wander_around", xRange = 0, yRange = 0 },
+    { movementType = "3", xRange = 0, yRange = 0 },
+    { movementType = "unknown", xRange = 0, yRange = 0 },
   }
   for _, object in ipairs(cases) do
     local c = cache()
-    writeFieldRecord(c, 60, { background = {}, objects = { object }, warps = {}, coordinates = {} })
+    writeFieldObjectRecord(c, object)
     Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"), "object movement type must be a known semantic string")
   end
 end
 
 function T.field_data_with_semantic_object_movement_type_is_ready()
   local c = cache()
+  writeFieldObjectRecord(c, { movementType = "stationary", xRange = 0, yRange = 0 })
+  Assert.isTrue(FieldMapDataCache.isReady(c, 60, "m"))
+end
+
+function T.field_data_accepts_canonical_object_movement_ranges()
+  local cases = {
+    { xRange = -1, yRange = -1 },
+    { xRange = 0, yRange = 0 },
+    { xRange = 3, yRange = 7 },
+    { xRange = -1, yRange = 5 },
+    { xRange = 8, yRange = -1 },
+  }
+  for _, ranges in ipairs(cases) do
+    local c = cache()
+    writeFieldObjectRecord(c, {
+      movementType = "stationary",
+      xRange = ranges.xRange,
+      yRange = ranges.yRange,
+    })
+    Assert.isTrue(
+      FieldMapDataCache.isReady(c, 60, "m"),
+      string.format("canonical ranges %d/%d remain valid", ranges.xRange, ranges.yRange)
+    )
+  end
+end
+
+function T.field_data_rejects_invalid_object_movement_ranges_on_each_axis()
+  local cases = {
+    { name = "missing", value = nil },
+    { name = "below sentinel", value = -2 },
+    { name = "fractional", value = 1.5 },
+    { name = "NaN", expression = "0 / 0" },
+    { name = "positive infinity", expression = "1 / 0" },
+    { name = "negative infinity", expression = "-1 / 0" },
+    { name = "string", value = "1" },
+    { name = "boolean", value = true },
+    { name = "table", value = {} },
+  }
+  for _, axis in ipairs({ "xRange", "yRange" }) do
+    for _, case in ipairs(cases) do
+      local object = { movementType = "stationary", xRange = 0, yRange = 0 }
+      object[axis] = case.value
+      local c = cache()
+      if case.expression == nil then
+        writeFieldObjectRecord(c, object)
+      else
+        writeFieldObjectRecord(c, { movementType = "stationary", xRange = 0, yRange = 0 })
+        local path = FieldMapDataCache.fieldPath(60)
+        local source = assert(c:read(path))
+        local replacement = axis .. " = " .. case.expression
+        local malformed, replacements = source:gsub(axis .. " = 0", replacement, 1)
+        Assert.equal(replacements, 1, "test fixture must replace the selected range")
+        c:write(path, malformed)
+      end
+      Assert.isFalse(
+        FieldMapDataCache.isReady(c, 60, "m"),
+        string.format("invalid %s range on %s must not be ready", case.name, axis)
+      )
+    end
+  end
+end
+
+function T.field_data_rejects_any_object_with_an_invalid_movement_range()
+  local c = cache()
   writeFieldRecord(c, 60, {
     background = {},
-    objects = { { movementType = "stationary" } },
+    objects = {
+      { movementType = "stationary", xRange = 0, yRange = 0 },
+      { movementType = "stationary", xRange = -2, yRange = 0 },
+    },
     warps = {},
     coordinates = {},
   })
-  Assert.isTrue(FieldMapDataCache.isReady(c, 60, "m"))
+  Assert.isFalse(FieldMapDataCache.isReady(c, 60, "m"))
 end
 
 function T.field_data_valid_artifact_is_ready()

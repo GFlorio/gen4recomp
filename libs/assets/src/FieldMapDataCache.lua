@@ -39,6 +39,15 @@ local function hasOnlyKeys(value, allowed)
   return true
 end
 
+local function isMovementRange(value)
+  return type(value) == "number"
+    and value == value
+    and value ~= math.huge
+    and value ~= -math.huge
+    and value % 1 == 0
+    and value >= -1
+end
+
 local function hasInitScripts(field)
   if not Validate.isArray(field.initScripts) then
     return false
@@ -111,7 +120,13 @@ function FieldMapDataCache.hasRequiredEvents(events)
     end
   end
   for _, object in ipairs(events.objects) do
-    if type(object) ~= "table" or object.movement ~= nil or not FieldObjectMovement.isType(object.movementType) then
+    if
+      type(object) ~= "table"
+      or object.movement ~= nil
+      or not FieldObjectMovement.isType(object.movementType)
+      or not isMovementRange(object.xRange)
+      or not isMovementRange(object.yRange)
+    then
       return false
     end
   end
