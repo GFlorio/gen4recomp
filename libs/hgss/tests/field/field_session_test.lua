@@ -4,11 +4,15 @@
 local Assert = require("tests.support.Assert")
 local FieldApplicationHost = require("libs.hgss.src.field.FieldApplicationHost")
 local FieldApplicationRegistry = require("libs.hgss.src.field.FieldApplicationRegistry")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldInput = require("libs.hgss.src.field.FieldInput")
 local FieldPlayerModule = require("libs.hgss.src.field.FieldPlayer")
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
 local FieldSessionModule = require("libs.hgss.src.field.FieldSession")
 local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
+local Scheduler = require("libs.script.src.Scheduler")
+local TaskRegistry = require("libs.script.src.TaskRegistry")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
 
@@ -238,6 +242,107 @@ local function fixedSession()
     end,
   }
   return FieldSession.new(baseOptions({ player = player, camera = camera })), targets
+end
+
+-- This fixture keeps the complete actor-step seam intact: a real manager owns
+-- the ordinary actor, a real scheduler owns the lock query, and the session
+-- composes the callback that joins them for one fixed tick.
+local function realActorStepSession()
+  local map = {
+    mapId = 61,
+    coordinateOrigin = { x = 0, z = 0 },
+    terrain = TerrainSurface.new({
+      plates = {
+        {
+          id = 0,
+          minX = 0,
+          minZ = 0,
+          maxX = 32,
+          maxZ = 32,
+          normal = { x = 0, y = 1, z = 0 },
+          distance = 0,
+          slopeClass = "flat",
+        },
+      },
+    }),
+    collision = {
+      containsLocal = function(_, fieldX, fieldZ)
+        return fieldX >= 0 and fieldX < 32 and fieldZ >= 0 and fieldZ < 32
+      end,
+    },
+    fieldData = {
+      events = {
+        objects = {
+          {
+            index = 0,
+            objectEventId = 0,
+            spriteId = 99,
+            movementType = "look_north",
+            type = 0,
+            eventFlag = 0,
+            scriptId = 0,
+            facingDirection = "south",
+            facingDirectionRaw = 1,
+            param0 = 0,
+            param1 = 0,
+            param2 = 0,
+            xRange = 0,
+            yRange = 0,
+            x = 2,
+            z = 3,
+            y = 0,
+          },
+        },
+        background = {},
+        warps = {},
+        coordinates = {},
+      },
+    },
+    mapSymbol = "test-map",
+    mapSection = "test-section",
+    scene = {},
+    cameraType = 0,
+    release = function() end,
+    updateAnimated = function() end,
+  }
+  local manager = FieldActorManager.new({
+    assets = {
+      knows = function(_, spriteId)
+        return spriteId == 99
+      end,
+      acquire = function(_, spriteId)
+        return { spriteId = spriteId, visual = {}, references = 1 }
+      end,
+      release = function() end,
+    },
+    policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } },
+  })
+  manager:enterMap(map, FieldEventState.new())
+
+  local scheduler = Scheduler.new({ services = {}, taskRegistry = TaskRegistry.new() })
+  local lockQueries = {}
+  local schedulerLockQuery = scheduler.autonomousActorLocked
+  function scheduler:autonomousActorLocked(actorId)
+    lockQueries[#lockQueries + 1] = actorId
+    return schedulerLockQuery(self, actorId)
+  end
+
+  local session = FieldSession.new(baseOptions({
+    currentMap = map,
+    actors = manager,
+    scriptScheduler = scheduler,
+  }))
+  return session, manager, lockQueries
+end
+
+function T.real_field_session_actor_step_passes_the_stable_id_to_the_scheduler()
+  local session, manager, lockQueries = realActorStepSession()
+  local ok, err = pcall(function()
+    session:updateFixed({})
+  end)
+  Assert.isTrue(ok, "a real actor step must not fail the scheduler lock query: " .. tostring(err))
+  Assert.deepEqual(lockQueries, { "map:61:object:0" }, "the scheduler must receive the manager actor's stable ID")
+  manager:dispose()
 end
 
 function T.fixed_tick_runs_the_major_arbitration_phases_in_order()

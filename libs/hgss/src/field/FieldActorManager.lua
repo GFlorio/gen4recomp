@@ -63,6 +63,12 @@ local PARTNER_OBJECT_ID = 253
 ---@class FieldActorFieldData
 ---@field events FieldActorEventCollections
 
+---@class FieldActorStepContext
+---@field autonomousLocked boolean?
+---@field actorLocked (fun(actorId: string): boolean)?
+---@field player table?
+---@field playerCandidates FieldOccupancyCandidate[]?
+
 ---@class FieldActorSurfaceSample
 ---@field surfaceId integer
 ---@field worldY number
@@ -99,7 +105,7 @@ local PARTNER_OBJECT_ID = 253
 ---@field _drawRecordByActorId table<string, FieldActorManager.DrawRecord>
 ---@field autonomy FieldActorAutonomy
 ---@field pendingRestore table?
----@field step fun(self: FieldActorManager, tick: integer, context: table?)
+---@field step fun(self: FieldActorManager, tick: integer, context: FieldActorStepContext?)
 ---@field _resolveSpriteId fun(self: FieldActorManager, event: FieldActorEvent, eventState: FieldEventState?): integer
 ---@field _acquireVisual fun(self: FieldActorManager, spriteId: integer, actorId: string): FieldActorAsset
 ---@field _instantiate fun(self: FieldActorManager, entry: FieldActorManager.Entry, event: FieldActorEvent, eventState: FieldEventState?): FieldActorManager.Actor
@@ -1240,7 +1246,7 @@ local function sortedMapIds(maps)
 end
 
 ---@param tick integer
----@param context table?
+---@param context FieldActorStepContext?
 ---@param self FieldActorManager
 function FieldActorManager:step(tick, context)
   context = context or {}

@@ -726,7 +726,7 @@ function FieldSession:updateFixed(inputSnapshot)
     surfaceId = self.player.surfaceId,
     worldY = self.player.worldY,
   }
-  local function actorLocked(_, actorId)
+  local function actorLocked(actorId)
     return self.scriptScheduler:autonomousActorLocked(actorId)
   end
   self.actors:step(self.tick + 1, {

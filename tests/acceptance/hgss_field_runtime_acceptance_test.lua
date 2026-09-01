@@ -17,6 +17,7 @@ local T = {
 
 local TOWN = "MAP_NEW_BARK"
 local HOUSE_1F = "MAP_NEW_BARK_PLAYER_HOUSE_1F"
+local HOUSE_2F = "MAP_NEW_BARK_PLAYER_HOUSE_2F"
 local TOWN_HOUSE_DOOR_APPROACH = { fieldX = 695, fieldZ = 397 }
 
 ---@param fn fun(game: table, context: unknown?)
@@ -58,6 +59,26 @@ local function enterPlayerHouse(game)
   game:waitForFieldReady()
 end
 
+local function withFreshHouse2F(fn)
+  local harness = AcceptanceHarness.new()
+  harness:forEachVersion(function(versionId)
+    local game = harness:boot({
+      versionId = versionId,
+      map = HOUSE_2F,
+      save = "fresh",
+      fieldOptions = { recordingScriptHosts = true },
+    })
+    local ok, err = xpcall(function()
+      fn(game)
+      Assert.equal(game:renderAttempts(), 0, "fresh downstairs acceptance must stop before GPU rendering")
+    end, debug.traceback)
+    game:close()
+    if not ok then
+      error(err, 0)
+    end
+  end)
+end
+
 function T.tests.field_entry_moves_actors_and_transitions_through_the_real_runtime()
   withTownGame(function(game)
     local initial = game:waitForFieldReady()
@@ -72,6 +93,22 @@ function T.tests.field_entry_moves_actors_and_transitions_through_the_real_runti
     Assert.equal(game.runtime.actors.currentMapId, settled.mapId)
     Assert.equal(game.runtime.scripts.initController.mapId, settled.mapId)
     Assert.isNil(game.runtime.errorText, "a production field transition must not fault")
+  end)
+end
+
+function T.tests.fresh_player_house_downstairs_step_does_not_fault_actor_lock_handoff()
+  withFreshHouse2F(function(game)
+    local start = game:waitForFieldReady()
+    Assert.equal(start.mapSymbol, HOUSE_2F)
+
+    game:moveTo({ fieldX = 3, fieldZ = 4 })
+    game:step({ direction = "west" })
+    local transition = game:waitForTransition()
+
+    Assert.equal(transition.destination.mapSymbol, HOUSE_1F)
+    game:waitForFieldReady()
+    Assert.isNil(game.runtime.errorText, "fresh downstairs movement must not fault the actor lock query")
+    Assert.equal(game:snapshot().mapSymbol, HOUSE_1F)
   end)
 end
 
