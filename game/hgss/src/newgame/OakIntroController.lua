@@ -82,7 +82,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _revealFrameIndex integer|nil
 ---@field private _revealFrameTimer integer|nil
 ---@field private _revealWidget string|nil
----@field private _genderFocus integer
+---@field private _genderSelection Selection
 ---@field private _name string
 ---@field private _oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
 ---@field private _genderCompositionProgress number normalized host composition progress
@@ -229,7 +229,7 @@ function OakIntroController.new(options)
     _revealFrameIndex = nil,
     _revealFrameTimer = nil,
     _revealWidget = nil,
-    _genderFocus = 0,
+    _genderSelection = Selection.new(2, 0),
     _focusTimer = 0,
     _focusBlinkDelta = 0,
     _name = "",
@@ -352,7 +352,7 @@ end
 function OakIntroController:_finish()
   local finalized, failure = NewGame.finalize(self._candidate, {
     name = self._name,
-    gender = self._genderFocus,
+    gender = self._genderSelection:selectedIndex(),
   }, {
     randomU32 = self._randomU32,
     playerDataContext = self._playerDataContext,
@@ -384,7 +384,9 @@ function OakIntroController:_stepFrame()
       self._genderCompositionProgress = 0
       self._phase = "name_confirm"
       self:_setVisual("oak")
-      self:_setMessage(self._genderFocus == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
+      self:_setMessage(
+        self._genderSelection:selectedIndex() == 0 and "profile.name_confirm.male" or "profile.name_confirm.female"
+      )
     end
     return
   end
@@ -502,7 +504,7 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._finalFadeAlpha = 1
-      self:_setVisual(self._genderFocus == 0 and "male" or "female")
+      self:_setVisual(self._genderSelection:selectedIndex() == 0 and "male" or "female")
       self._phase = "final_full_art_fade_in"
       self._timer = FINAL_FADE_FRAMES
     end
@@ -517,7 +519,7 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._audio:play("SEQ_SE_GS_HERO_SHUKUSHOU")
-      self:_setVisual(self._genderFocus == 0 and "shrink_male" or "shrink_female")
+      self:_setVisual(self._genderSelection:selectedIndex() == 0 and "shrink_male" or "shrink_female")
       if framesFor(self._assets, self._visual) == nil then
         self:_finish()
       else
@@ -613,12 +615,12 @@ function OakIntroController:press(action)
     return false
   end
   if action == "left" and self._phase == "gender_select" then
-    self._genderFocus = 0
+    self._genderSelection:setSelectedIndex(0)
     self._focusTimer = 0
     self._focusBlinkDelta = 0
     self._audio:play("SEQ_SE_DP_SELECT")
   elseif action == "right" and self._phase == "gender_select" then
-    self._genderFocus = 1
+    self._genderSelection:setSelectedIndex(1)
     self._focusTimer = 0
     self._focusBlinkDelta = 0
     self._audio:play("SEQ_SE_DP_SELECT")
@@ -670,7 +672,9 @@ function OakIntroController:press(action)
     self._focusTimer = 0
     self._focusBlinkDelta = 0
     self._phase = "gender_confirm"
-    self:_setMessage(self._genderFocus == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female")
+    self:_setMessage(
+      self._genderSelection:selectedIndex() == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female"
+    )
   elseif (action == "cancel" or action == "no") and self._phase == "gender_confirm" then
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")
@@ -684,7 +688,7 @@ function OakIntroController:press(action)
     local glyphs = appendGlyphs(self._name)
     if #glyphs <= 7 then
       if isBlankName(self._name) then
-        self._name = assert(DEFAULT_PROFILE_NAMES[self._genderFocus])
+        self._name = assert(DEFAULT_PROFILE_NAMES[self._genderSelection:selectedIndex()])
       end
       if #appendGlyphs(self._name) >= 1 then
         self._phase = "gender_composition_exit"
@@ -767,7 +771,7 @@ function OakIntroController:view()
     sceneBrightness = self._sceneBrightness / 16,
     revealBrightness = self._revealBrightness / 16,
     revealOpacity = self._revealOpacity / 16,
-    genderFocus = self._genderFocus,
+    genderFocus = self._genderSelection:selectedIndex(),
     focusTimer = self._focusTimer,
     focusBlinkDelta = self._focusBlinkDelta,
     name = self._name,
