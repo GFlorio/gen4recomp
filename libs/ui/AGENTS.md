@@ -8,3 +8,6 @@ mechanisms shared by concrete current consumers.
   promise a stable mod-facing API.
 - Keep feature policy, rendering, and device input in the consuming application or
   feature-specific package.
+- Prefer semantic geometry and host-rendered primitives for simple fills, borders, bevels,
+  and text instead of generating or cropping raster assets solely for simple chrome; retain
+  source-backed imagery when it has irreducible visual detail or an explicit fidelity contract.
