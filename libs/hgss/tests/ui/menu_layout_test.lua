@@ -180,6 +180,25 @@ function T.large_menus_scroll_without_overflow_and_keep_the_selected_item_visibl
   Assert.equal(layout.selectedIndex, 23)
   Assert.isTrue(contains(layout.scrollViewport, layout.itemRects[23]))
   Assert.isTrue(contains(layout.surface.safeRect, layout.frame))
+
+  local firstVisibleRow
+  local lastVisibleRow
+  for itemIndex = 0, layout.itemCount - 1 do
+    if overlaps(layout.itemRects[itemIndex], layout.scrollViewport) then
+      firstVisibleRow = firstVisibleRow or itemIndex
+      lastVisibleRow = itemIndex
+    end
+  end
+  Assert.equal(layout.firstVisibleRow, firstVisibleRow)
+  Assert.equal(layout.lastVisibleRow, lastVisibleRow)
+  Assert.isTrue(layout.firstVisibleRow <= layout.selectedIndex)
+  Assert.isTrue(layout.selectedIndex <= layout.lastVisibleRow)
+  if layout.firstVisibleRow > 0 then
+    Assert.isFalse(overlaps(layout.itemRects[layout.firstVisibleRow - 1], layout.scrollViewport))
+  end
+  if layout.lastVisibleRow < layout.itemCount - 1 then
+    Assert.isFalse(overlaps(layout.itemRects[layout.lastVisibleRow + 1], layout.scrollViewport))
+  end
 end
 
 function T.wide_large_menus_auto_dock_and_dual_screen_menus_prefer_the_auxiliary_surface()
