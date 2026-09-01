@@ -5,6 +5,9 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
+local CacheFs = require("libs.storage.src.CacheFs")
+local RomFs = require("romdump.src.source.RomFs")
+local NavigationFacts = require("tests.rom.support.NavigationFacts")
 
 local T = {
   metadata = {
@@ -28,18 +31,32 @@ local INTERESTING_LOCALS = {
   { x = 2, z = 8 },
 }
 
+local function freezeAutonomousActors(game)
+  local runtime = game.runtime
+  for mapId in pairs(runtime.actors.maps) do
+    for _, actor in ipairs(runtime.actors:actorsOf(mapId)) do
+      runtime.actors:setMovementType(actor.actorId, "stationary")
+    end
+  end
+end
+
 local function withTown(fn)
   local harness = AcceptanceHarness.new()
   harness:forEachVersion(function(versionId)
+    local romFs, err = RomFs.open(versionId)
+    assert(romFs, tostring(err))
+    local facts = NavigationFacts.discover(CacheFs.forVersion(versionId), romFs)
+    romFs:close()
     local game = harness:boot({ versionId = versionId, map = NEW_BARK, save = "fresh" })
     OpeningLifecycle.seedNewBarkWestExitScene(game)
-    local ok, err = xpcall(function()
-      fn(game)
+    freezeAutonomousActors(game)
+    local ok, failure = xpcall(function()
+      fn(game, facts)
       Assert.equal(game:renderAttempts(), 0, "terrain acceptance must stop before GPU rendering")
     end, debug.traceback)
     game:close()
     if not ok then
-      error(err, 0)
+      error(failure, 0)
     end
   end)
 end
@@ -57,16 +74,32 @@ local function effectStatus(game)
   return status
 end
 
-local function moveToRoute29(game)
-  return game:moveTo(ROUTE_29_TARGET, ROUTE_29_ID)
+local function moveToRoute29(game, facts)
+  local snapshot = game:moveTo(facts.zoneBoundary, ROUTE_29_ID)
+  freezeAutonomousActors(game)
+  return snapshot
 end
 
-local function findCells(game, behavior)
+local function findCells(game, behavior, preferred)
   local map = assert(game.runtime.runtimeMap, "production runtime map is required")
   local collision = assert(map.collision, "production collision grid is required")
   local origin = assert(map.coordinateOrigin, "production coordinate origin is required")
   local cells = {}
   local seen = {}
+  local function addCell(fieldX, fieldZ)
+    if #cells >= MAX_GRASS_CANDIDATES or not collision:containsLocal(fieldX - origin.x, fieldZ - origin.z) then
+      return
+    end
+    local key = fieldX .. ":" .. fieldZ
+    if seen[key] then
+      return
+    end
+    seen[key] = true
+    local cell = collision:getLocal(fieldX - origin.x, fieldZ - origin.z)
+    if cell.behavior == behavior and not cell.blocked then
+      cells[#cells + 1] = { fieldX = fieldX, fieldZ = fieldZ }
+    end
+  end
   local function consider(localX, localZ)
     if #cells >= MAX_GRASS_CANDIDATES or not collision:containsLocal(localX, localZ) then
       return
@@ -79,6 +112,13 @@ local function findCells(game, behavior)
     local cell = collision:getLocal(localX, localZ)
     if cell.behavior == behavior and not cell.blocked then
       cells[#cells + 1] = { fieldX = origin.x + localX, fieldZ = origin.z + localZ }
+    end
+  end
+
+  if preferred then
+    addCell(preferred.fieldX, preferred.fieldZ)
+    for _, delta in ipairs({ { x = 1, z = 0 }, { x = -1, z = 0 }, { x = 0, z = 1 }, { x = 0, z = -1 } }) do
+      addCell(preferred.fieldX + delta.x, preferred.fieldZ + delta.z)
     end
   end
 
@@ -135,10 +175,10 @@ end
 -- grass effect must become visible on the tick that lands on the destination,
 -- after physical coverage and logical-zone state have settled.
 T.tests["grass response begins only at committed destination"] = function()
-  withTown(function(game)
-    moveToRoute29(game)
+  withTown(function(game, facts)
+    moveToRoute29(game, facts)
     local before = effectStatus(game)
-    local grass = moveToReachable(game, findCells(game, TALL_GRASS))
+    local grass = moveToReachable(game, findCells(game, TALL_GRASS, facts.grass))
     local landed = game:snapshot()
     local after = effectStatus(game)
     Assert.equal(landed.player.fieldX, grass.fieldX)
@@ -156,9 +196,9 @@ end
 -- Adjacent source responses overlap independently. A coverage rebase must
 -- preserve their global anchors rather than moving or replacing one effect.
 T.tests["overlapping grass effects survive a coverage rebase"] = function()
-  withTown(function(game)
-    moveToRoute29(game)
-    local grassCells = findCells(game, TALL_GRASS)
+  withTown(function(game, facts)
+    moveToRoute29(game, facts)
+    local grassCells = findCells(game, TALL_GRASS, facts.grass)
     local first = moveToReachable(game, grassCells)
     local second
     for _, candidate in ipairs(grassCells) do
@@ -186,6 +226,7 @@ T.tests["overlapping grass effects survive a coverage rebase"] = function()
     for _, instance in ipairs(secondStatus.instances) do
       beforeRebase[instance.fieldX .. ":" .. instance.fieldZ] = instance
     end
+    freezeAutonomousActors(game)
     game:moveTo(ROUTE_29_TARGET)
     local afterRebase = effectStatus(game)
     for _, instance in ipairs(afterRebase.instances) do
@@ -203,9 +244,9 @@ end
 -- effects from the old field rather than carrying their global anchors into
 -- the destination map.
 T.tests["world replacement clears active terrain effects"] = function()
-  withTown(function(game)
-    moveToRoute29(game)
-    local _ = moveToReachable(game, findCells(game, TALL_GRASS))
+  withTown(function(game, facts)
+    moveToRoute29(game, facts)
+    local _ = moveToReachable(game, findCells(game, TALL_GRASS, facts.grass))
     Assert.isTrue(#effectStatus(game).instances > 0, "very-tall grass landing must create an effect")
 
     effectController(game):clear()

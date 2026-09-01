@@ -275,6 +275,12 @@ function SceneLoaderFixture.newHarness(versionId, opts)
       foregroundEnvironmentId = function()
         return nil
       end,
+      autonomousActorsLocked = function()
+        return false
+      end,
+      autonomousActorLocked = function()
+        return false
+      end,
     },
     ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptClient = { consume = function() end },

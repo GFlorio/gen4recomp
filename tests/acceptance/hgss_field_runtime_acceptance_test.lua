@@ -61,6 +61,13 @@ end
 
 local function withFreshHouse2F(fn)
   local harness = AcceptanceHarness.new()
+  local defaultGameFactory = harness.gameFactory
+  harness.gameFactory = function(versionId, map)
+    local game = defaultGameFactory(versionId, map)
+    game.location.fieldX = 3
+    game.location.fieldZ = 4
+    return game
+  end
   harness:forEachVersion(function(versionId)
     local game = harness:boot({
       versionId = versionId,
@@ -101,7 +108,6 @@ function T.tests.fresh_player_house_downstairs_step_does_not_fault_actor_lock_ha
     local start = game:waitForFieldReady()
     Assert.equal(start.mapSymbol, HOUSE_2F)
 
-    game:moveTo({ fieldX = 3, fieldZ = 4 })
     game:step({ direction = "west" })
     local transition = game:waitForTransition()
 

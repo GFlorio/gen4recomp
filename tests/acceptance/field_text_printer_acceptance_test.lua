@@ -15,9 +15,18 @@ local T = {
 
 local TOWN = "MAP_NEW_BARK"
 local WOMAN = { fieldX = 683, fieldZ = 400 }
--- The New Bark object at this source position opens bank 542 message 12,
--- which carries the source prompt boundary needed by the cadence scenario.
-local BOUNDARY_NPC = { fieldX = 685, fieldZ = 407 }
+-- The New Bark roaming object that owns bank 542 message 12 settles one tile
+-- south of this standing position during fresh runtime entry.
+local BOUNDARY_NPC = { fieldX = 685, fieldZ = 406 }
+
+local function freezeAutonomousActors(game)
+  local runtime = game.runtime
+  for mapId in pairs(runtime.actors.maps) do
+    for _, actor in ipairs(runtime.actors:actorsOf(mapId)) do
+      runtime.actors:setMovementType(actor.actorId, "stationary")
+    end
+  end
+end
 
 local function withReadyVersion(fn, options)
   local harness = AcceptanceHarness.new()
@@ -29,6 +38,7 @@ local function withReadyVersion(fn, options)
       save = options and options.save or "fresh",
       fieldOptions = fieldOptions,
     })
+    freezeAutonomousActors(game)
     local ok, err = xpcall(function()
       fn(game)
       Assert.equal(game:renderAttempts(), 0, "field text acceptance must stop before GPU rendering")

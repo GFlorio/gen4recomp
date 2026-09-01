@@ -269,8 +269,10 @@ hostSeams = function()
 end
 
 function T.tests.new_game_enters_production_oak_without_a_factory()
-  withProductionOak("heartgold", function(state)
-    Assert.equal(state.controller:candidate().saveId, "save-00000001")
+  forEachReadyVersion(function(versionId)
+    withProductionOak(versionId, function(state)
+      Assert.equal(state.controller:candidate().saveId, "save-00000001")
+    end)
   end)
 end
 

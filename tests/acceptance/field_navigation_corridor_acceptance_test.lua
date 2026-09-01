@@ -22,6 +22,15 @@ local function uniqueActors(snapshot)
   end
 end
 
+local function freezeAutonomousActors(game)
+  local runtime = game.runtime
+  for mapId in pairs(runtime.actors.maps) do
+    for _, actor in ipairs(runtime.actors:actorsOf(mapId)) do
+      runtime.actors:setMovementType(actor.actorId, "stationary")
+    end
+  end
+end
+
 local function assertResident(snapshot)
   Assert.notNil(snapshot.coverage, "production coverage status is required")
   Assert.isTrue(snapshot.coverage.residentCount <= 9, "physical residency must remain bounded")
@@ -42,6 +51,7 @@ local function withVersion(fn)
     local game = harness:boot({ versionId = versionId, map = "MAP_NEW_BARK", save = "fresh" })
     OpeningLifecycle.seedNewBarkWestExitScene(game)
     OpeningLifecycle.settleNewBarkFriendScene(game)
+    freezeAutonomousActors(game)
     local ok, failure = xpcall(function()
       fn(game, facts)
       Assert.equal(game:renderAttempts(), 0, "navigation acceptance must stop before GPU rendering")
@@ -75,6 +85,7 @@ local function assertSeam(game, expectedMapId, expectedMapSymbol, label)
   -- own entry lifecycle owns actor activation, so the settled boundary is
   -- reached before those observations.
   game:waitForFieldReady()
+  freezeAutonomousActors(game)
   Assert.equal(
     game.runtime.scripts.initController.mapId,
     expectedMapId,
