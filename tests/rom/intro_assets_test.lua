@@ -63,7 +63,7 @@ local function assertBallSource(bundle)
 end
 
 local function assertVariant(bundle, versionId, paletteMember)
-  Assert.equal(bundle.manifest.schemaVersion, 7)
+  Assert.equal(bundle.manifest.schemaVersion, 8)
   Assert.equal(bundle.manifest.variant, versionId)
   Assert.equal(sourceMember(bundle, "background:char"), 0)
   Assert.equal(sourceMember(bundle, "background:screen"), 3)
@@ -104,8 +104,20 @@ local function assertGenderSource(bundle)
     Assert.isTrue(#bundle.manifest.widgets[id].frames > 0, id .. " has visible frames")
     Assert.notNil(bundle.assets[bundle.manifest.widgets[id].frames[1].image], id .. " has image output")
   end
-  Assert.isNil(bundle.manifest.genderSelector)
-  Assert.isNil(bundle.manifest.profileConfirmation)
+  Assert.deepEqual(bundle.manifest.widgets.gender_male.sourceCenter, { x = 64, y = 104 })
+  Assert.deepEqual(bundle.manifest.widgets.gender_female.sourceCenter, { x = 192, y = 104 })
+  Assert.deepEqual(bundle.manifest.genderSelector.buttons.male.bounds, {
+    x = 18,
+    y = 25,
+    width = 93,
+    height = 148,
+  })
+  Assert.deepEqual(bundle.manifest.profileConfirmation.buttons.female.no.textBounds, {
+    x = 16,
+    y = 128,
+    width = 104,
+    height = 24,
+  })
   for _, id in ipairs({ "gender_male", "gender_female" }) do
     for role, memberId in pairs({
       ["resdat-header"] = 78,

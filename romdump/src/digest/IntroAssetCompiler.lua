@@ -174,14 +174,7 @@ local function cellBounds(cell, bounds)
   end
 end
 
--- `colors` here is the sprite's full decoded palette resource (not yet
--- sliced). HGSS's Sprite_SetPaletteOverride renderer path replaces every OAM
--- object's decoded palette-bank field with the sprite template's `.pal`
--- selector when a template override is configured for this resource, so the
--- override (when present) is the effective 4bpp bank for every object in the
--- cell; only when no override is configured does each object's own decoded
--- OAM palette field remain the effective selector.
-local function renderCell(char, colors, cell, bounds, paletteOverride)
+local function renderCell(char, palette, cell, bounds)
   if #cell.objs == 0 then
     sourceError("intro cell has no objects", { sourceOffset = 0 })
   end
@@ -189,23 +182,6 @@ local function renderCell(char, colors, cell, bounds, paletteOverride)
   local width, height = bounds.maxX - minX, bounds.maxY - minY
   local rgba = newRgba(width, height)
   for _, object in ipairs(cell.objs) do
-    local objectSlot
-    if char.depth == 4 then
-      objectSlot = nil
-    elseif paletteOverride ~= nil then
-      objectSlot = paletteOverride
-    else
-      objectSlot = object.palette
-    end
-    local ok, objectPalette = pcall(IntroObjPaletteResolver.resolve, colors, char.depth, objectSlot)
-    if not ok then
-      local err = objectPalette
-      if Errors.is(err) then
-        ---@cast err Errors.Error
-        sourceError(err.message, err.context)
-      end
-      error(err, 0)
-    end
     local columns, rows = object.width / 8, object.height / 8
     for row = 0, rows - 1 do
       for column = 0, columns - 1 do
@@ -218,7 +194,7 @@ local function renderCell(char, colors, cell, bounds, paletteOverride)
           object.x - minX + column * 8,
           object.y - minY + row * 8,
           object.tile + tileRow * columns + tileColumn,
-          objectPalette,
+          palette,
           0,
           object.flipH,
           object.flipV
@@ -229,15 +205,7 @@ local function renderCell(char, colors, cell, bounds, paletteOverride)
   return { width = width, height = height, rgba = concatBytes(rgba) }
 end
 
-local function renderAnimations(char, colors, cells, animation, animationIndex, paletteOverride)
-  -- `paletteOverride` here is the effective 4bpp palette-number override
-  -- actually applied to every rendered OAM object (see renderCell), which the
-  -- caller may withhold for a resource whose override does not resolve to a
-  -- valid bank in its own decoded palette data. It is invalid for 8bpp cell
-  -- graphics, which always index the resource's one direct color table.
-  if char.depth == 4 and paletteOverride ~= nil then
-    sourceError("intro palette override is invalid for 8bpp cell graphics", { selector = paletteOverride })
-  end
+local function renderAnimations(char, palette, cells, animation, animationIndex)
   local animations = {}
   if animationIndex ~= nil then
     animations[1] = animation.anims[animationIndex + 1]
@@ -358,7 +326,7 @@ local function renderAnimations(char, colors, cells, animation, animationIndex, 
     local sx, sy = selected.scaleX, selected.scaleY
     local rot = selected.rotation
     if tx == 0 and ty == 0 and sx == 1 and sy == 1 and rot == 0 then
-      local image = renderCell(char, colors, cell, bounds, paletteOverride)
+      local image = renderCell(char, palette, cell, bounds)
       output[index] = {
         width = width,
         height = height,
@@ -378,7 +346,7 @@ local function renderAnimations(char, colors, cells, animation, animationIndex, 
       local cellB = { minX = math.huge, minY = math.huge, maxX = -math.huge, maxY = -math.huge }
       cellBounds(cell, cellB)
       local cellW, cellH = cellB.maxX - cellB.minX, cellB.maxY - cellB.minY
-      local cellImage = renderCell(char, colors, cell, cellB, paletteOverride)
+      local cellImage = renderCell(char, palette, cell, cellB)
       -- Create union canvas
       local rgba = newRgba(width, height)
       -- Determine dest origin for this transformed cell: its transformed min maps to bounds.min
@@ -513,15 +481,28 @@ end
 local function readResourceTable(archive, dependencies, spec, memberId, role)
   local bytes = decodeMember(archive, memberId, role, spec.resourceResolution.archive)
   addDependency(dependencies, spec.resourceResolution.archive, memberId, bytes, role)
-  local records, offset = {}, 4
+  local records, ordered, offset = {}, {}, 4
   while true do
     local narcId = u32le(bytes, offset, role)
     if narcId == 0xFFFFFFFE then
-      return records
+      return records, ordered, bytes
     end
     local fileId = u32le(bytes, offset + 4, role)
+    local compressed = u32le(bytes, offset + 8, role)
     local objectId = u32le(bytes, offset + 12, role)
-    records[objectId] = { narcId = narcId, fileId = fileId }
+    local record = {
+      narcId = narcId,
+      fileId = fileId,
+      compressed = compressed,
+      objectId = objectId,
+      vram = u32le(bytes, offset + 16, role),
+      bankCount = u32le(bytes, offset + 20, role),
+    }
+    if records[objectId] then
+      sourceError("intro resource table contains a duplicate resource id", { objectId = objectId, label = role })
+    end
+    records[objectId] = record
+    ordered[#ordered + 1] = record
     offset = offset + 24
   end
 end
@@ -530,8 +511,10 @@ end
 ---@param dependencies table
 ---@param spec table
 ---@param id string
+---@param paletteRecords table|nil
+---@param paletteBytes string|nil
 ---@return table
-local function resolveResourceSet(resourceDataArchive, dependencies, spec, id)
+local function resolveResourceSet(resourceDataArchive, dependencies, spec, id, paletteRecords, paletteBytes)
   local resolution = assert(spec.resourceResolution)
   local headerBytes = decodeMember(resourceDataArchive, resolution.header, id .. " resource header", resolution.archive)
   addDependency(dependencies, resolution.archive, resolution.header, headerBytes, id .. ":resdat-header")
@@ -549,7 +532,13 @@ local function resolveResourceSet(resourceDataArchive, dependencies, spec, id)
   local resolved = {}
   for _, tableSpec in ipairs(tables) do
     local role = id .. ":resdat-" .. tableSpec.key .. "-table"
-    local records = readResourceTable(resourceDataArchive, dependencies, spec, tableSpec.memberId, role)
+    local records
+    if tableSpec.key == "palette" and paletteRecords then
+      records = paletteRecords
+      addDependency(dependencies, resolution.archive, tableSpec.memberId, paletteBytes, role)
+    else
+      records = readResourceTable(resourceDataArchive, dependencies, spec, tableSpec.memberId, role)
+    end
     local record = records[tableSpec.objectId]
     if not record or record.narcId ~= resolution.sourceNarcId then
       sourceError("intro resource set references an unsupported source archive", {
@@ -628,33 +617,74 @@ end
 
 local loadCharPalette
 
--- `spec.paletteOverride` is the pinned source template selector and is always
--- the provenance-recorded palette fact for this resource. `disableRasterOverride`
--- lets a caller withhold that value from actual rasterization for a resource
--- whose own decoded palette data does not populate a bank at that slot (the
--- sprite system's palette-number overwrite addresses a shared VRAM offset
--- assigned when the sprite is created, not necessarily a bank inside this
--- resource's own NCLR data); rasterization then falls back to each object's
--- own decoded OAM palette field while provenance still records the source fact.
-local function compileCellAnimation(archive, dependencies, manifest, assets, id, spec, disableRasterOverride)
+local function effectivePalette(archive, dependencies, layout, id, spec)
+  local ok, ownerOrError, localBank = pcall(IntroObjPaletteResolver.owner, layout, spec.vram, spec.paletteNumber)
+  if not ok then
+    if Errors.is(ownerOrError) then
+      ---@cast ownerOrError Errors.Error
+      sourceError(ownerOrError.message, ownerOrError.context)
+    end
+    error(ownerOrError, 0)
+  end
+  ---@cast ownerOrError table
+  local owner = ownerOrError
+  if owner.narcId ~= spec.resourceResolution.sourceNarcId then
+    sourceError("intro absolute palette owner is outside the supported source archive", {
+      asset = id,
+      engine = spec.vram,
+      paletteNumber = spec.paletteNumber,
+      ownerNarcId = owner.narcId,
+    })
+  end
+  local archiveName = spec.archive or config.archive
+  local paletteBytes = decodeMember(archive, owner.fileId, id .. " effective palette", archiveName)
+  addDependency(dependencies, archiveName, owner.fileId, paletteBytes, id:gsub("_", "-") .. ":palette")
+  local palette = decode("decodePalette", paletteBytes, id .. " effective palette", owner.fileId, archiveName)
+  local sliceOk, colorsOrError = pcall(IntroObjPaletteResolver.slice, palette.colors, 3, localBank)
+  if not sliceOk then
+    if Errors.is(colorsOrError) then
+      ---@cast colorsOrError Errors.Error
+      sourceError(colorsOrError.message, colorsOrError.context)
+    end
+    error(colorsOrError, 0)
+  end
+  ---@cast colorsOrError table[]
+  return colorsOrError
+end
+
+local function buildPaletteLayout(records)
+  local ok, layoutOrError = pcall(IntroObjPaletteResolver.build, records)
+  if not ok then
+    if Errors.is(layoutOrError) then
+      ---@cast layoutOrError Errors.Error
+      sourceError(layoutOrError.message, layoutOrError.context)
+    end
+    error(layoutOrError, 0)
+  end
+  ---@cast layoutOrError table
+  return layoutOrError
+end
+
+local function compileCellAnimation(archive, dependencies, manifest, assets, id, spec, layout)
   local dependencyRole = id:gsub("_", "-")
-  local char, palette = loadCharPalette(archive, dependencies, spec, dependencyRole)
+  local archiveName = spec.archive or config.archive
+  local charBytes = decodeMember(archive, spec.char, id .. " char", archiveName)
+  addDependency(dependencies, archiveName, spec.char, charBytes, dependencyRole .. ":char")
+  local char = decode("decodeChar", charBytes, id .. " char", spec.char, archiveName)
+  if char.depth ~= 3 then
+    sourceError("configured intro cell graphics do not support 8bpp", { asset = id, depth = char.depth })
+  end
+  local paletteColors = effectivePalette(archive, dependencies, layout, id, spec)
   local cellBytes = decodeMember(archive, spec.cell, id .. " cell", spec.archive)
   local animationBytes = decodeMember(archive, spec.animation, id .. " animation", spec.archive)
   addDependency(dependencies, spec.archive, spec.cell, cellBytes, dependencyRole .. ":cell")
   addDependency(dependencies, spec.archive, spec.animation, animationBytes, dependencyRole .. ":animation")
   local cells = decode("decodeCell", cellBytes, id .. " cell", spec.cell, spec.archive)
   local animation = decode("decodeAnimation", animationBytes, id .. " animation", spec.animation, spec.archive)
-  ---@type string|integer|table|nil
-  local rasterPaletteOverride = spec.paletteOverride
-  if disableRasterOverride then
-    rasterPaletteOverride = nil
-  end
-  local image, frames =
-    renderAnimations(char, palette.colors, cells, animation, spec.animationIndex, rasterPaletteOverride)
+  local image, frames = renderAnimations(char, paletteColors, cells, animation, spec.animationIndex)
   addAsset(manifest, assets, id, image, frames, image.sourceBounds, image.anchor, {
     resourceSet = spec.resourceSet,
-    paletteSlot = spec.paletteOverride,
+    paletteNumber = spec.paletteNumber,
     rule = "stable-oam-origin",
   }, spec.sourceCenter)
 end
@@ -775,10 +805,35 @@ function IntroAssetCompiler.compile(romFs)
   local resourceResolution = config.ball_open.resourceResolution
   local resourceDataArchive = sourceArchive(romFs, resourceResolution.archive)
   local dependencies, assets = {}, {}
+  local paletteRecords, paletteOrder, paletteBytes = readResourceTable(
+    resourceDataArchive,
+    dependencies,
+    config.ball_open,
+    resourceResolution.paletteTable,
+    "intro-palette-layout"
+  )
+  local paletteLayout = buildPaletteLayout(paletteOrder)
+  local defaultToneMember = config.genderSelector.paletteMembers[variant]
+  local defaultToneBytes = decodeMember(archive, defaultToneMember, "gender selector default tone", config.archive)
+  addDependency(dependencies, config.archive, defaultToneMember, defaultToneBytes, "gender-selector:default-tone")
+  local defaultTonePalette =
+    decode("decodePalette", defaultToneBytes, "gender selector default tone", defaultToneMember, config.archive)
+  local defaultTone = defaultTonePalette.colors[config.genderSelector.defaultToneEntry + 1]
+  if not defaultTone then
+    sourceError("gender selector default tone palette entry is missing", {
+      paletteMember = defaultToneMember,
+      paletteEntry = config.genderSelector.defaultToneEntry,
+    })
+  end
   local manifest = {
-    schemaVersion = 7,
+    schemaVersion = 8,
     variant = variant,
     sourceReference = { width = 256, height = 192 },
+    genderSelector = {
+      defaultTone = { r = defaultTone.r, g = defaultTone.g, b = defaultTone.b },
+      buttons = config.genderSelector.buttons,
+    },
+    profileConfirmation = config.profileConfirmation,
     widgets = {},
   }
 
@@ -805,20 +860,14 @@ function IntroAssetCompiler.compile(romFs)
   compileSingle(archive, dependencies, manifest, assets, "female", config.gender.female)
   for _, id in ipairs({ "gender_male", "gender_female" }) do
     local spec = config.genderSelectors[id:gsub("gender_", "")]
-    -- Both selector resources' own shipped NCLR data only populates bank 0;
-    -- every other bank is all-zero, so the configured template slot (0 for
-    -- male, 1 for female) does not address real chromatic data for female.
-    -- Each object's own decoded OAM palette field (bank 0 for both) is the
-    -- one populated bank in both files, matching the ball/Marill resource's
-    -- same VRAM-offset situation, so rasterization falls back to it here too.
     compileCellAnimation(
       archive,
       dependencies,
       manifest,
       assets,
       id,
-      resolveResourceSet(resourceDataArchive, dependencies, spec, id),
-      true
+      resolveResourceSet(resourceDataArchive, dependencies, spec, id, paletteRecords, paletteBytes),
+      paletteLayout
     )
   end
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
@@ -828,22 +877,8 @@ function IntroAssetCompiler.compile(romFs)
     local spec = assert(config[id])
     assert(type(spec) == "table")
     ---@cast spec table
-    local resolved = resolveResourceSet(resourceDataArchive, dependencies, spec, id)
-    -- This resource set's own decoded palette holds no populated colors at
-    -- the pinned template slot: the sprite system's palette-number overwrite
-    -- applies to a VRAM bank offset assigned when the sprite is created
-    -- (Sprite_GetPalIndex at creation time, added to the template's local
-    -- .pal value), not to a slot inside this resource's own palette data
-    -- starting at zero. That VRAM offset depends on other sprites already
-    -- loaded onto the same 2D engine and is not recoverable from this
-    -- resource's own header. Each object's own decoded palette-bank field
-    -- remains the correct, ROM-verified color selector here (the gender
-    -- selectors below share this same fallback, for the same reason: their
-    -- own shipped palette data is likewise unpopulated past bank 0). The
-    -- pinned template value still belongs in provenance (compileCellAnimation
-    -- records spec.paletteOverride there regardless), so it is not cleared
-    -- here.
-    compileCellAnimation(ballArchive, dependencies, manifest, assets, id, resolved, true)
+    local resolved = resolveResourceSet(resourceDataArchive, dependencies, spec, id, paletteRecords, paletteBytes)
+    compileCellAnimation(ballArchive, dependencies, manifest, assets, id, resolved, paletteLayout)
   end
 
   local valid, err = IntroAssetCache.validateManifest(manifest)

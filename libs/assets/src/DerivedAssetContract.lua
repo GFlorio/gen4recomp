@@ -170,10 +170,8 @@ DerivedAssetContract.fieldUi = {
 }
 
 DerivedAssetContract.intro = {
-  -- V7 keeps only source-backed intro content; simple profile controls are
-  -- rendered by the host from primitive geometry.
-  cacheFormat = "intro-cache-v7",
-  schema = "g4-intro-assets-v7",
+  cacheFormat = "intro-cache-v8",
+  schema = "g4-intro-assets-v8",
   provenanceSchema = "g4-intro-provenance-v1",
 }
 
