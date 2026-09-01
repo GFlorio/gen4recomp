@@ -107,7 +107,7 @@ T.tests.gender_selection_uses_the_production_manifest_at_representative_sizes = 
       )
       for gender = 0, 1 do
         Assert.isTrue(
-          inside(layout.genderButtons[gender].button.rect, layout.selectorPanel),
+          inside(layout.genderButtons[gender].button.rect, layout.selectorRegion),
           entry.versionId .. " gender choice " .. gender .. " leaves the selector panel"
         )
       end

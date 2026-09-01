@@ -103,7 +103,7 @@ function T.button_faces_replace_source_chrome_and_keep_background_gaps(scope)
     local background = render(scope, renderer, backgroundView)
     for gender = 0, 1 do
       local button = view.layout.genderButtons[gender].button
-      local x, y = math.floor(button.faceRect.x + 1), math.floor(button.faceRect.y + 1)
+      local x, y = math.floor(button.face.rect.x + 1), math.floor(button.face.rect.y + 1)
       local br, bg, bb = background:getPixel(x, y)
       local ar, ag, ab = actual:getPixel(x, y)
       Assert.isTrue(quantize(ar) ~= quantize(br) or quantize(ag) ~= quantize(bg) or quantize(ab) ~= quantize(bb))
@@ -128,10 +128,21 @@ function T.selected_primitive_focus_changes_without_recoloring_portraits(scope)
     local focused = render(scope, renderer, focusedView)
     local unfocused = render(scope, renderer, unfocusedView)
     local button = focusedView.layout.genderButtons[0].button
-    local x, y = math.floor(button.faceRect.x + 1), math.floor(button.faceRect.y + 1)
-    local fr, fg, fb = focused:getPixel(x, y)
-    local ur, ug, ub = unfocused:getPixel(x, y)
-    Assert.isTrue(quantize(fr) ~= quantize(ur) or quantize(fg) ~= quantize(ug) or quantize(fb) ~= quantize(ub))
+    local changed = false
+    for y = math.floor(button.rim.rect.y), math.ceil(button.rim.rect.y + button.rim.rect.height) - 1 do
+      for x = math.floor(button.rim.rect.x), math.ceil(button.rim.rect.x + button.rim.rect.width) - 1 do
+        local fr, fg, fb = focused:getPixel(x, y)
+        local ur, ug, ub = unfocused:getPixel(x, y)
+        if quantize(fr) ~= quantize(ur) or quantize(fg) ~= quantize(ug) or quantize(fb) ~= quantize(ub) then
+          changed = true
+          break
+        end
+      end
+      if changed then
+        break
+      end
+    end
+    Assert.isTrue(changed, "focused card rim must differ from its unfocused rendering")
   end
 end
 

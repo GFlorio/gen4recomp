@@ -26,7 +26,11 @@ local function genderButtons()
       key = "male",
       button = Button.resolve({
         rect = { x = 10, y = 10, width = 60, height = 80 },
-        bevelWidth = 2,
+        borderWidth = 2,
+        rimWidth = 2,
+        innerBorderWidth = 1,
+        cornerCut = 2,
+        faceSplit = 0.5,
         contentInsetX = 4,
         contentInsetY = 4,
       }),
@@ -37,7 +41,11 @@ local function genderButtons()
       key = "female",
       button = Button.resolve({
         rect = { x = 90, y = 10, width = 60, height = 80 },
-        bevelWidth = 2,
+        borderWidth = 2,
+        rimWidth = 2,
+        innerBorderWidth = 1,
+        cornerCut = 2,
+        faceSplit = 0.5,
         contentInsetX = 4,
         contentInsetY = 4,
       }),
@@ -85,6 +93,9 @@ local function manifest()
   assets.background = nil
   return {
     schemaVersion = 7,
+    genderSelector = {
+      defaultTone = { r = 100, g = 101, b = 102 },
+    },
     background = background,
     widgets = assets,
   }
