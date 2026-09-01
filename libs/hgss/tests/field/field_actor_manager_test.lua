@@ -9,6 +9,7 @@ local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
 local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
+local FieldRegion = require("libs.hgss.src.field.FieldRegion")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}
@@ -124,6 +125,28 @@ local function runtimeMap(objects, mapId)
   return map
 end
 
+local function sourceRegionMap(objects, surfaceIdBase, sourceTerrain)
+  local map = runtimeMap(objects)
+  local region = FieldRegion.new(map.collision, sourceTerrain, {}, "0:0", surfaceIdBase)
+  map.collision = region.collision
+  map.terrain = region.terrain
+  map.fieldRegion = region
+  return map
+end
+
+local function flatPlate(id, minX, maxX, distance)
+  return {
+    id = id,
+    minX = minX,
+    minZ = 0,
+    maxX = maxX,
+    maxZ = 32,
+    normal = { x = 0, y = 1, z = 0 },
+    distance = distance,
+    slopeClass = "flat",
+  }
+end
+
 -- Stands in for FieldActorAssetProvider: same acquire/release/knows contract,
 -- with a reference tally so leaks are visible to the tests.
 local function fakeAssets(known)
@@ -160,6 +183,19 @@ local function manager(objects, opts)
   local map = opts.map or runtimeMap(objects)
   mgr:enterMap(map, eventState, opts.restoredObjects)
   return mgr, eventState, assets, map
+end
+
+local function capturedUpperSnapshot()
+  local objects = { object({ x = 9, z = 3 }) }
+  local map = sourceRegionMap(objects, 0, terrain())
+  local mgr = manager(objects, { map = map })
+  mgr:setPosition("map:61:object:0", { fieldX = 9, fieldZ = 3, worldY = 4 })
+
+  local captured = mgr:captureObjects()
+  local validated, validationErr = FieldObjectSave.validate(captured)
+  Assert.notNil(validated, tostring(validationErr))
+  mgr:dispose()
+  return assert(validated)
 end
 
 local function candidate(fieldX, fieldZ, surfaceId)
@@ -529,6 +565,131 @@ function T.raw_event_y_hint_selects_the_stacked_surface()
   Assert.equal(halfHeightActor.surfaceId, 1)
   Assert.equal(halfHeightActor.worldY, 0.5)
   halfHeightMgr:dispose()
+end
+
+function T.saved_actor_round_trip_uses_the_captured_source_surface()
+  local objects = { object({ x = 9, z = 3 }) }
+  local sourceMap = sourceRegionMap(objects, 0, terrain())
+  local mgr = manager(objects, { map = sourceMap })
+  local actor = assert(mgr:getById("map:61:object:0"))
+
+  Assert.equal(actor.surfaceId, 0)
+  Assert.equal(actor.cellKey, "0:0")
+  Assert.equal(actor.sourceSurfaceId, 0)
+  mgr:setPosition(actor.actorId, { fieldX = 9, fieldZ = 3, worldY = 4 })
+  Assert.equal(actor.surfaceId, 1)
+  Assert.equal(actor.sourceSurfaceId, 1)
+  Assert.equal(actor.worldY, 4)
+
+  local captured = mgr:captureObjects()
+  local validated, validationErr = FieldObjectSave.validate(captured)
+  Assert.notNil(validated, tostring(validationErr))
+  local record = assert(validated).actors[actor.actorId]
+  Assert.equal(record.cellKey, "0:0")
+  Assert.equal(record.sourceSurfaceId, 1)
+  mgr:dispose()
+
+  local restoredObjects = { object({ x = 9, z = 3 }) }
+  local restoredMap = sourceRegionMap(restoredObjects, 10, terrain())
+  local restoredMgr = manager(restoredObjects, { map = restoredMap, restoredObjects = validated })
+  local restored = assert(restoredMgr:getById(actor.actorId))
+
+  Assert.equal(restored.cellKey, "0:0")
+  Assert.equal(restored.sourceSurfaceId, 1)
+  Assert.equal(restored.surfaceId, 11, "restore must reconstruct the current composite surface id")
+  Assert.equal(restored.worldY, 4)
+  Assert.equal(restored.sourceEvent.y, object({}).y)
+  Assert.equal(restoredMgr:getAt(61, stableCandidate(9, 3, 11, "0:0", 1)), restored)
+  Assert.isNil(restoredMgr:getAt(61, stableCandidate(9, 3, 10, "0:0", 0)))
+  restoredMgr:dispose()
+end
+
+function T.missing_saved_source_surface_fails_before_y_fallback()
+  local snapshot = capturedUpperSnapshot()
+  local record = snapshot.actors["map:61:object:0"]
+  record.fieldX = 21
+  record.fieldZ = 3
+
+  local objects = { object({ x = 9, z = 3 }) }
+  local map = sourceRegionMap(
+    objects,
+    10,
+    TerrainSurface.new({
+      plates = {
+        flatPlate(0, 0, 32, 0),
+        flatPlate(2, 20, 24, 0),
+      },
+    })
+  )
+  local assets = fakeAssets({ [99] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+
+  throwsCode("ACTOR_SURFACE_MISSING", function()
+    mgr:enterMap(map, FieldEventState.new(), snapshot)
+  end)
+  Assert.isNil(mgr.maps[61], "a failed restore must not publish its entry")
+  Assert.isNil(mgr.currentMapId, "a failed restore must not publish an active map")
+  Assert.equal(#mgr:drawRecords(), 0, "a failed restore must not publish draw records")
+  Assert.equal(assets:total(), 0, "a failed restore must release staged visuals")
+  mgr:dispose()
+end
+
+function T.saved_source_surface_must_cover_the_saved_tile()
+  local snapshot = capturedUpperSnapshot()
+  local record = snapshot.actors["map:61:object:0"]
+  record.fieldX = 35
+  record.fieldZ = 3
+
+  local objects = { object({ x = 9, z = 3 }) }
+  local map = sourceRegionMap(
+    objects,
+    10,
+    TerrainSurface.new({
+      plates = {
+        flatPlate(0, 0, 40, 0),
+        flatPlate(1, 8, 20, 4),
+        flatPlate(2, 32, 40, 0),
+      },
+    })
+  )
+  local assets = fakeAssets({ [99] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+
+  throwsCode("ACTOR_SURFACE_MISSING", function()
+    mgr:enterMap(map, FieldEventState.new(), snapshot)
+  end)
+  Assert.isNil(mgr.maps[61], "a non-covering restore must not publish its entry")
+  Assert.equal(#mgr:drawRecords(), 0, "a non-covering restore must not publish draw records")
+  Assert.equal(assets:total(), 0, "a non-covering restore must release staged visuals")
+  mgr:dispose()
+end
+
+function T.identity_less_saved_actor_restore_keeps_the_source_y_selector()
+  local objects = { object({ x = 9, z = 3, y = rawObjectEventY(4) }) }
+  local map = runtimeMap(objects)
+  local mgr = manager(objects, { map = map })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  Assert.equal(actor.surfaceId, 1)
+  Assert.equal(actor.worldY, 4)
+
+  local captured = mgr:captureObjects()
+  local validated, validationErr = FieldObjectSave.validate(captured)
+  Assert.notNil(validated, tostring(validationErr))
+  Assert.isNil(assert(validated).actors[actor.actorId].cellKey)
+  mgr:dispose()
+
+  local restoredMap = runtimeMap({ object({ x = 9, z = 3, y = rawObjectEventY(4) }) })
+  local restoredMgr = manager(restoredMap.fieldData.events.objects, {
+    map = restoredMap,
+    restoredObjects = validated,
+  })
+  local restored = assert(restoredMgr:getById(actor.actorId))
+  Assert.isNil(restored.cellKey)
+  Assert.isNil(restored.sourceSurfaceId)
+  Assert.equal(restored.surfaceId, 1)
+  Assert.equal(restored.worldY, 4)
+  Assert.equal(restored.sourceEvent.y, rawObjectEventY(4))
+  restoredMgr:dispose()
 end
 
 function T.reprojection_uses_the_raw_event_y_hint_when_the_surface_is_stale()

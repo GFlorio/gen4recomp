@@ -395,13 +395,20 @@ local function resolveSurface(runtimeMap, event, actorId)
   return resolveSurfaceAt(runtimeMap, event.x, event.z, event.y, actorId)
 end
 
+local function currentSurfaceFor(runtimeMap, cellKey, sourceSurfaceId)
+  if runtimeMap.fieldRegion and runtimeMap.fieldRegion.sourceSurface then
+    return runtimeMap.fieldRegion:sourceSurface(cellKey, sourceSurfaceId)
+  end
+  return nil
+end
+
 local function projectionFor(runtimeMap, actor)
   local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, actor.fieldX, actor.fieldZ)
   local centerX, centerZ = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
   local surfaceId = actor.surfaceId
   if actor.cellKey and actor.sourceSurfaceId and runtimeMap.fieldRegion and runtimeMap.fieldRegion.sourceSurface then
     surfaceId = assert(
-      runtimeMap.fieldRegion:sourceSurface(actor.cellKey, actor.sourceSurfaceId),
+      currentSurfaceFor(runtimeMap, actor.cellKey, actor.sourceSurfaceId),
       "actor source surface is absent from coverage"
     )
   end
@@ -705,21 +712,43 @@ local function savedProjection(entry, actor, record)
       resident = false,
     }
   end
-  local sample = resolveSurfaceAt(runtimeMap, record.fieldX, record.fieldZ, actor.sourceEvent.y, actor.actorId)
-  local plate = assert(runtimeMap.terrain:plate(sample.surfaceId), "saved actor surface is missing")
-  local cellKey, sourceSurfaceId = sourceIdentityFromPlate(plate)
-  if record.cellKey ~= nil and (record.cellKey ~= cellKey or record.sourceSurfaceId ~= sourceSurfaceId) then
-    Errors.raise(
-      FieldErrors.ACTOR_SURFACE_MISSING,
-      "saved actor " .. actor.actorId .. " source surface no longer resolves",
-      { actorId = actor.actorId, cellKey = record.cellKey, sourceSurfaceId = record.sourceSurfaceId }
-    )
+  local surfaceId
+  local cellKey
+  local sourceSurfaceId
+  local worldY
+  if record.cellKey ~= nil then
+    surfaceId = currentSurfaceFor(runtimeMap, record.cellKey, record.sourceSurfaceId)
+    if surfaceId == nil then
+      Errors.raise(
+        FieldErrors.ACTOR_SURFACE_MISSING,
+        "saved actor " .. actor.actorId .. " source surface no longer resolves",
+        { actorId = actor.actorId, cellKey = record.cellKey, sourceSurfaceId = record.sourceSurfaceId }
+      )
+    end
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, record.fieldX, record.fieldZ)
+    local centerX, centerZ = localX + FieldCoordinates.TILE_CENTER_OFFSET, localZ + FieldCoordinates.TILE_CENTER_OFFSET
+    if not runtimeMap.terrain:contains(surfaceId, centerX, centerZ) then
+      Errors.raise(
+        FieldErrors.ACTOR_SURFACE_MISSING,
+        "saved actor " .. actor.actorId .. " source surface does not cover its tile",
+        { actorId = actor.actorId, cellKey = record.cellKey, sourceSurfaceId = record.sourceSurfaceId }
+      )
+    end
+    worldY = runtimeMap.terrain:sampleHeight(surfaceId, centerX, centerZ)
+    cellKey = record.cellKey
+    sourceSurfaceId = record.sourceSurfaceId
+  else
+    local sample = resolveSurfaceAt(runtimeMap, record.fieldX, record.fieldZ, actor.sourceEvent.y, actor.actorId)
+    local plate = assert(runtimeMap.terrain:plate(sample.surfaceId), "saved actor surface is missing")
+    surfaceId = sample.surfaceId
+    worldY = sample.worldY
+    cellKey, sourceSurfaceId = sourceIdentityFromPlate(plate)
   end
-  local world = FieldCoordinates.fieldToWorld(runtimeMap, record.fieldX, record.fieldZ, sample.worldY)
+  local world = FieldCoordinates.fieldToWorld(runtimeMap, record.fieldX, record.fieldZ, worldY)
   return {
     fieldX = record.fieldX,
     fieldZ = record.fieldZ,
-    surfaceId = sample.surfaceId,
+    surfaceId = surfaceId,
     cellKey = cellKey,
     sourceSurfaceId = sourceSurfaceId,
     worldX = world.x,
@@ -735,16 +764,6 @@ local function savedDestination(entry, actor, point)
     Errors.raise(
       ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
       "saved autonomous action is outside physical residency",
-      { actorId = actor.actorId }
-    )
-  end
-  if
-    point.cellKey ~= nil
-    and (point.cellKey ~= projection.cellKey or point.sourceSurfaceId ~= projection.sourceSurfaceId)
-  then
-    Errors.raise(
-      FieldErrors.ACTOR_SURFACE_MISSING,
-      "saved actor " .. actor.actorId .. " destination surface no longer resolves",
       { actorId = actor.actorId }
     )
   end
