@@ -359,8 +359,8 @@ function T.tests.new_bark_friend_and_marill_scene_follows_the_house_scene()
 end
 
 -- The friend/Marill scene's generated movement is observed through the live
--- actor and task records. The two Marill plans in this scene must retain the
--- source waits, repeated turns, walk-in-place presentation, and tile commits.
+-- actor and task records. All four Marill plans must retain the source waits,
+-- repeated turns, jumps, walking presentation, and tile commits.
 function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreography()
   withGame(TOWN, function(game)
     OpeningLifecycle.seedPostOpeningHouseState(game)
@@ -428,6 +428,8 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
             action = action.action,
             direction = action.direction,
             name = action.name,
+            speed = action.speed,
+            distance = action.distance,
             repeatIndex = state.actionRepeat,
             activeEmoteKind = record.activeEmoteKind,
           }
@@ -454,11 +456,15 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
           local tracedRepeat = nil
           local tracedDirection = nil
           local tracedName = nil
+          local tracedSpeed = nil
+          local tracedDistance = nil
           if not isImmediate(action) then
             tracedAction = before.action
             tracedRepeat = before.repeatIndex
             tracedDirection = before.direction
             tracedName = before.name
+            tracedSpeed = before.speed
+            tracedDistance = before.distance
           else
             local successorIndex = beforeActionIndex + 1
             local successor = state.sequence[successorIndex + 1]
@@ -480,6 +486,8 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
               tracedRepeat = successorState.actionRepeat > 0 and successorState.actionRepeat - 1 or 0
               tracedDirection = successor.direction
               tracedName = successor.name
+              tracedSpeed = successor.speed
+              tracedDistance = successor.distance
             end
           end
           if tracedAction ~= nil then
@@ -487,6 +495,8 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
               action = tracedAction,
               direction = tracedDirection,
               name = tracedName,
+              speed = tracedSpeed,
+              distance = tracedDistance,
               repeatIndex = tracedRepeat,
               activeEmoteKind = before.activeEmoteKind,
               spriteId = afterRecord and afterRecord.spriteId or nil,
@@ -525,7 +535,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
       end
     end
 
-    Assert.isTrue(#planOrder >= 2, "the scene must run both Marill movement plans")
+    Assert.equal(#planOrder, 4, "the scene must run exactly four Marill movement plans")
 
     local function appendExpected(out, descriptor, repetitions)
       local ticks = MovementCalibration.actionTicks(descriptor)
@@ -535,6 +545,8 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
             action = descriptor.action,
             direction = descriptor.direction,
             name = descriptor.name,
+            speed = descriptor.speed,
+            distance = descriptor.distance,
             repeatIndex = repetition - 1,
           }
         end
@@ -557,6 +569,8 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
         Assert.equal(got.action, wanted.action, label .. " action at tick " .. index)
         Assert.equal(got.direction, wanted.direction, label .. " direction at tick " .. index)
         Assert.equal(got.name, wanted.name, label .. " name at tick " .. index)
+        Assert.equal(got.speed, wanted.speed, label .. " speed at tick " .. index)
+        Assert.equal(got.distance, wanted.distance, label .. " distance at tick " .. index)
         Assert.equal(got.repeatIndex, wanted.repeatIndex, label .. " repeat index at tick " .. index)
       end
     end
@@ -586,6 +600,67 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     appendExpected(secondExpected, { action = "walk_in_place", direction = "west", speed = "fast" }, 4)
     appendExpected(secondExpected, { action = "walk", direction = "west", speed = "fast", tiles = 6 }, 6)
     assertTimeline(second, secondExpected, "the friend movement")
+
+    local third = plans[planOrder[3]]
+    local thirdExpected = {}
+    appendExpected(thirdExpected, { action = "jump", direction = "west", distance = "zero", speed = "fast" }, 4)
+    assertTimeline(third, thirdExpected, "the repeated zero-distance jumps")
+
+    local jumpAnchorX, jumpAnchorZ = third.records[1].fieldX, third.records[1].fieldZ
+    local jumpAnchorY = third.records[4].worldY
+    for index, record in ipairs(third.records) do
+      Assert.equal(record.fieldX, jumpAnchorX, "zero-distance jumps keep logical X fixed")
+      Assert.equal(record.fieldZ, jumpAnchorZ, "zero-distance jumps keep logical Z fixed")
+      if index % 4 == 0 then
+        Assert.near(record.worldY, jumpAnchorY, 1e-9, "each zero-distance jump returns to its anchor")
+        Assert.isNil(record.afterAction, "each zero-distance jump commits before its repetition")
+      else
+        Assert.isTrue(record.worldY > jumpAnchorY, "each zero-distance jump has an interior vertical arc")
+        Assert.isTrue(
+          record.worldY <= jumpAnchorY + MovementCalibration.JUMP_HEIGHTS.zero + 1e-9,
+          "each zero-distance jump arc stays bounded"
+        )
+      end
+      if index < #third.records then
+        local actionTick = (index - 1) % 4
+        local expectedPoseDelta = actionTick == 3 and 4 or actionTick
+        local actionStart = third.records[index - actionTick]
+        Assert.equal(
+          record.poseTick,
+          actionStart.poseTick + expectedPoseDelta,
+          "fast jumps advance each sampled action at 1x"
+        )
+      end
+    end
+
+    local fourth = plans[planOrder[4]]
+    local fourthExpected = {}
+    appendExpected(fourthExpected, { action = "face", direction = "west" }, 1)
+    appendExpected(fourthExpected, { action = "walk", direction = "west", speed = "normal", tiles = 1 }, 1)
+    appendExpected(fourthExpected, { action = "face", direction = "south" }, 1)
+    appendExpected(fourthExpected, { action = "walk", direction = "south", speed = "normal", tiles = 4 }, 4)
+    appendExpected(fourthExpected, { action = "face", direction = "west" }, 1)
+    appendExpected(fourthExpected, { action = "walk", direction = "west", speed = "normal", tiles = 2 }, 2)
+    assertTimeline(fourth, fourthExpected, "the final normal walking movement")
+
+    local finalAnchorX, finalAnchorZ = fourth.records[1].fieldX, fourth.records[1].fieldZ
+    local completedWalks = {}
+    for index, record in ipairs(fourth.records) do
+      local nextRecord = fourth.records[index + 1]
+      local completesSegment = nextRecord == nil
+        or nextRecord.action ~= "walk"
+        or nextRecord.direction ~= record.direction
+      if record.action == "walk" and record.afterAction == nil and completesSegment then
+        completedWalks[#completedWalks + 1] = record
+      end
+    end
+    Assert.equal(#completedWalks, 3, "the final plan commits each normal walking segment")
+    Assert.equal(completedWalks[1].fieldX, finalAnchorX - 1, "the final plan first walks west one tile")
+    Assert.equal(completedWalks[1].fieldZ, finalAnchorZ, "the first west walk keeps its row")
+    Assert.equal(completedWalks[2].fieldX, finalAnchorX - 1, "the final plan south walk keeps its column")
+    Assert.equal(completedWalks[2].fieldZ, finalAnchorZ + 4, "the final plan walks south four tiles")
+    Assert.equal(completedWalks[3].fieldX, finalAnchorX - 3, "the final plan walks west two more tiles")
+    Assert.equal(completedWalks[3].fieldZ, finalAnchorZ + 4, "the final plan keeps its final row")
 
     -- Every source repeated-facing run remains a sequence of one-tick static
     -- facing commands. The real draw selector must therefore keep returning
@@ -629,6 +704,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     end
     assertRepeatedFaceStaysStatic(first.records, "the arrival movement")
     assertRepeatedFaceStaysStatic(second.records, "the friend movement")
+    assertRepeatedFaceStaysStatic(fourth.records, "the final movement")
 
     local emoteSeen = false
     for _, record in ipairs(second.records) do

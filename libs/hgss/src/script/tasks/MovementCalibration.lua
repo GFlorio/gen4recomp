@@ -50,6 +50,43 @@ MovementCalibration.JUMP_HEIGHTS = {
   far = 1.2,
 }
 
+-- Source-backed pose progress rates, keyed by semantic action and speed.
+-- Unsupported combinations retain the baseline one pose unit per fixed tick.
+local POSE_RATES = {
+  walk = {
+    slow = { numerator = 1, denominator = 2 },
+    normal = { numerator = 1, denominator = 1 },
+    fast = { numerator = 2, denominator = 1 },
+  },
+  walk_in_place = {
+    slower = { numerator = 1, denominator = 2 },
+    slow = { numerator = 1, denominator = 2 },
+    normal = { numerator = 1, denominator = 1 },
+    fast = { numerator = 2, denominator = 1 },
+  },
+  jump = {
+    slow = { numerator = 1, denominator = 2 },
+    fast = { numerator = 1, denominator = 1 },
+  },
+}
+
+-- Convert fixed action progress to the source-backed integer pose phase.
+---@param action { action: string, speed: string? }
+---@param progressTicks integer
+---@return integer
+function MovementCalibration.poseProgressTicks(action, progressTicks)
+  assert(
+    type(progressTicks) == "number" and progressTicks >= 0 and progressTicks % 1 == 0,
+    "pose progress must be a non-negative integer"
+  )
+  local actionRates = POSE_RATES[action.action]
+  local rate = actionRates and actionRates[action.speed]
+  if not rate then
+    return progressTicks
+  end
+  return math.floor(progressTicks * rate.numerator / rate.denominator)
+end
+
 -- Resolve the tick duration of one movement action. The
 -- speed/distance enums are schema-constrained, so an unknown value is a
 -- programming invariant violation, never a silent default.

@@ -475,6 +475,232 @@ local function cadenceVisual()
   return visual
 end
 
+local function runLocomotion(action)
+  local h = harness()
+  local resource = S.script({
+    api = 1,
+    id = "test.source_rate_" .. action.action .. "_" .. (action.speed or action.distance),
+    steps = {
+      S.applyMovement({
+        actor = ACTOR_ID,
+        movement = {
+          action,
+          S.m.delay({ ticks = 1 }),
+        },
+      }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  local visual = cadenceVisual()
+  local durationTicks = MovementCalibration.actionTicks(action)
+  local startFieldX, startFieldZ = actor.fieldX, actor.fieldZ
+  local startWorldY = actor.worldY
+  local poseTicks, frameIndexes = {}, {}
+  ---@type number[]
+  local worldYs = {}
+  for progress = 1, durationTicks do
+    h.scheduler:step(100 + progress, nil)
+    Assert.isTrue(actor.pose == "walk", "locomotion remains visible through its action")
+    if progress < durationTicks then
+      Assert.equal(actor:currentAction(), action.action, "the action duration remains source-calibrated")
+    else
+      Assert.isNil(actor:currentAction(), "the action commits on its existing final tick")
+    end
+    poseTicks[#poseTicks + 1] = actor.poseTick
+    frameIndexes[#frameIndexes + 1] =
+      assert(FieldActorPose.frameIndex(visual, actor.facing, actor.pose, actor.poseTick))
+    worldYs[#worldYs + 1] = assert(actor.worldY)
+  end
+  return {
+    actor = actor,
+    startFieldX = startFieldX,
+    startFieldZ = startFieldZ,
+    startWorldY = startWorldY,
+    poseTicks = poseTicks,
+    frameIndexes = frameIndexes,
+    worldYs = worldYs,
+    durationTicks = durationTicks,
+  }
+end
+
+function T.source_backed_locomotion_matrix_preserves_timing_and_visible_frames()
+  local cases = {
+    {
+      label = "walk slow",
+      action = { action = "walk", direction = "east", speed = "slow", tiles = 1 },
+      poseTicks = { 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8 },
+      frameIndexes = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5 },
+      endFieldX = 3,
+      endFieldZ = 3,
+    },
+    {
+      label = "walk normal",
+      action = { action = "walk", direction = "east", speed = "normal", tiles = 1 },
+      poseTicks = { 1, 2, 3, 4, 5, 6, 7, 8 },
+      frameIndexes = { 4, 4, 4, 4, 5, 5, 5, 5 },
+      endFieldX = 3,
+      endFieldZ = 3,
+    },
+    {
+      label = "walk fast",
+      action = { action = "walk", direction = "east", speed = "fast", tiles = 1 },
+      poseTicks = { 2, 4, 6, 8 },
+      frameIndexes = { 4, 4, 5, 5 },
+      endFieldX = 3,
+      endFieldZ = 3,
+    },
+    {
+      label = "walk-in-place slower",
+      action = { action = "walk_in_place", direction = "east", speed = "slower" },
+      poseTicks = { 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12 },
+      frameIndexes = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5 },
+      endFieldX = 2,
+      endFieldZ = 3,
+    },
+    {
+      label = "walk-in-place slow",
+      action = { action = "walk_in_place", direction = "east", speed = "slow" },
+      poseTicks = { 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8 },
+      frameIndexes = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5 },
+      endFieldX = 2,
+      endFieldZ = 3,
+    },
+    {
+      label = "walk-in-place normal",
+      action = { action = "walk_in_place", direction = "east", speed = "normal" },
+      poseTicks = { 1, 2, 3, 4, 5, 6, 7, 8 },
+      frameIndexes = { 4, 4, 4, 4, 5, 5, 5, 5 },
+      endFieldX = 2,
+      endFieldZ = 3,
+    },
+    {
+      label = "walk-in-place fast",
+      action = { action = "walk_in_place", direction = "east", speed = "fast" },
+      poseTicks = { 2, 4, 6, 8 },
+      frameIndexes = { 4, 4, 5, 5 },
+      endFieldX = 2,
+      endFieldZ = 3,
+    },
+    {
+      label = "zero jump slow",
+      action = { action = "jump", direction = "east", distance = "zero", speed = "slow" },
+      poseTicks = { 0, 1, 1, 2 },
+      frameIndexes = { 4, 4, 4, 4 },
+      endFieldX = 2,
+      endFieldZ = 3,
+    },
+    {
+      label = "zero jump fast",
+      action = { action = "jump", direction = "east", distance = "zero", speed = "fast" },
+      poseTicks = { 1, 2, 3, 4 },
+      frameIndexes = { 4, 4, 4, 4 },
+      endFieldX = 2,
+      endFieldZ = 3,
+    },
+    {
+      label = "near jump fast",
+      action = { action = "jump", direction = "east", distance = "near", speed = "fast" },
+      poseTicks = { 1, 2, 3, 4, 5, 6 },
+      frameIndexes = { 4, 4, 4, 4, 5, 5 },
+      endFieldX = 3,
+      endFieldZ = 3,
+    },
+    {
+      label = "far jump fast",
+      action = { action = "jump", direction = "east", distance = "far", speed = "fast" },
+      poseTicks = { 1, 2, 3, 4, 5, 6, 7, 8 },
+      frameIndexes = { 4, 4, 4, 4, 5, 5, 5, 5 },
+      endFieldX = 3,
+      endFieldZ = 3,
+    },
+  }
+
+  for _, case in ipairs(cases) do
+    local observed = runLocomotion(case.action)
+    Assert.equal(
+      observed.durationTicks,
+      MovementCalibration.actionTicks(case.action),
+      case.label .. " retains duration"
+    )
+    Assert.deepEqual(observed.poseTicks, case.poseTicks, case.label .. " uses the source pose cadence")
+    Assert.deepEqual(observed.frameIndexes, case.frameIndexes, case.label .. " selects the source frame timeline")
+    Assert.equal(observed.actor.fieldX, case.endFieldX, case.label .. " retains its physical X result")
+    Assert.equal(observed.actor.fieldZ, case.endFieldZ, case.label .. " retains its physical Z result")
+    if case.action.action == "walk_in_place" then
+      Assert.equal(observed.actor.fieldX, observed.startFieldX, case.label .. " does not translate")
+      Assert.equal(observed.actor.fieldZ, observed.startFieldZ, case.label .. " does not translate")
+      Assert.equal(observed.actor.presentationOffset.y, 0, case.label .. " clears its bob at completion")
+    end
+    if case.action.action == "jump" then
+      local startWorldY = assert(observed.startWorldY)
+      Assert.equal(observed.actor.worldY, startWorldY, case.label .. " returns to its physical anchor")
+      local peak = startWorldY
+      for _, worldY in ipairs(observed.worldYs) do
+        peak = math.max(peak, assert(worldY))
+      end
+      Assert.isTrue(peak > startWorldY, case.label .. " retains its physical jump arc")
+      Assert.isTrue(
+        peak <= startWorldY + MovementCalibration.JUMP_HEIGHTS[case.action.distance] + 1e-9,
+        case.label .. " retains its calibrated jump height"
+      )
+    end
+  end
+end
+
+function T.half_rate_locomotion_keeps_integer_continuous_pose_phase()
+  local h = harness()
+  local resource = S.script({
+    api = 1,
+    id = "test.half_rate_chain",
+    steps = {
+      S.applyMovement({
+        actor = ACTOR_ID,
+        movement = {
+          S.m.walkInPlace({ direction = "east", speed = "slow", count = 2 }),
+          S.m.delay({ ticks = 1 }),
+        },
+      }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  local startingPoseTick = actor.poseTick
+  local sawBob = false
+  for progress = 1, 32 do
+    h.scheduler:step(100 + progress, nil)
+    Assert.equal(actor.pose, "walk", "adjacent half-rate actions never flash idle")
+    Assert.equal(actor.poseTick, startingPoseTick + math.floor(progress / 2), "half-rate pose phase stays contiguous")
+    Assert.equal(actor.poseTick, math.floor(actor.poseTick), "half-rate pose phase remains an integer")
+    Assert.isTrue(actor.poseTick >= 0, "half-rate pose phase remains non-negative")
+    sawBob = sawBob or actor.presentationOffset.y ~= 0
+    if progress == 16 then
+      Assert.isNil(actor:currentAction(), "the first half-rate action keeps its existing duration")
+      Assert.equal(actor.poseTick, startingPoseTick + 8, "the first half-rate action ends at its exact rational delta")
+    elseif progress < 32 then
+      Assert.equal(actor:currentAction(), "walk_in_place", "the repeated half-rate action remains active")
+    end
+  end
+  Assert.isNil(actor:currentAction(), "the second half-rate action keeps its existing duration")
+  Assert.equal(actor.poseTick, startingPoseTick + 16, "two half-rate actions have no fractional drift")
+  Assert.isTrue(sawBob, "raw action progress still drives walk-in-place bob")
+  Assert.equal(actor.presentationOffset.y, 0, "the second half-rate action clears its bob")
+end
+
+function T.specialized_walk_speed_preserves_baseline_pose_progression()
+  local observed = runLocomotion({ action = "walk", direction = "east", speed = "slightly_fast", tiles = 1 })
+  Assert.deepEqual(observed.poseTicks, { 1, 2, 3, 4, 5, 6 }, "an untraced speed remains at baseline 1x")
+  Assert.deepEqual(observed.frameIndexes, { 4, 4, 4, 4, 5, 5 }, "an untraced speed keeps its existing frames")
+  Assert.equal(observed.actor.fieldX, 3, "an untraced speed keeps its existing translation")
+  Assert.equal(observed.durationTicks, 6, "an untraced speed keeps its existing duration")
+end
+
 function T.normal_and_fast_locomotion_keep_independent_pose_cadence()
   local h = harness()
   local resource = S.script({

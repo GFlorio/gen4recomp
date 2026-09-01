@@ -7,6 +7,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
+local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 
 ---@class FieldObjectActor
 ---@field actorId string
@@ -258,7 +259,6 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldX = m.startWorldX + (m.destWorldX - m.startWorldX) * t
     self.worldZ = m.startWorldZ + (m.destWorldZ - m.startWorldZ) * t
     if m.action == "jump" then
-      local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
       local h = MovementCalibration.JUMP_HEIGHTS[m.distance] or 0
       -- Parabolic arc: 4*h*t*(1-t)
       local arc = 4 * h * t * (1 - t)
@@ -283,14 +283,11 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldY = m.startWorldY
   end
   -- Advance pose clock once per eligible tick while walking/jumping/
-  -- walk_in_place. Fast walking actions consume two source animation units
-  -- per fixed tick; simulation progress remains calibrated independently.
+  -- walk_in_place. Presentation progress is calibrated independently from
+  -- the fixed simulation progress used by geometry and completion.
   if not self.animationPaused then
     if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" then
-      local poseProgress = progressTicks
-      if m.speed == "fast" and (m.action == "walk" or m.action == "walk_in_place") then
-        poseProgress = progressTicks * 2
-      end
+      local poseProgress = MovementCalibration.poseProgressTicks(m, progressTicks)
       self.pose = "walk"
       self.poseTick = m.startPoseTick + poseProgress
     end

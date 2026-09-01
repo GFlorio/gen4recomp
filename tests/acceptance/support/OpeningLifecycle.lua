@@ -82,8 +82,8 @@ end
 
 -- The New Bark escort friend (source coords 688,392) and Marill sit on/near
 -- the Elm landing/warp tile and are source-solid until the friend/Marill
--- on-frame scene runs and hides both actors (R10/C02: flags decide actor
--- presence), not a passability heuristic. Scenarios about the Elm
+-- on-frame scene runs and hides both actors (flags decide actor presence), not
+-- a passability heuristic. Scenarios about the Elm
 -- route/entrance-indicator effect rather than the scene itself seed its
 -- documented outcome -- both hide flags -- directly, without running the
 -- scripted scene or disabling any map-init evaluation.
