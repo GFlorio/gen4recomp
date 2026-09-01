@@ -2,6 +2,7 @@
 -- and its precomputed rectangles; it never performs hit testing or persistence.
 
 local Button = require("libs.ui.src.Button")
+local ButtonPainter = require("game.hgss.src.ui.ButtonPainter")
 
 ---@class MainMenuRenderer
 ---@field new fun(): MainMenuRenderer
@@ -10,33 +11,41 @@ local Button = require("libs.ui.src.Button")
 local MainMenuRenderer = {}
 MainMenuRenderer.__index = MainMenuRenderer
 
-local BUTTON_BEVEL_WIDTH = 2
+local BUTTON_BORDER_WIDTH = 1
+local BUTTON_RIM_WIDTH = 1
+local BUTTON_INNER_BORDER_WIDTH = 1
+local BUTTON_CORNER_CUT = 1
+local BUTTON_FACE_SPLIT = 0.5
 local BUTTON_CONTENT_INSET_X = 4
 local BUTTON_CONTENT_INSET_Y = 2
 
 local function actionButton(rect)
-  local bevel = math.min(BUTTON_BEVEL_WIDTH, math.max(0, (math.min(rect.width, rect.height) - 1) / 2))
-  local contentInsetX = math.min(BUTTON_CONTENT_INSET_X, math.max(0, (rect.width - bevel * 2 - 1) / 2))
-  local contentInsetY = math.min(BUTTON_CONTENT_INSET_Y, math.max(0, (rect.height - bevel * 2 - 1) / 2))
+  local minimum = math.min(rect.width, rect.height)
+  local layerWidth = math.min(1, math.max(0, (minimum - 1) / 6))
+  local cornerCut = math.min(1, math.max(0, (minimum - 1) / 2))
+  local totalLayerWidth = layerWidth * 3
   return Button.resolve({
     rect = rect,
-    bevelWidth = bevel,
-    contentInsetX = contentInsetX,
-    contentInsetY = contentInsetY,
+    borderWidth = math.min(BUTTON_BORDER_WIDTH, layerWidth),
+    rimWidth = math.min(BUTTON_RIM_WIDTH, layerWidth),
+    innerBorderWidth = math.min(BUTTON_INNER_BORDER_WIDTH, layerWidth),
+    cornerCut = math.min(BUTTON_CORNER_CUT, cornerCut),
+    faceSplit = BUTTON_FACE_SPLIT,
+    contentInsetX = math.min(BUTTON_CONTENT_INSET_X, math.max(0, (rect.width - totalLayerWidth * 2 - 1) / 2)),
+    contentInsetY = math.min(BUTTON_CONTENT_INSET_Y, math.max(0, (rect.height - totalLayerWidth * 2 - 1) / 2)),
   })
 end
 
 local function drawActionButton(rect, label, textColor, faceColor, highlightColor, shadowColor)
   local button = actionButton(rect)
   local lg = love.graphics
-  lg.setColor(faceColor[1], faceColor[2], faceColor[3], faceColor[4])
-  lg.rectangle("fill", button.faceRect.x, button.faceRect.y, button.faceRect.width, button.faceRect.height)
-  lg.setColor(highlightColor[1], highlightColor[2], highlightColor[3], highlightColor[4])
-  lg.rectangle("fill", button.top.x, button.top.y, button.top.width, button.top.height)
-  lg.rectangle("fill", button.left.x, button.left.y, button.left.width, button.left.height)
-  lg.setColor(shadowColor[1], shadowColor[2], shadowColor[3], shadowColor[4])
-  lg.rectangle("fill", button.bottom.x, button.bottom.y, button.bottom.width, button.bottom.height)
-  lg.rectangle("fill", button.right.x, button.right.y, button.right.width, button.right.height)
+  ButtonPainter.draw(lg, button, {
+    border = shadowColor,
+    rim = highlightColor,
+    innerBorder = highlightColor,
+    faceTop = faceColor,
+    faceBottom = faceColor,
+  })
   lg.setColor(textColor[1], textColor[2], textColor[3], textColor[4])
   lg.printf(
     label,

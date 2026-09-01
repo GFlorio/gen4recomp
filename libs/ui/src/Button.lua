@@ -1,4 +1,4 @@
--- Pure rectangular button geometry for host-rendered controls.
+-- Pure layered button geometry for host-rendered controls.
 
 local Button = {}
 
@@ -31,23 +31,45 @@ local function assertFiniteRectangle(value, name)
   assert(value.width >= 0 and value.height >= 0, name .. " dimensions must be non-negative")
 end
 
+local function insetRect(rect, amount)
+  return {
+    x = rect.x + amount,
+    y = rect.y + amount,
+    width = rect.width - amount * 2,
+    height = rect.height - amount * 2,
+  }
+end
+
+local function shape(rect, cornerCut, name)
+  assertFiniteRectangle(rect, name .. " rectangle")
+  assertPositiveRectangle(rect, name .. " rectangle")
+  return { rect = rect, cornerCut = cornerCut }
+end
+
 ---@param spec table
 ---@return table
 function Button.resolve(spec)
   assert(type(spec) == "table", "button specification is required")
   local rect = rectangle(spec.rect, "button rectangle")
-  local bevelWidth = metric(spec.bevelWidth, "button bevel width")
+  local borderWidth = metric(spec.borderWidth, "button border width")
+  local rimWidth = metric(spec.rimWidth, "button rim width")
+  local innerBorderWidth = metric(spec.innerBorderWidth, "button inner border width")
+  local cornerCut = metric(spec.cornerCut, "button corner cut")
+  assert(cornerCut <= math.min(rect.width, rect.height) / 2, "button corner cut is too large")
+  assert(
+    finite(spec.faceSplit) and spec.faceSplit > 0 and spec.faceSplit < 1,
+    "button face split must be between 0 and 1"
+  )
   local contentInsetX = metric(spec.contentInsetX, "button horizontal content inset")
   local contentInsetY = metric(spec.contentInsetY, "button vertical content inset")
 
-  local faceRect = {
-    x = rect.x + bevelWidth,
-    y = rect.y + bevelWidth,
-    width = rect.width - bevelWidth * 2,
-    height = rect.height - bevelWidth * 2,
-  }
-  assertPositiveRectangle(faceRect, "button face rectangle")
-  assertFiniteRectangle(faceRect, "button face rectangle")
+  local border = shape(rect, cornerCut, "button border")
+  local rimRect = insetRect(rect, borderWidth)
+  local rim = shape(rimRect, math.max(0, cornerCut - borderWidth), "button rim")
+  local innerBorderRect = insetRect(rimRect, rimWidth)
+  local innerBorder = shape(innerBorderRect, math.max(0, cornerCut - borderWidth - rimWidth), "button inner border")
+  local faceRect = insetRect(innerBorderRect, innerBorderWidth)
+  local face = shape(faceRect, math.max(0, cornerCut - borderWidth - rimWidth - innerBorderWidth), "button face")
 
   local contentRect = {
     x = faceRect.x + contentInsetX,
@@ -58,37 +80,15 @@ function Button.resolve(spec)
   assertPositiveRectangle(contentRect, "button content rectangle")
   assertFiniteRectangle(contentRect, "button content rectangle")
 
-  local top = { x = rect.x, y = rect.y, width = rect.width, height = bevelWidth }
-  local left = {
-    x = rect.x,
-    y = rect.y + bevelWidth,
-    width = bevelWidth,
-    height = rect.height - bevelWidth * 2,
-  }
-  local bottom = {
-    x = rect.x,
-    y = rect.y + rect.height - bevelWidth,
-    width = rect.width,
-    height = bevelWidth,
-  }
-  local right = {
-    x = rect.x + rect.width - bevelWidth,
-    y = rect.y + bevelWidth,
-    width = bevelWidth,
-    height = rect.height - bevelWidth * 2,
-  }
-  for name, edge in pairs({ top = top, left = left, bottom = bottom, right = right }) do
-    assertFiniteRectangle(edge, "button " .. name .. " edge")
-  end
+  face.splitY = faceRect.y + faceRect.height * spec.faceSplit
 
   return {
     rect = rect,
-    faceRect = faceRect,
+    border = border,
+    rim = rim,
+    innerBorder = innerBorder,
+    face = face,
     contentRect = contentRect,
-    top = top,
-    left = left,
-    bottom = bottom,
-    right = right,
   }
 end
 

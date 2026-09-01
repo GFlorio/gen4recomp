@@ -35,6 +35,7 @@ local function withGraphicsSpy(fn)
     "getHeight",
     "getScissor",
     "getWidth",
+    "polygon",
     "print",
     "printf",
     "rectangle",
@@ -47,7 +48,7 @@ local function withGraphicsSpy(fn)
     original[name] = graphics[name]
   end
 
-  local calls = { rectangles = {}, colors = {}, prints = {} }
+  local calls = { rectangles = {}, polygons = {}, primitives = {}, colors = {}, prints = {} }
   local color = { 1, 1, 1, 1 }
   local scissor = nil
   rawset(graphics, "clear", function() end)
@@ -75,7 +76,8 @@ local function withGraphicsSpy(fn)
     }
   end)
   rawset(graphics, "rectangle", function(mode, x, y, width, height)
-    calls.rectangles[#calls.rectangles + 1] = {
+    local call = {
+      kind = "rectangle",
       mode = mode,
       x = x,
       y = y,
@@ -83,6 +85,18 @@ local function withGraphicsSpy(fn)
       height = height,
       color = { color[1], color[2], color[3], color[4] },
     }
+    calls.rectangles[#calls.rectangles + 1] = call
+    calls.primitives[#calls.primitives + 1] = call
+  end)
+  rawset(graphics, "polygon", function(mode, ...)
+    local call = {
+      kind = "polygon",
+      mode = mode,
+      points = { ... },
+      color = { color[1], color[2], color[3], color[4] },
+    }
+    calls.polygons[#calls.polygons + 1] = call
+    calls.primitives[#calls.primitives + 1] = call
   end)
   rawset(graphics, "setColor", function(r, g, b, a)
     color = { r, g, b, a }
@@ -105,35 +119,58 @@ local function withGraphicsSpy(fn)
   return calls
 end
 
-local function actionRectangles(calls, outer)
+local function primitiveBounds(call)
+  if call.kind == "rectangle" then
+    return call.x, call.y, call.x + call.width, call.y + call.height
+  end
+  local minX, minY = math.huge, math.huge
+  local maxX, maxY = -math.huge, -math.huge
+  for index = 1, #call.points, 2 do
+    minX = math.min(minX, call.points[index])
+    maxX = math.max(maxX, call.points[index])
+    minY = math.min(minY, call.points[index + 1])
+    maxY = math.max(maxY, call.points[index + 1])
+  end
+  return minX, minY, maxX, maxY
+end
+
+local function actionPrimitives(calls, outer)
   local result = {}
-  for _, candidate in ipairs(calls.rectangles) do
-    if
-      candidate.x >= outer.x
-      and candidate.y >= outer.y
-      and candidate.x + candidate.width <= outer.x + outer.width
-      and candidate.y + candidate.height <= outer.y + outer.height
-    then
+  for _, candidate in ipairs(calls.primitives) do
+    local minX, minY, maxX, maxY = primitiveBounds(candidate)
+    if minX >= outer.x and minY >= outer.y and maxX <= outer.x + outer.width and maxY <= outer.y + outer.height then
       result[#result + 1] = candidate
     end
   end
   return result
 end
 
-local function assertBeveledAction(calls, outer)
-  local rectangles = actionRectangles(calls, outer)
-  Assert.equal(#rectangles, 5, "an action must render as a face and four bevel edges")
-  local touches = { top = false, left = false, bottom = false, right = false }
-  for _, candidate in ipairs(rectangles) do
-    touches.top = touches.top or candidate.y == outer.y
-    touches.left = touches.left or candidate.x == outer.x
-    touches.bottom = touches.bottom or candidate.y + candidate.height == outer.y + outer.height
-    touches.right = touches.right or candidate.x + candidate.width == outer.x + outer.width
+local function colorKey(color)
+  return table.concat({ color[1], color[2], color[3], color[4] }, ",")
+end
+
+local function assertLayeredAction(calls, outer, faceColor)
+  local primitives = actionPrimitives(calls, outer)
+  Assert.isTrue(#primitives > 1, "an action must contain multiple semantic chrome layers")
+
+  local colors = {}
+  local hasPolygon = false
+  local faceIndex = nil
+  for index, candidate in ipairs(primitives) do
+    colors[colorKey(candidate.color)] = true
+    hasPolygon = hasPolygon or candidate.kind == "polygon"
+    if colorKey(candidate.color) == colorKey(faceColor) and faceIndex == nil then
+      faceIndex = index
+    end
   end
-  Assert.isTrue(touches.top, "the action must have a top edge")
-  Assert.isTrue(touches.left, "the action must have a left edge")
-  Assert.isTrue(touches.bottom, "the action must have a bottom edge")
-  Assert.isTrue(touches.right, "the action must have a right edge")
+  local colorCount = 0
+  for _ in pairs(colors) do
+    colorCount = colorCount + 1
+  end
+  Assert.isTrue(colorCount >= 3, "an action must retain distinct layer colors")
+  Assert.isTrue(hasPolygon, "an action must use pixel-cut geometry when its shape is painted")
+  Assert.notNil(faceIndex, "an action must paint its face")
+  Assert.isTrue(faceIndex > 1, "outer layers must be painted before the face")
 end
 
 function T.formats_capped_play_time_as_hours_and_minutes()
@@ -193,7 +230,7 @@ function T.layout_keeps_card_body_and_delete_hit_regions_exclusive()
   Assert.isFalse(MainMenuLayout.contains(card.body, card.delete.x + 1, card.delete.y + 1))
 end
 
-function T.delete_and_dialog_actions_keep_layout_behavior_with_beveled_rendering()
+function T.delete_and_dialog_actions_keep_layout_behavior_with_layered_rendering()
   local entries = {
     {
       saveId = "save-00000001",
@@ -225,9 +262,8 @@ function T.delete_and_dialog_actions_keep_layout_behavior_with_beveled_rendering
     primary = nil,
     delete = "save-00000001",
   })
-  local cardCalls = withGraphicsSpy(function(calls)
+  local cardCalls = withGraphicsSpy(function(_)
     menu:draw()
-    assertBeveledAction(calls, initialDelete)
   end)
   Assert.notNil(cardCalls)
   local cardDeleteText = nil
@@ -246,10 +282,8 @@ function T.delete_and_dialog_actions_keep_layout_behavior_with_beveled_rendering
   Assert.equal(menu:view().dialog.focusedAction, "cancel")
   local dialogView = menu:view()
   local dialog = assert(dialogView.layout.dialog)
-  local dialogCalls = withGraphicsSpy(function(calls)
+  local dialogCalls = withGraphicsSpy(function(_)
     menu:draw()
-    assertBeveledAction(calls, dialog.cancel)
-    assertBeveledAction(calls, dialog.delete)
   end)
   Assert.notNil(dialogCalls)
 
@@ -260,6 +294,10 @@ function T.delete_and_dialog_actions_keep_layout_behavior_with_beveled_rendering
   menu:keypressed("return")
   Assert.deepEqual(deletes, { "save-00000001" })
   Assert.equal(#menu:view().items, 1)
+
+  assertLayeredAction(cardCalls, initialDelete, { 0.28, 0.18, 0.22, 1 })
+  assertLayeredAction(dialogCalls, dialog.cancel, { 0.3, 0.35, 0.45, 1 })
+  assertLayeredAction(dialogCalls, dialog.delete, { 0.3, 0.2, 0.25, 1 })
 end
 
 function T.narrow_dialog_action_rectangles_remain_drawable()
