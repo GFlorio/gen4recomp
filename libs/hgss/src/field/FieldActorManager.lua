@@ -168,6 +168,7 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field occupancy table<string, FieldActorManager.Actor>
 ---@field reservations table<string, { actorId: string, candidate: FieldOccupancyCandidate }>
 ---@field autonomousActions table<string, table>
+---@field autonomousPresentationCarry table<string, boolean>
 ---@field byFlag table<integer, FieldActorEvent[]>
 ---@field byIndex table<integer, string>
 
@@ -572,6 +573,7 @@ end
 ---@param actor FieldActorManager.Actor
 ---@param self FieldActorManager
 function FieldActorManager:_destroy(entry, actor)
+  entry.autonomousPresentationCarry[actor.actorId] = nil
   local action = entry.autonomousActions[actor.actorId]
   if action then
     local reservation = entry.reservations[action.reservationKey]
@@ -646,6 +648,7 @@ local function newEntry(runtimeMap)
     occupancy = {},
     reservations = {},
     autonomousActions = {},
+    autonomousPresentationCarry = {},
     byFlag = {},
     byIndex = {},
   } ---@type FieldActorManager.Entry
@@ -1319,6 +1322,11 @@ function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
   local autonomyState = self.autonomy:state(actor.actorId)
   actor.scriptMovementType = autonomyState.movementType
   actor.movementType = autonomyState.movementType
+  if autonomyState.profile.kind == "pattern" or autonomyState.profile.kind == "shuttle" then
+    entry.autonomousPresentationCarry[actor.actorId] = true
+  else
+    actor:settlePresentation()
+  end
 end
 
 local function sortedMapIds(maps)
@@ -1356,6 +1364,7 @@ function FieldActorManager:step(tick, context)
       if autonomousAction then
         self:_advanceAutonomousAction(entry, actor, autonomousAction)
       else
+        local hasAutonomousPresentationCarry = entry.autonomousPresentationCarry[actor.actorId] == true
         -- Scripted pause_animation freezes the actor's pose animation; the
         -- pose clock only advances while the actor is not paused. A scripted
         -- action drives its own poseTick through advanceScriptedAction, so the
@@ -1395,6 +1404,12 @@ function FieldActorManager:step(tick, context)
             walk = walk,
           }
           self.autonomy:step(actor.actorId, capability)
+        end
+        if hasAutonomousPresentationCarry then
+          if entry.autonomousActions[actor.actorId] == nil then
+            actor:settlePresentation()
+          end
+          entry.autonomousPresentationCarry[actor.actorId] = nil
         end
       end
     end
@@ -1939,6 +1954,7 @@ end
 function FieldActorManager:beginScriptedAction(actorId, action)
   local actor = requireActor(self, actorId)
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  entry.autonomousPresentationCarry[actorId] = nil
   local autonomousAction = entry.autonomousActions[actorId]
   if autonomousAction then
     assert(entry.reservations[autonomousAction.reservationKey])

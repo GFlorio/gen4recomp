@@ -152,7 +152,7 @@ local function manager(objects, opts)
   opts = opts or {}
   local assets = opts.assets or fakeAssets({ [99] = true, [34] = true, [29] = true, [0] = true })
   local eventState = opts.eventState or FieldEventState.new()
-  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY, autonomyRng = opts.autonomyRng })
   local map = opts.map or runtimeMap(objects)
   mgr:enterMap(map, eventState, opts.restoredObjects)
   return mgr, eventState, assets, map
@@ -181,13 +181,28 @@ local function forceAutonomy(mgr, direction, onStep)
     detach = function() end,
     applyPendingMovementType = function() end,
     state = function(_, actorId)
-      return { movementType = assert(mgr:getById(actorId)).movementType }
+      return {
+        movementType = assert(mgr:getById(actorId)).movementType,
+        profile = { kind = "wander" },
+      }
     end,
     step = function(_, actorId, capability)
       if onStep then
         onStep(capability)
       end
       capability:walk(actorId, direction)
+    end,
+  }
+end
+
+local function deterministicRng(values)
+  local index = 0
+  return {
+    nextInt = function(_, maximum)
+      index = index + 1
+      local value = assert(values[index], "deterministic autonomy roll is missing")
+      Assert.isTrue(value >= 0 and value < maximum, "deterministic autonomy roll must fit its bound")
+      return value
     end,
   }
 end
@@ -1370,6 +1385,144 @@ function T.scripted_reposition_autonomous_reservation_and_destroy_keep_stable_ce
   Assert.throws(function()
     mgr.autonomy:state(actorId)
   end)
+  mgr:dispose()
+end
+
+function T.autonomous_wander_settles_before_its_wait()
+  local mgr = manager(
+    { object({ movementType = "wander_around", xRange = -1, yRange = -1 }) },
+    { autonomyRng = deterministicRng({ 3, 0 }) }
+  )
+  local actorId = "map:61:object:0"
+  local actor = assert(mgr:getById(actorId))
+  local entry = assert(mgr.maps[61])
+
+  mgr:step(1)
+  Assert.equal(actor.pose, "walk")
+  Assert.notNil(entry.autonomousActions[actorId])
+  for tick = 2, 8 do
+    mgr:step(tick)
+    Assert.equal(actor.pose, "walk", "a wandering actor walks while its autonomous action is active")
+    Assert.notNil(entry.autonomousActions[actorId])
+  end
+
+  mgr:step(9)
+  Assert.equal(actor.fieldX, 3)
+  Assert.equal(actor.fieldZ, 3)
+  Assert.isNil(entry.autonomousActions[actorId])
+  Assert.equal(actor.pose, "idle", "a completed wandering step settles before its wait")
+  Assert.equal(actor.poseTick, 0, "settling restores the idle pose-clock baseline")
+
+  mgr:step(10)
+  mgr:step(11)
+  Assert.isNil(entry.autonomousActions[actorId])
+  Assert.equal(actor.pose, "idle", "the actor remains idle throughout its controller wait")
+  mgr:dispose()
+end
+
+function T.autonomous_pattern_continues_without_an_idle_boundary()
+  local mgr = manager({
+    object({
+      movementType = "walk_north_east_west_south",
+      facingDirection = "north",
+      xRange = -1,
+      yRange = -1,
+    }),
+  })
+  local actorId = "map:61:object:0"
+  local actor = assert(mgr:getById(actorId))
+  local entry = assert(mgr.maps[61])
+
+  mgr:step(1)
+  for tick = 2, 8 do
+    mgr:step(tick)
+  end
+  mgr:step(9)
+  Assert.equal(actor.fieldX, 2)
+  Assert.equal(actor.fieldZ, 2)
+  Assert.equal(actor.pose, "walk", "a continuous step keeps its walking presentation at commit")
+  Assert.isNil(entry.autonomousActions[actorId])
+
+  mgr:step(10)
+  Assert.equal(actor.pose, "walk", "a successful successor has no idle presentation boundary")
+  local successor = assert(entry.autonomousActions[actorId])
+  Assert.equal(successor.destination.fieldX, 3)
+  Assert.equal(successor.destination.fieldZ, 2)
+  mgr:dispose()
+end
+
+function T.autonomous_pattern_settles_when_continuation_is_blocked()
+  local mgr = manager({
+    object({
+      objectEventId = 0,
+      movementType = "walk_north_east_west_south",
+      facingDirection = "north",
+      xRange = -1,
+      yRange = -1,
+    }),
+    object({ objectEventId = 1, x = 3, z = 2 }),
+    object({ objectEventId = 2, x = 1, z = 2 }),
+  })
+  local actorId = "map:61:object:0"
+  local actor = assert(mgr:getById(actorId))
+  local entry = assert(mgr.maps[61])
+
+  mgr:step(1)
+  for tick = 2, 8 do
+    mgr:step(tick)
+  end
+  mgr:step(9)
+  Assert.equal(actor.fieldX, 2)
+  Assert.equal(actor.fieldZ, 2)
+  Assert.equal(actor.pose, "walk")
+  Assert.isNil(entry.autonomousActions[actorId])
+
+  mgr:step(10)
+  Assert.equal(actor.fieldX, 2, "a blocked successor leaves the actor on its committed tile")
+  Assert.equal(actor.fieldZ, 2, "a blocked successor leaves the actor on its committed tile")
+  Assert.isNil(entry.autonomousActions[actorId])
+  Assert.isNil(next(entry.reservations))
+  Assert.equal(actor.pose, "idle", "a failed continuous successor settles the actor")
+  Assert.equal(actor.poseTick, 0, "settling clears the carried walking phase")
+  mgr:dispose()
+end
+
+function T.destroying_a_carried_actor_clears_only_its_presentation_state()
+  local eventState = FieldEventState.new()
+  local mgr = manager({
+    object({
+      objectEventId = 0,
+      eventFlag = 401,
+      movementType = "walk_north_east_west_south",
+      facingDirection = "north",
+      xRange = -1,
+      yRange = -1,
+    }),
+    object({ objectEventId = 1, x = 10, z = 3 }),
+  }, { eventState = eventState })
+  local carriedActorId = "map:61:object:0"
+  local otherActorId = "map:61:object:1"
+  local entry = assert(mgr.maps[61])
+  local carriedActor = assert(mgr:getById(carriedActorId))
+  local otherActor = assert(mgr:getById(otherActorId))
+
+  mgr:step(1)
+  for tick = 2, 9 do
+    mgr:step(tick)
+  end
+  Assert.equal(carriedActor.pose, "walk")
+  Assert.isNil(entry.autonomousActions[carriedActorId])
+  Assert.isTrue(entry.autonomousPresentationCarry[carriedActorId])
+
+  eventState:setFlag(401)
+  mgr:step(10)
+
+  Assert.isNil(mgr:getById(carriedActorId))
+  Assert.isNil(entry.autonomousActions[carriedActorId])
+  Assert.isNil(entry.autonomousPresentationCarry[carriedActorId])
+  Assert.isNil(next(entry.reservations))
+  Assert.equal(assert(mgr:getById(otherActorId)), otherActor)
+  Assert.equal(otherActor.pose, "idle")
   mgr:dispose()
 end
 
