@@ -5,7 +5,6 @@
 ---@class MenuLayout
 ---@type { BOTTOM_SCREEN_TILE_PLACEMENT: string }
 local MenuProtocol = require("libs.assets.src.MenuProtocol")
-local ListViewport = require("libs.hgss.src.ui.ListViewport")
 local MenuLayout = {}
 
 MenuLayout.minimumTouchTarget = 44
@@ -264,7 +263,7 @@ end
 ---@param rowHeight number
 ---@param padding number
 ---@param cancelHeight number
----@return ScreenTopology.Rectangle, ScreenTopology.Rectangle[], number, number, ListViewport
+---@return ScreenTopology.Rectangle, ScreenTopology.Rectangle[], number, number, integer, integer
 local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   local content = {
     x = frame.x + padding,
@@ -274,24 +273,27 @@ local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   }
   local totalHeight = #menu.items * rowHeight
   local maxOffset = math.max(0, totalHeight - content.height)
-  local viewport = ListViewport.new({
-    itemCount = #menu.items,
-    selectedIndex = menu.selectedIndex,
-    visibleRows = math.max(1, math.ceil(content.height / rowHeight)),
-  })
   local selectedTop = (menu.selectedIndex or 0) * rowHeight
   local offset = clamp(selectedTop - (content.height - rowHeight), 0, maxOffset)
-  offset = math.max(offset, assert(viewport:firstVisibleRow()) * rowHeight)
   local itemRects = {}
+  local firstVisibleRow
+  local lastVisibleRow
   for luaIndex = 1, #menu.items do
-    itemRects[luaIndex - 1] = {
+    local itemIndex = luaIndex - 1
+    local itemRect = {
       x = content.x,
-      y = content.y + (luaIndex - 1) * rowHeight - offset,
+      y = content.y + itemIndex * rowHeight - offset,
       width = content.width,
       height = rowHeight,
     }
+    itemRects[itemIndex] = itemRect
+    if overlaps(itemRect, content) then
+      firstVisibleRow = firstVisibleRow or itemIndex
+      lastVisibleRow = itemIndex
+    end
   end
-  return content, itemRects, offset, maxOffset, viewport
+  assert(firstVisibleRow ~= nil and lastVisibleRow ~= nil, "menu layout must expose at least one visible row")
+  return content, itemRects, offset, maxOffset, firstVisibleRow, lastVisibleRow
 end
 
 local DIRECTIONS = { up = true, down = true, left = true, right = true }
@@ -370,7 +372,7 @@ end
 -- the renderer, while the selected row is always brought into view.
 
 ---@param spec MenuLayout.Spec
----@return { surface: ScreenTopology.Surface, presentation: "floating"|"docked", frame: ScreenTopology.Rectangle, contentRect: ScreenTopology.Rectangle, itemCount: integer, itemRects: ScreenTopology.Rectangle[], itemTexts: table<integer, string>, scrollViewport: ScreenTopology.Rectangle, cancelRect: ScreenTopology.Rectangle?, selectedIndex: integer, scrollOffset: number, maxScrollOffset: number }
+---@return { surface: ScreenTopology.Surface, presentation: "floating"|"docked", frame: ScreenTopology.Rectangle, contentRect: ScreenTopology.Rectangle, itemCount: integer, itemRects: ScreenTopology.Rectangle[], itemTexts: table<integer, string>, scrollViewport: ScreenTopology.Rectangle, cancelRect: ScreenTopology.Rectangle?, selectedIndex: integer, scrollOffset: number, maxScrollOffset: number, firstVisibleRow: integer, lastVisibleRow: integer }
 function MenuLayout.resolve(spec)
   assert(type(spec) == "table", "menu layout requires a specification")
   local selectedIndex = assertItems(spec.menu)
@@ -419,9 +421,8 @@ function MenuLayout.resolve(spec)
     selectedIndex = selectedIndex,
     cancellable = spec.menu.cancellable == true,
   }
-  local contentRect, itemRects, scrollOffset, maxScrollOffset, viewport =
+  local contentRect, itemRects, scrollOffset, maxScrollOffset, firstVisibleRow, lastVisibleRow =
     layoutItems(resolvedFrame, resolvedMenu, rowHeight, padding, cancelHeight)
-  local visibleRange = viewport:visibleRange()
   local itemTexts = {}
   for luaIndex = 1, #spec.menu.items do
     itemTexts[luaIndex - 1] = itemText(spec.menu.items[luaIndex])
@@ -448,8 +449,8 @@ function MenuLayout.resolve(spec)
     selectedIndex = selectedIndex,
     scrollOffset = scrollOffset,
     maxScrollOffset = maxScrollOffset,
-    firstVisibleRow = visibleRange.first,
-    lastVisibleRow = visibleRange.last,
+    firstVisibleRow = firstVisibleRow,
+    lastVisibleRow = lastVisibleRow,
   }
 end
 
