@@ -151,46 +151,83 @@ function T.nearby_player_facing_requires_source_gates_and_allowed_direction()
   Assert.equal(wrongBand.calls.facing[1].direction, "south")
 end
 
-function T.vs_seeker_spin_alternates_source_cycles_only_after_each_full_turn()
-  local autonomy = FieldActorAutonomy.new({ rng = rng({ 0 }) })
-  autonomy:attach("spin", "vs_seeker_spin", actorEvent("vs_seeker_spin", { facingDirection = "north" }))
-  local spin = capability()
+function T.vs_seeker_spin_turnaround_dwells_before_reversal()
+  local cases = {
+    {
+      initialFacing = "north",
+      directions = { "east", "south", "west", "north", "west" },
+      turnaroundIndex = 1,
+    },
+    {
+      initialFacing = "east",
+      directions = { "south", "west", "north", "east", "north" },
+      turnaroundIndex = 4,
+    },
+  }
 
-  for _ = 1, 24 do
-    autonomy:step("spin", spin)
-  end
-  Assert.deepEqual(spin.calls.facing, { { actorId = "spin", direction = "east" } })
-  Assert.equal(autonomy:state("spin").spinMode, "clockwise")
+  for _, testCase in ipairs(cases) do
+    local autonomy = FieldActorAutonomy.new({ rng = rng({ 0 }) })
+    autonomy:attach(
+      "spin",
+      "vs_seeker_spin",
+      actorEvent("vs_seeker_spin", {
+        facingDirection = testCase.initialFacing,
+      })
+    )
+    local spin = capability()
 
-  for _ = 1, 72 do
-    autonomy:step("spin", spin)
+    for expiry, direction in ipairs(testCase.directions) do
+      for _ = 1, 23 do
+        autonomy:step("spin", spin)
+      end
+      Assert.equal(#spin.calls.facing, expiry - 1)
+
+      autonomy:step("spin", spin)
+      Assert.equal(#spin.calls.facing, expiry)
+      Assert.equal(spin.calls.facing[expiry].direction, direction)
+      Assert.equal(autonomy:state("spin").timer, 24)
+
+      if expiry == 4 then
+        local state = autonomy:state("spin")
+        Assert.equal(state.spinMode, "counterclockwise")
+        Assert.equal(state.spinIndex, testCase.turnaroundIndex)
+      end
+    end
   end
-  Assert.deepEqual(spin.calls.facing, {
-    { actorId = "spin", direction = "east" },
-    { actorId = "spin", direction = "south" },
-    { actorId = "spin", direction = "west" },
-    { actorId = "spin", direction = "north" },
-    { actorId = "spin", direction = "west" },
-  })
-  Assert.equal(autonomy:state("spin").spinMode, "counterclockwise")
 end
 
-function T.vs_seeker_spin_starts_from_a_non_north_initial_facing()
+function T.vs_seeker_spin_turnaround_capture_restores_next_turn()
   local autonomy = FieldActorAutonomy.new({ rng = rng({ 0 }) })
   autonomy:attach("spin", "vs_seeker_spin", actorEvent("vs_seeker_spin", { facingDirection = "east" }))
-  local spin = capability()
-
+  local uninterrupted = capability()
   for _ = 1, 96 do
-    autonomy:step("spin", spin)
+    autonomy:step("spin", uninterrupted)
   end
-  Assert.deepEqual(spin.calls.facing, {
-    { actorId = "spin", direction = "south" },
-    { actorId = "spin", direction = "west" },
-    { actorId = "spin", direction = "north" },
-    { actorId = "spin", direction = "east" },
-    { actorId = "spin", direction = "north" },
+
+  local controller = autonomy:capture("spin")
+  Assert.deepEqual(controller, {
+    kind = "spin",
+    timer = 24,
+    spinMode = "counterclockwise",
+    spinIndex = 4,
   })
-  Assert.equal(autonomy:state("spin").spinMode, "counterclockwise")
+
+  local restored = FieldActorAutonomy.new({ rng = rng({ 0 }) })
+  restored:attach("spin", "vs_seeker_spin", actorEvent("vs_seeker_spin", { facingDirection = "east" }))
+  restored:restore("spin", "vs_seeker_spin", controller)
+  local resumed = capability()
+
+  for _ = 1, 23 do
+    autonomy:step("spin", uninterrupted)
+    restored:step("spin", resumed)
+  end
+  Assert.equal(#uninterrupted.calls.facing, 4)
+  Assert.equal(#resumed.calls.facing, 0)
+
+  autonomy:step("spin", uninterrupted)
+  restored:step("spin", resumed)
+  Assert.equal(uninterrupted.calls.facing[5].direction, "north")
+  Assert.equal(resumed.calls.facing[1].direction, "north")
 end
 
 function T.special_profiles_suspend_and_type_changes_reset_or_defer_state()

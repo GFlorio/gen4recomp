@@ -333,8 +333,7 @@ local function stepSpin(state, capability)
     state.spinMode = state.spinMode == "clockwise" and "counterclockwise" or "clockwise"
     sequence = state.spinMode == "clockwise" and assert(profile.clockwiseSequence)
       or assert(profile.counterclockwiseSequence)
-    state.spinIndex = directionIndex(sequence, direction) % #sequence + 1
-    capability:setFacing(state.actorId, sequence[state.spinIndex])
+    state.spinIndex = directionIndex(sequence, direction)
   end
 end
 
