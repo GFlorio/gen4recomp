@@ -43,6 +43,9 @@ local function sourceCanvas(scene, reference)
   return canvas
 end
 
+---@param canvas { scale: number, origin: { x: number, y: number } }
+---@param sourcePointValue { x: number, y: number }
+---@return { x: number, y: number }
 local function canvasPoint(canvas, sourcePointValue)
   return {
     x = canvas.origin.x + sourcePointValue.x * canvas.scale,
@@ -109,56 +112,107 @@ local function selectorRegions(safeFrame, gap)
     rect(safeFrame.x, safeFrame.y + oakHeight + gap, safeFrame.width, safeFrame.height - oakHeight - gap)
 end
 
-local function containedPanel(region, aspect)
-  local width = math.min(region.width, region.height * aspect)
-  local height = width / aspect
-  if height > region.height then
-    height = region.height
-    width = height * aspect
-  end
-  return rect(region.x + (region.width - width) / 2, region.y + (region.height - height) / 2, width, height)
-end
-
----@param widgetValue { width: number, height: number }
----@param contentRect { x: number, y: number, width: number, height: number }
----@return { x: number, y: number, width: number, height: number, scale: number }
-local function fitWidget(widgetValue, contentRect)
-  local scale = math.min(contentRect.width / widgetValue.width, contentRect.height / widgetValue.height)
-  assert(scale > 0, "Oak profile art scale must be positive")
-  local width, height = widgetValue.width * scale, widgetValue.height * scale
+---@param canvas { scale: number, origin: { x: number, y: number } }
+---@param source { x: number, y: number, width: number, height: number }
+---@return { x: number, y: number, width: number, height: number }
+local function mappedRect(canvas, source)
   return {
-    x = contentRect.x + (contentRect.width - width) / 2,
-    y = contentRect.y + (contentRect.height - height) / 2,
-    width = width,
-    height = height,
-    scale = scale,
+    x = canvas.origin.x + source.x * canvas.scale,
+    y = canvas.origin.y + source.y * canvas.scale,
+    width = source.width * canvas.scale,
+    height = source.height * canvas.scale,
   }
 end
 
-local function buttonMetrics(buttonRect)
-  local minimum = math.min(buttonRect.width, buttonRect.height)
-  local bevel = math.min(5, math.max(1, math.floor(minimum * 0.035 + 0.5)))
-  local inset = math.min(10, math.max(2, math.floor(minimum * 0.04 + 0.5)))
-  return bevel, inset, inset
+---@param widgetValue table
+---@param canvas { scale: number, origin: { x: number, y: number } }
+---@return { x: number, y: number, width: number, height: number, scale: number }
+local function sourceCenteredWidget(widgetValue, canvas)
+  local center = assert(widgetValue.sourceCenter, "Oak selector source center is missing")
+  local hostCenter = canvasPoint(canvas, center)
+  return {
+    x = hostCenter.x - widgetValue.anchor.x * canvas.scale,
+    y = hostCenter.y - widgetValue.anchor.y * canvas.scale,
+    width = widgetValue.width * canvas.scale,
+    height = widgetValue.height * canvas.scale,
+    scale = canvas.scale,
+  }
 end
 
-local function resolveButton(buttonRect)
-  local bevel, contentInsetX, contentInsetY = buttonMetrics(buttonRect)
+local function resolveButton(buttonRect, scale, metrics)
   return Button.resolve({
     rect = buttonRect,
-    bevelWidth = bevel,
-    contentInsetX = contentInsetX,
-    contentInsetY = contentInsetY,
+    borderWidth = metrics.borderWidth * scale,
+    rimWidth = metrics.rimWidth * scale,
+    innerBorderWidth = metrics.innerBorderWidth * scale,
+    cornerCut = metrics.cornerCut * scale,
+    faceSplit = metrics.faceSplit,
+    contentInsetX = 0,
+    contentInsetY = 0,
   })
 end
 
-local function splitVertical(region, gap)
-  local height = (region.height - gap) / 2
-  assert(height > 0, "Oak confirmation buttons do not fit their region")
+local PROFILE_BUTTON_METRICS = {
+  borderWidth = 2,
+  rimWidth = 2,
+  innerBorderWidth = 1,
+  cornerCut = 2,
+  faceSplit = 0.5,
+}
+
+local CONFIRMATION_BUTTON_METRICS = {
+  borderWidth = 2,
+  rimWidth = 1,
+  innerBorderWidth = 1,
+  cornerCut = 2,
+  faceSplit = 0.5,
+}
+
+---@param canvas { scale: number, origin: { x: number, y: number } }
+---@param source { x: number, y: number, width: number, height: number }
+---@param metrics { borderWidth: number, rimWidth: number, innerBorderWidth: number, cornerCut: number, faceSplit: number }
+---@return table
+local function mappedButton(canvas, source, metrics)
+  return resolveButton(mappedRect(canvas, source), canvas.scale, metrics)
+end
+
+local function mappedConfirmationEntry(canvas, source, key, metrics)
   return {
-    resolveButton(rect(region.x, region.y, region.width, height)),
-    resolveButton(rect(region.x, region.y + height + gap, region.width, height)),
+    key = key,
+    button = mappedButton(canvas, source.bounds, metrics),
+    textRect = mappedRect(canvas, source.textBounds),
+    textScale = canvas.scale,
   }
+end
+
+local function sourceGroup(records)
+  local left, top, right, bottom = math.huge, math.huge, -math.huge, -math.huge
+  for _, key in ipairs({ "yes", "no" }) do
+    local bounds = records[key].bounds
+    left = math.min(left, bounds.x)
+    top = math.min(top, bounds.y)
+    right = math.max(right, bounds.x + bounds.width)
+    bottom = math.max(bottom, bounds.y + bounds.height)
+  end
+  return { x = left, y = top, width = right - left, height = bottom - top }
+end
+
+local function nameConfirmationEntries(sceneContent, records)
+  local group = sourceGroup(records)
+  local scale = math.min(sceneContent.width / group.width, sceneContent.height / group.height)
+  assert(scale > 0, "Oak name confirmation scale must be positive")
+  local canvas = {
+    scale = scale,
+    origin = {
+      x = sceneContent.x + (sceneContent.width - group.width * scale) / 2 - group.x * scale,
+      y = sceneContent.y + (sceneContent.height - group.height * scale) / 2 - group.y * scale,
+    },
+  }
+  local entries = {}
+  for choice, key in ipairs({ "yes", "no" }) do
+    entries[choice - 1] = mappedConfirmationEntry(canvas, records[key], key, CONFIRMATION_BUTTON_METRICS)
+  end
+  return entries, scale
 end
 
 ---@param width number
@@ -259,41 +313,17 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     result.reveal = revealRect(revealWidget, canvas)
   end
   if selectorActive then
-    local selectorMinimum = math.min(selectorRegion.width, selectorRegion.height)
-    local selectorInset = math.min(
-      32,
-      math.max(gap, math.floor(selectorMinimum * 0.05 + 0.5)),
-      math.max(0, math.floor((selectorMinimum - 1) / 2))
-    )
-    local insetRegion = rect(
-      selectorRegion.x + selectorInset,
-      selectorRegion.y + selectorInset,
-      selectorRegion.width - selectorInset * 2,
-      selectorRegion.height - selectorInset * 2
-    )
-    result.selectorInset = selectorInset
-    result.selectorPanel = containedPanel(insetRegion, 4 / 3)
-    local panel = assert(result.selectorPanel)
-    local panelMinimum = math.min(panel.width, panel.height)
-    local outerInset = math.min(24, math.max(6, math.floor(panelMinimum * 0.06 + 0.5)))
-    local controlGap = math.min(24, math.max(8, math.floor(panel.width * 0.04 + 0.5)))
-    outerInset = math.min(outerInset, (math.min(panel.width, panel.height) - 1) / 2)
-    local columnWidth = (panel.width - outerInset * 2 - controlGap) / 2
-    assert(columnWidth > 0, "Oak gender buttons do not fit their panel")
+    result.genderCanvas = canvasForRegion(assert(selectorRegion), reference)
+    local genderCanvas = assert(result.genderCanvas) ---@type { scale: number, origin: { x: number, y: number } }
     local genderSlots = {}
-    for gender, id in ipairs({ "male", "female" }) do
-      local buttonRect = rect(
-        panel.x + outerInset + (gender - 1) * (columnWidth + controlGap),
-        panel.y + outerInset,
-        columnWidth,
-        panel.height - outerInset * 2
-      )
-      local button = resolveButton(buttonRect)
-      local portrait = fitWidget(widget(manifest, "gender_" .. id), button.contentRect)
-      genderSlots[gender - 1] = {
-        key = id,
+    for index, sourceGender in ipairs({ "male", "female" }) do
+      local sourceButton = assert(manifest.genderSelector.buttons[sourceGender])
+      local button = mappedButton(genderCanvas, sourceButton.bounds, PROFILE_BUTTON_METRICS)
+      local portrait = sourceCenteredWidget(widget(manifest, "gender_" .. sourceGender), genderCanvas)
+      genderSlots[index - 1] = {
+        key = sourceGender,
         button = button,
-        portraitId = "gender_" .. id,
+        portraitId = "gender_" .. sourceGender,
         portraitRect = portrait,
       }
     end
@@ -305,41 +335,17 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   end
   if view.confirmationChoice then
     if view.phase == "gender_confirm" then
-      local panel = assert(result.selectorPanel)
-      local selectedColumn = view.genderFocus
-      local selectedProfileButton = assert(result.selectedProfileButton)
-      assert(selectedProfileButton.key == (selectedColumn == 0 and "male" or "female"))
-      local controlGap = math.min(24, math.max(8, math.floor(panel.width * 0.04 + 0.5)))
-      local confirmationColumn = selectedColumn == 0 and 1 or 0
-      local columnWidth = selectedProfileButton.button.rect.width
-      local columnX = panel.x
-        + (panel.width - columnWidth * 2 - controlGap) / 2
-        + confirmationColumn * (columnWidth + controlGap)
-      local columnRegion =
-        rect(columnX, selectedProfileButton.button.rect.y, columnWidth, selectedProfileButton.button.rect.height)
-      local gapSize = math.min(16, math.max(6, math.floor(columnRegion.height * 0.06 + 0.5)))
-      local buttons = splitVertical(columnRegion, gapSize)
+      local gender = view.genderFocus == 0 and "male" or "female"
+      local records = assert(manifest.profileConfirmation.buttons[gender])
+      local confirmationCanvas = assert(result.genderCanvas)
       result.confirmationButtons = {
-        [0] = { key = "yes", button = buttons[1] },
-        [1] = { key = "no", button = buttons[2] },
+        [0] = mappedConfirmationEntry(confirmationCanvas, records.yes, "yes", CONFIRMATION_BUTTON_METRICS),
+        [1] = mappedConfirmationEntry(confirmationCanvas, records.no, "no", CONFIRMATION_BUTTON_METRICS),
       }
     elseif view.phase == "name_confirm" then
-      local sceneMinimum = math.min(sceneContent.width, sceneContent.height)
-      local stackWidth = math.min(sceneContent.width * 0.5, 280)
-      local stackHeight = math.min(sceneContent.height * 0.36, 180)
-      local gapSize = math.min(16, math.max(6, math.floor(sceneMinimum * 0.02 + 0.5)))
-      stackHeight = math.max(stackHeight, gapSize + 2)
-      local panel = rect(
-        sceneContent.x + (sceneContent.width - stackWidth) / 2,
-        sceneContent.y + sceneContent.height - stackHeight,
-        stackWidth,
-        stackHeight
-      )
-      local buttons = splitVertical(panel, gapSize)
-      result.confirmationButtons = {
-        [0] = { key = "yes", button = buttons[1] },
-        [1] = { key = "no", button = buttons[2] },
-      }
+      local gender = view.genderFocus == 0 and "male" or "female"
+      local records = assert(manifest.profileConfirmation.buttons[gender])
+      result.confirmationButtons, result.confirmationScale = nameConfirmationEntries(sceneContent, records)
     end
   end
   if view.phase == "name_edit" then

@@ -279,27 +279,29 @@ end
 function T.tests.gender_select_preserves_source_portraits_and_female_palette()
   local manifest = loadManifest()
   local view = { phase = "gender_select", genderFocus = 0, genderCompositionProgress = 1, oakBgScrollX = 0 }
-  for _, sz in ipairs({ { 800, 600 }, { 390, 844 } }) do
+  for _, sz in ipairs({ { 800, 600 }, { 390, 844 }, { 1920, 1080 } }) do
     local w, h = sz[1], sz[2]
     local layout = OakIntroLayout.compute(w, h, view, {}, manifest)
     Assert.notNil(layout.genderButtons, "gender choices are not resolved")
     Assert.notNil(layout.genderButtons[0], "male choice missing")
     Assert.notNil(layout.genderButtons[1], "female choice missing")
-    local selectorInset = assert(layout.selectorInset, "selector inset missing")
-    Assert.isTrue(selectorInset > 0, "selector has deliberate responsive breathing room")
+    local canvas = assert(layout.genderCanvas, "gender source canvas missing")
     local male = layout.genderButtons[0]
     local female = layout.genderButtons[1]
-    Assert.isTrue(male.button.rect.x < female.button.rect.x, "male remains left of female")
-    Assert.isTrue(
-      male.portraitRect.width / male.portraitRect.height
-        == manifest.widgets.gender_male.width / manifest.widgets.gender_male.height
-    )
-    Assert.isTrue(
-      female.portraitRect.width / female.portraitRect.height
-        == manifest.widgets.gender_female.width / manifest.widgets.gender_female.height
-    )
-    Assert.isTrue(male.portraitRect.x > male.button.contentRect.x)
-    Assert.isTrue(female.portraitRect.x > female.button.contentRect.x)
+    for gender, entry in pairs({ [0] = male, [1] = female }) do
+      local name = gender == 0 and "male" or "female"
+      local source = assert(manifest.genderSelector.buttons[name]).bounds
+      Assert.near((entry.button.rect.x - canvas.origin.x) / canvas.scale, source.x)
+      Assert.near((entry.button.rect.y - canvas.origin.y) / canvas.scale, source.y)
+      Assert.near(entry.button.rect.width / canvas.scale, source.width)
+      Assert.near(entry.button.rect.height / canvas.scale, source.height)
+      local widget = assert(manifest.widgets["gender_" .. name])
+      local center = assert(widget.sourceCenter)
+      Assert.near((entry.portraitRect.x + widget.anchor.x * canvas.scale - canvas.origin.x) / canvas.scale, center.x)
+      Assert.near((entry.portraitRect.y + widget.anchor.y * canvas.scale - canvas.origin.y) / canvas.scale, center.y)
+      Assert.near(entry.portraitRect.width / canvas.scale, widget.width)
+      Assert.near(entry.portraitRect.height / canvas.scale, widget.height)
+    end
   end
   -- Female palette comes from the derived source-backed portrait, not host tint.
   local selMale = manifest.widgets.gender_male
@@ -313,6 +315,46 @@ function T.tests.gender_select_preserves_source_portraits_and_female_palette()
   Assert.isTrue(selFemale.image ~= selMale.image, "female selector must use a distinct generated image")
   -- Verify female widget height matches expected derived composition (not tinted male)
   Assert.isTrue(selFemale.height > 0 and selMale.height > 0, "selector dimensions present")
+end
+
+function T.tests.gender_confirmation_and_name_confirmation_preserve_source_controls()
+  local manifest = loadManifest()
+  for _, gender in ipairs({ 0, 1 }) do
+    local view = {
+      phase = "gender_confirm",
+      genderFocus = gender,
+      genderCompositionProgress = 1,
+      oakBgScrollX = 0,
+      confirmationChoice = { kind = "gender", selected = 0 },
+    }
+    local layout = OakIntroLayout.compute(800, 600, view, {}, manifest)
+    local canvas = assert(layout.genderCanvas)
+    local profile = gender == 0 and "male" or "female"
+    local selected = assert(layout.selectedProfileButton)
+    local sourceCard = assert(manifest.genderSelector.buttons[profile]).bounds
+    Assert.near((selected.button.rect.x - canvas.origin.x) / canvas.scale, sourceCard.x)
+    local sourceChoices = assert(manifest.profileConfirmation.buttons[profile])
+    for choice, key in ipairs({ "yes", "no" }) do
+      local entry = assert(layout.confirmationButtons[choice - 1])
+      local source = sourceChoices[key]
+      Assert.near(entry.button.rect.width / canvas.scale, source.bounds.width)
+      Assert.near(entry.button.rect.height / canvas.scale, source.bounds.height)
+      Assert.near((entry.textRect.x - canvas.origin.x) / canvas.scale, source.textBounds.x)
+      Assert.equal(entry.textScale, canvas.scale)
+    end
+
+    view.phase = "name_confirm"
+    local nameLayout = OakIntroLayout.compute(800, 600, view, {}, manifest)
+    local buttons = assert(nameLayout.confirmationButtons)
+    local yes, no = assert(buttons[0]), assert(buttons[1])
+    Assert.near(yes.button.rect.width / no.button.rect.width, 1)
+    Assert.near((no.button.rect.y - (yes.button.rect.y + yes.button.rect.height)) / yes.textScale, 25)
+    Assert.equal(yes.textScale, no.textScale)
+    Assert.isTrue(yes.button.rect.x >= nameLayout.stageContent.x)
+    Assert.isTrue(
+      no.button.rect.y + no.button.rect.height <= nameLayout.stageContent.y + nameLayout.stageContent.height
+    )
+  end
 end
 
 function T.tests.gender_focus_uses_host_rendered_blink_without_outline()

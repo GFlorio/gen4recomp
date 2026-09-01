@@ -48,6 +48,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field dialogue { outerRect: OakIntroStateRectangle, scale: number }?
 ---@field sourceCanvas { scale: number, origin: { x: number, y: number } }?
 ---@field revealCanvas { scale: number, origin: { x: number, y: number } }?
+---@field genderCanvas { scale: number, origin: { x: number, y: number } }?
 ---@field reveal OakIntroStateSubjectRectangle?
 ---@field stage OakIntroStateRectangle
 ---@field genderButtons table?
@@ -60,8 +61,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field scene OakIntroStateRectangle
 ---@field oakRegion OakIntroStateRectangle?
 ---@field selectorRegion OakIntroStateRectangle?
----@field selectorPanel OakIntroStateRectangle?
----@field selectorInset number?
+---@field confirmationScale number?
 
 ---@class OakIntroStateView: OakIntroControllerView
 ---@field phase string

@@ -7,8 +7,10 @@
 ---@field text FieldTextRenderer
 ---@field assets table
 ---@field bindings table
+---@field manifest table
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
+local ButtonPainter = require("game.hgss.src.ui.ButtonPainter")
 local REQUIRED_ASSETS = {
   "oak",
   "marill",
@@ -30,6 +32,55 @@ local REVEAL_SHADER = [[
     return sampled;
   }
 ]]
+
+local PROFILE_CARD = {
+  border = { 58, 58, 58 },
+  selectedRim = { 255, 58, 58 },
+  unselectedRim = { 222, 230, 230 },
+  face = { 16, 189, 255 },
+}
+
+local CONFIRMATION = {
+  border = { 66, 66, 66 },
+  rim = { 230, 230, 222 },
+  innerBorder = { 25, 189, 197 },
+  faceTop = { 49, 222, 230 },
+  faceBottom = { 8, 156, 165 },
+}
+
+local function clamp(value)
+  return math.max(0, math.min(1, value))
+end
+
+local function referenceColor(value)
+  return { value[1] / 255, value[2] / 255, value[3] / 255 }
+end
+
+local function profilePalette(manifest, selected, focusBlinkDelta)
+  local tone = assert(manifest.genderSelector and manifest.genderSelector.defaultTone)
+  local delta = selected and (focusBlinkDelta or 0) / 31 or 0
+  return {
+    border = referenceColor(PROFILE_CARD.border),
+    rim = referenceColor(selected and PROFILE_CARD.selectedRim or PROFILE_CARD.unselectedRim),
+    innerBorder = {
+      clamp(tone.r / 255 + delta),
+      clamp(tone.g / 255 + delta),
+      clamp(tone.b / 255 + delta),
+    },
+    faceTop = referenceColor(PROFILE_CARD.face),
+    faceBottom = referenceColor(PROFILE_CARD.face),
+  }
+end
+
+local function confirmationPalette()
+  return {
+    border = referenceColor(CONFIRMATION.border),
+    rim = referenceColor(CONFIRMATION.rim),
+    innerBorder = referenceColor(CONFIRMATION.innerBorder),
+    faceTop = referenceColor(CONFIRMATION.faceTop),
+    faceBottom = referenceColor(CONFIRMATION.faceBottom),
+  }
+end
 
 local function defaultImageLoader(path)
   return love.graphics.newImage(path, { linear = false, mipmaps = false })
@@ -132,6 +183,7 @@ function OakIntroRenderer.new(options)
   end
   return setmetatable({
     assets = renderedAssets,
+    manifest = options.manifest,
     graphics = graphics,
     text = text,
     images = images,
@@ -189,58 +241,19 @@ local function drawBackground(self, region)
   self.graphics.draw(binding.image, binding.quad, region.x, region.y, 0, sx, sy)
 end
 
-local function drawPrimitiveButton(self, button, colors)
-  local graphics = self.graphics
-  graphics.setColor(colors.face[1], colors.face[2], colors.face[3], 1)
-  graphics.rectangle("fill", button.faceRect.x, button.faceRect.y, button.faceRect.width, button.faceRect.height)
-  graphics.setColor(colors.highlight[1], colors.highlight[2], colors.highlight[3], 1)
-  graphics.rectangle("fill", button.top.x, button.top.y, button.top.width, button.top.height)
-  graphics.rectangle("fill", button.left.x, button.left.y, button.left.width, button.left.height)
-  graphics.setColor(colors.shadow[1], colors.shadow[2], colors.shadow[3], 1)
-  graphics.rectangle("fill", button.bottom.x, button.bottom.y, button.bottom.width, button.bottom.height)
-  graphics.rectangle("fill", button.right.x, button.right.y, button.right.width, button.right.height)
-end
-
-local function genderColors(selected, focusBlinkDelta)
-  local brightness = selected and (focusBlinkDelta or 0) / 255 or 0
-  if selected then
-    return {
-      face = { 0.62 + brightness, 0.38 + brightness, 0.40 + brightness },
-      highlight = { 0.96, 0.70, 0.70 },
-      shadow = { 0.34, 0.10, 0.12 },
-    }
-  end
-  return {
-    face = { 0.62, 0.64, 0.66 },
-    highlight = { 0.90, 0.92, 0.94 },
-    shadow = { 0.30, 0.32, 0.35 },
-  }
-end
-
-local function confirmationColors(selected)
-  if selected then
-    return {
-      face = { 0.28, 0.68, 0.72 },
-      highlight = { 0.78, 0.98, 1.0 },
-      shadow = { 0.08, 0.28, 0.34 },
-    }
-  end
-  return {
-    face = { 0.70, 0.73, 0.76 },
-    highlight = { 0.96, 0.98, 1.0 },
-    shadow = { 0.34, 0.37, 0.41 },
-  }
-end
-
-local function drawCenteredText(self, text, contentRect)
+local function drawSourceScaleText(self, text, textRect, textScale, tint)
   local lineHeight = assert(self.text.fontDef and self.text.fontDef.lineHeight)
   local width = self.text:textWidth(text)
-  local scale = math.min(contentRect.width / width, contentRect.height / lineHeight)
-  assert(scale > 0, "Oak choice text does not fit its button")
+  assert(width > 0 and textScale > 0, "Oak choice text metrics are invalid")
+  assert(width * textScale <= textRect.width + 1e-9, "Oak choice text is wider than its source bounds")
+  assert(lineHeight * textScale <= textRect.height + 1e-9, "Oak choice text is taller than its source bounds")
+  local x = textRect.x + (textRect.width - width * textScale) / 2
+  local y = textRect.y + (textRect.height - lineHeight * textScale) / 2
+  self.graphics.setColor(tint[1], tint[2], tint[3], tint[4] or 1)
   self.graphics.push()
-  self.graphics.translate(contentRect.x + contentRect.width / 2, contentRect.y + contentRect.height / 2)
-  self.graphics.scale(scale, scale)
-  self.text:drawText(text, -width / 2, -lineHeight / 2)
+  self.graphics.translate(x, y)
+  self.graphics.scale(textScale, textScale)
+  self.text:drawText(text, 0, 0)
   self.graphics.pop()
 end
 
@@ -274,12 +287,16 @@ function OakIntroRenderer:_draw(view)
       for gender = 0, 1 do
         local entry = assert(layout.genderButtons and layout.genderButtons[gender])
         local selected = view.genderFocus == gender
-        drawPrimitiveButton(self, entry.button, genderColors(selected, selected and view.focusBlinkDelta or 0))
+        ButtonPainter.draw(
+          graphics,
+          entry.button,
+          profilePalette(self.manifest, selected, selected and view.focusBlinkDelta or 0)
+        )
         drawAsset(self, entry.portraitId, 1, entry.portraitRect)
       end
     elseif layout.selectedProfileButton then
       local entry = layout.selectedProfileButton
-      drawPrimitiveButton(self, entry.button, genderColors(true, 0))
+      ButtonPainter.draw(graphics, entry.button, profilePalette(self.manifest, true, 0))
       drawAsset(self, entry.portraitId, 1, entry.portraitRect)
     end
   end
@@ -287,8 +304,15 @@ function OakIntroRenderer:_draw(view)
     local labels = assert(view.choiceLabels)
     for choice = 0, 1 do
       local entry = assert(layout.confirmationButtons[choice])
-      drawPrimitiveButton(self, entry.button, confirmationColors(view.confirmationChoice.selected == choice))
-      drawCenteredText(self, assert(labels[choice]), entry.button.contentRect)
+      local selected = view.confirmationChoice.selected == choice
+      ButtonPainter.draw(graphics, entry.button, confirmationPalette())
+      drawSourceScaleText(
+        self,
+        assert(labels[choice]),
+        entry.textRect,
+        entry.textScale,
+        selected and { 1, 1, 1, 1 } or { 0.75, 0.75, 0.75, 1 }
+      )
     end
   end
   graphics.setColor(1, 1, 1, 1)

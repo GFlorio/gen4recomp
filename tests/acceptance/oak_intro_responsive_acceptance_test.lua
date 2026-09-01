@@ -94,6 +94,7 @@ local function genderManifest()
     height = 96,
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+    sourceCenter = { x = 64, y = 104 },
     frames = {
       {
         image = "assets/generated/intro/gender-male.png",
@@ -116,6 +117,7 @@ local function genderManifest()
     height = 96,
     anchor = { x = 32, y = 48 },
     sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+    sourceCenter = { x = 192, y = 104 },
     frames = {
       {
         image = "assets/generated/intro/gender-female.png",
@@ -190,10 +192,14 @@ manifest = function()
     }
     if id == "ball_open" or id == "marill_appear" or id == "marill" then
       widgets[id].sourceCenter = { x = 160, y = 80 }
+    elseif id == "gender_male" then
+      widgets[id].sourceCenter = { x = 64, y = 104 }
+    elseif id == "gender_female" then
+      widgets[id].sourceCenter = { x = 192, y = 104 }
     end
   end
   return {
-    schemaVersion = 7,
+    schemaVersion = 8,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -201,6 +207,43 @@ manifest = function()
       width = 1,
       height = 192,
       sampling = "linear",
+    },
+    genderSelector = {
+      defaultTone = { r = 100, g = 101, b = 102 },
+      buttons = {
+        male = {
+          bounds = { x = 18, y = 25, width = 93, height = 148 },
+          hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+        },
+        female = {
+          bounds = { x = 144, y = 25, width = 95, height = 148 },
+          hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+        },
+      },
+    },
+    profileConfirmation = {
+      buttons = {
+        male = {
+          yes = {
+            bounds = { x = 138, y = 26, width = 115, height = 57 },
+            textBounds = { x = 136, y = 48, width = 104, height = 24 },
+          },
+          no = {
+            bounds = { x = 138, y = 108, width = 115, height = 56 },
+            textBounds = { x = 136, y = 128, width = 104, height = 24 },
+          },
+        },
+        female = {
+          yes = {
+            bounds = { x = 10, y = 26, width = 115, height = 57 },
+            textBounds = { x = 16, y = 48, width = 104, height = 24 },
+          },
+          no = {
+            bounds = { x = 10, y = 108, width = 115, height = 56 },
+            textBounds = { x = 16, y = 128, width = 104, height = 24 },
+          },
+        },
+      },
     },
     widgets = widgets,
   }
@@ -317,7 +360,7 @@ end
 
 function T.tests.host_native_layout_contract_across_representative_viewports()
   local checked = IntroAssetCache.validateManifest(manifest())
-  Assert.isTrue(checked, "scenario requires a valid schema-7 semantic manifest")
+  Assert.isTrue(checked, "scenario requires a valid schema-8 semantic manifest")
   for _, size in ipairs({ { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
     local state = OakIntroState.new({
       controller = controller(),
@@ -351,7 +394,7 @@ function T.tests.single_surface_gender_selection_keeps_regions_separate()
     for gender = 0, 1 do
       assertInside(
         layout.genderButtons[gender].button.rect,
-        layout.selectorPanel,
+        layout.selectorRegion,
         "selector choice leaves selector panel"
       )
     end
@@ -369,7 +412,7 @@ function T.tests.wide_gender_selection_is_side_by_side_and_hit_regions_are_rende
   for gender = 0, 1 do
     assertInside(
       layout.genderButtons[gender].button.rect,
-      layout.selectorPanel,
+      layout.selectorRegion,
       "wide selector choice leaves selector panel"
     )
   end
@@ -384,8 +427,12 @@ function T.tests.constrained_gender_selection_keeps_both_controls_and_main_conte
     Assert.notNil(layout.genderButtons, "constrained layout resolves both choices")
     assertInside(layout.oakRegion, layout.viewport, "constrained Oak context leaves viewport")
     assertInside(layout.selectorRegion, layout.viewport, "constrained selector leaves viewport")
-    assertInside(layout.genderButtons[0].button.rect, layout.selectorPanel, "constrained male choice leaves controls")
-    assertInside(layout.genderButtons[1].button.rect, layout.selectorPanel, "constrained female choice leaves controls")
+    assertInside(layout.genderButtons[0].button.rect, layout.selectorRegion, "constrained male choice leaves controls")
+    assertInside(
+      layout.genderButtons[1].button.rect,
+      layout.selectorRegion,
+      "constrained female choice leaves controls"
+    )
     assertDisjoint(
       layout.genderButtons[0].button.rect,
       layout.genderButtons[1].button.rect,
