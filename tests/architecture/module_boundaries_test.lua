@@ -18,6 +18,7 @@ local PACKAGE_ROOTS = {
   "libs/math",
   "libs/nds",
   "libs/script",
+  "libs/ui",
   "libs/hgss",
   "app",
   "game",
@@ -103,6 +104,7 @@ local GOVERNED_PACKAGES = {
   "storage",
   "nds",
   "script",
+  "ui",
   "hgss",
   "game_hgss",
   "game",
@@ -118,6 +120,7 @@ local REPRESENTATIVE_MODULES = {
   storage = "libs.storage.src.SaveFs",
   nds = "libs.nds.src.gx.DsPolygonAttr",
   script = "libs.script.src.Runtime",
+  ui = "libs.ui.src.Selection",
   hgss = "libs.hgss.src.field.FieldSession",
   game = "game.src.Game",
   game_hgss = "game.hgss.src.HgssGame",
@@ -153,6 +156,11 @@ local PACKAGE_RULES = {
     scanRoot = "libs/script",
     allowed = { script = true, assets = true, codec = true, errors = true, math = true, storage = true },
   },
+  ui = {
+    sourcePrefix = "libs/ui/src/",
+    scanRoot = "libs/ui",
+    allowed = { ui = true },
+  },
   hgss = {
     sourcePrefix = "libs/hgss/src/",
     scanRoot = "libs/hgss",
@@ -165,6 +173,7 @@ local PACKAGE_RULES = {
       errors = true,
       math = true,
       storage = true,
+      ui = true,
     },
   },
   game = {
@@ -185,6 +194,7 @@ local PACKAGE_RULES = {
       codec = true,
       errors = true,
       math = true,
+      ui = true,
     },
   },
   romdump = {
@@ -217,6 +227,7 @@ local TARGET_PACKAGE_PREFIXES = {
   { prefix = "libs.storage.src.", packageName = "storage" },
   { prefix = "libs.nds.src.", packageName = "nds" },
   { prefix = "libs.script.src.", packageName = "script" },
+  { prefix = "libs.ui.src.", packageName = "ui" },
   { prefix = "libs.hgss.src.", packageName = "hgss" },
   { prefix = "game.src.", packageName = "game" },
   { prefix = "romdump.src.", packageName = "romdump" },
@@ -336,6 +347,31 @@ function T.nds_love_renderer_has_a_concrete_owner_without_upward_imports()
     pathExists("libs/nds/src/love/GxRenderer.lua"),
     "the concrete DS LÖVE renderer must be owned under libs/nds/src/love"
   )
+end
+
+function T.generic_ui_package_has_a_production_source_root()
+  Assert.isTrue(
+    pathExists("libs/ui/src/Selection.lua"),
+    "the generic UI package must provide its Selection source module"
+  )
+end
+
+function T.generic_ui_is_a_leaf_package()
+  local forbiddenDependencies = {
+    "libs.hgss.src.field.FieldSession",
+    "libs.nds.src.gx.DsPolygonAttr",
+    "game.src.Game",
+    "game.hgss.src.HgssGame",
+    "app.src.App",
+    "romdump.src.source.GameVersion",
+  }
+  local violations = {}
+  for _, dependency in ipairs(forbiddenDependencies) do
+    if #fixtureViolations("ui", dependency) == 0 then
+      violations[#violations + 1] = dependency
+    end
+  end
+  Assert.isTrue(#violations == 0, violationMessage("generic UI package accepted forbidden dependencies:\n", violations))
 end
 
 function T.package_policy_matches_every_governed_pair()

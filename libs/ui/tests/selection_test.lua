@@ -4,7 +4,7 @@ local Assert = require("tests.support.Assert")
 local T = {}
 
 local function selectionModule()
-  local ok, moduleOrError = pcall(require, "libs.hgss.src.ui.Selection")
+  local ok, moduleOrError = pcall(require, "libs.ui.src.Selection")
   Assert.isTrue(ok, "the reusable Selection primitive must exist: " .. tostring(moduleOrError))
   return moduleOrError
 end
