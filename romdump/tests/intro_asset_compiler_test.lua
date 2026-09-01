@@ -11,7 +11,7 @@ local T = {}
 
 function T.reveal_source_configuration_uses_resource_set_five_sequences_and_palettes()
   local config = require("romdump.src.config.IntroAssets")
-  for id, sequence, _ in pairs({ ball_open = { 3, 4 }, marill_appear = { 1, 4 }, marill = { 2, 4 } }) do
+  for id, sequence, _ in pairs({ ball_open = { 3, 5 }, marill_appear = { 1, 4 }, marill = { 2, 4 } }) do
     local entry = assert(config[id])
     Assert.equal(entry.archive, "intro")
     Assert.isNil(entry.char)
@@ -19,7 +19,8 @@ function T.reveal_source_configuration_uses_resource_set_five_sequences_and_pale
     Assert.isNil(entry.cell)
     Assert.isNil(entry.animation)
     Assert.equal(entry.animationIndex, sequence[1])
-    Assert.equal(entry.paletteOverride, sequence[2])
+    Assert.equal(entry.paletteNumber, sequence[2])
+    Assert.equal(entry.vram, "main")
     Assert.equal(entry.resourceSet, 5)
     Assert.deepEqual(entry.sourceCenter, { x = 160, y = 80 })
   end
@@ -33,10 +34,11 @@ function T.gender_selector_configuration_declares_animation_sources()
   }) do
     local entry = assert(config.genderSelectors[id])
     Assert.equal(entry.animationIndex, 0)
-    local expectedOverride = id == "female" and 1 or 0
-    Assert.equal(entry.paletteOverride, expectedOverride)
+    local expectedPaletteNumber = id == "female" and 1 or 0
+    Assert.equal(entry.paletteNumber, expectedPaletteNumber)
+    Assert.equal(entry.vram, "sub")
     Assert.equal(entry.resourceSet, expected.resourceSet)
-    Assert.isNil(entry.sourceCenter)
+    Assert.deepEqual(entry.sourceCenter, id == "female" and { x = 192, y = 104 } or { x = 64, y = 104 })
     Assert.equal(entry.resourceResolution, config.ball_open.resourceResolution)
   end
 end
@@ -64,10 +66,10 @@ local function resdatTable(records)
     local record = records[id] or { narcId = 120, fileId = id, id = id }
     bytes[#bytes + 1] = u32le(record.narcId)
     bytes[#bytes + 1] = u32le(record.fileId)
-    bytes[#bytes + 1] = u32le(0)
+    bytes[#bytes + 1] = u32le(record.compressed or 0)
     bytes[#bytes + 1] = u32le(record.id)
-    bytes[#bytes + 1] = u32le(0)
-    bytes[#bytes + 1] = u32le(0)
+    bytes[#bytes + 1] = u32le(record.vram or 0)
+    bytes[#bytes + 1] = u32le(record.bankCount or 0)
   end
   bytes[#bytes + 1] = u32le(0xFFFFFFFE)
   bytes[#bytes + 1] = u32le(0xFFFFFFFE)
@@ -108,9 +110,14 @@ local function selectorResourceTables()
     }),
     [27] = resdatTable({
       count = 7,
-      [1] = { narcId = 120, fileId = 11, id = 1 },
-      [2] = { narcId = 120, fileId = 16, id = 2 },
-      [7] = { narcId = 120, fileId = 63, id = 7 },
+      [0] = { narcId = 120, fileId = 10, id = 0, vram = 1, bankCount = 1 },
+      [1] = { narcId = 120, fileId = 11, id = 1, vram = 1, bankCount = 1 },
+      [2] = { narcId = 120, fileId = 16, id = 2, vram = 2, bankCount = 1 },
+      [3] = { narcId = 120, fileId = 11, id = 3, vram = 2, bankCount = 1 },
+      [4] = { narcId = 120, fileId = 14, id = 4, vram = 1, bankCount = 1 },
+      [5] = { narcId = 120, fileId = 15, id = 5, vram = 3, bankCount = 1 },
+      [6] = { narcId = 120, fileId = 16, id = 6, vram = 2, bankCount = 1 },
+      [7] = { narcId = 120, fileId = 63, id = 7, vram = 1, bankCount = 2 },
     }),
     [25] = resdatTable({
       count = 5,
@@ -125,7 +132,7 @@ local function selectorResourceTables()
   }
 end
 
-local function syntheticCompilerSource(animationFrames, objectPalette)
+local function syntheticCompilerSource(animationFrames, objectPalette, charDepth)
   local decoder = require("romdump.src.digest.G2dDecoder")
   local original = {}
   for _, name in ipairs({ "decodeChar", "decodePalette", "decodeScreen", "decodeCell", "decodeAnimation" }) do
@@ -145,9 +152,10 @@ local function syntheticCompilerSource(animationFrames, objectPalette)
     local tiles = {}
     for tile = 0, 23 do
       local nibble = tile % 15 + 1
-      tiles[#tiles + 1] = string.rep(string.char(nibble * 17), 32)
+      local tileValue = (charDepth or 3) == 3 and nibble * 17 or nibble
+      tiles[#tiles + 1] = string.rep(string.char(tileValue), (charDepth or 3) == 3 and 32 or 64)
     end
-    return { depth = 3, tiles = table.concat(tiles) }
+    return { depth = charDepth or 3, tiles = table.concat(tiles) }
   end)
   -- Six 16-color banks so every configured selector (male=0, female=1,
   -- ball/Marill=4) resolves within the decoded palette resource.
@@ -312,13 +320,11 @@ local function selectorFrameOnePixel(result, id)
   return PngReader.pixel(rgba, width, 0, 0)
 end
 
-function T.selector_oam_bank_wins_over_a_conflicting_template_palette_override()
+function T.configured_absolute_palette_numbers_drive_cell_rasterization()
   local Compiler = compiler()
-  -- Both selectors' own shipped palette data only ever populates the bank
-  -- addressed by their own OAM objects; the configured template overrides
-  -- (male=0, female=1) are recorded as provenance but must not drive
-  -- rasterization. Put every OAM object on a distinct, conflicting bank (5)
-  -- so the two hypotheses disagree, and assert the OAM bank wins.
+  -- Put every OAM object on a distinct, conflicting bank (5). The source
+  -- template palette numbers must resolve through the shared absolute-bank
+  -- layout instead of falling back to those object-local values.
   local source, restore = syntheticCompilerSource(nil, 5)
   local ok, result = xpcall(function()
     return Compiler.compile(source)
@@ -328,30 +334,30 @@ function T.selector_oam_bank_wins_over_a_conflicting_template_palette_override()
     error(result, 0)
   end
 
-  local oamR, oamG, oamB = bankColorTriple(5)
-  local maleR, maleG, maleB = bankColorTriple(0)
-  local femaleR, femaleG, femaleB = bankColorTriple(1)
+  local expectedBank = {
+    gender_male = 0,
+    gender_female = 0,
+    ball_open = 1,
+    marill_appear = 0,
+    marill = 0,
+  }
+  for id, bank in pairs(expectedBank) do
+    local r, g, b = selectorFrameOnePixel(result, id)
+    local expectedR, expectedG, expectedB = bankColorTriple(bank)
+    Assert.equal(r, expectedR, id .. " uses its resolved local palette bank")
+    Assert.equal(g, expectedG, id .. " uses its resolved local palette bank")
+    Assert.equal(b, expectedB, id .. " uses its resolved local palette bank")
+    Assert.isTrue(r ~= bankColorTriple(5), id .. " does not use the conflicting OAM palette bank")
+  end
+end
 
-  local mr, mg, mb = selectorFrameOnePixel(result, "gender_male")
-  Assert.equal(mr, oamR, "male selector pixel uses its own OAM bank")
-  Assert.equal(mg, oamG, "male selector pixel uses its own OAM bank")
-  Assert.equal(mb, oamB, "male selector pixel uses its own OAM bank")
-  Assert.isTrue(
-    mr ~= maleR or mg ~= maleG or mb ~= maleB,
-    "male selector pixel must not equal the conflicting template override color"
-  )
-
-  local fr, fg, fb = selectorFrameOnePixel(result, "gender_female")
-  Assert.equal(fr, oamR, "female selector pixel uses its own OAM bank")
-  Assert.equal(fg, oamG, "female selector pixel uses its own OAM bank")
-  Assert.equal(fb, oamB, "female selector pixel uses its own OAM bank")
-  Assert.isTrue(
-    fr ~= femaleR or fg ~= femaleG or fb ~= femaleB,
-    "female selector pixel must not equal the conflicting template override color"
-  )
-
-  local provenance = result.manifest.widgets.gender_female.provenance
-  Assert.equal(provenance.paletteSlot, 1, "female selector provenance still records the source template slot")
+function T.configured_palette_resources_reject_unsupported_eightbpp_cells()
+  local Compiler = compiler()
+  local source, restore = syntheticCompilerSource(nil, 5, 4)
+  local ok, err = pcall(Compiler.compile, source)
+  restore()
+  Assert.isFalse(ok, "configured absolute palette resources must reject 8bpp cells")
+  Assert.isTrue(tostring(err):find("8bpp", 1, true) ~= nil, "the rejection identifies unsupported 8bpp cells")
 end
 
 function T.shrink_source_configuration_starts_after_the_displayed_full_portrait()
@@ -442,13 +448,17 @@ local function fixtureBundle(cache, marker)
     }
     if id == "ball_open" or id == "marill_appear" or id == "marill" then
       widgets[id].sourceCenter = { x = 128, y = 90 }
+    elseif id == "gender_male" then
+      widgets[id].sourceCenter = { x = 64, y = 104 }
+    elseif id == "gender_female" then
+      widgets[id].sourceCenter = { x = 192, y = 104 }
     end
     assets[image] = "png"
   end
   return {
     marker = marker,
     manifest = {
-      schemaVersion = 7,
+      schemaVersion = 8,
       variant = "heartgold",
       sourceReference = { width = 256, height = 192 },
       background = {
@@ -457,6 +467,43 @@ local function fixtureBundle(cache, marker)
         height = 192,
         sampling = "linear",
         provenance = { fixture = true },
+      },
+      genderSelector = {
+        defaultTone = { r = 1, g = 2, b = 3 },
+        buttons = {
+          male = {
+            bounds = { x = 18, y = 25, width = 93, height = 148 },
+            hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+          },
+          female = {
+            bounds = { x = 144, y = 25, width = 95, height = 148 },
+            hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+          },
+        },
+      },
+      profileConfirmation = {
+        buttons = {
+          male = {
+            yes = {
+              bounds = { x = 138, y = 26, width = 115, height = 57 },
+              textBounds = { x = 136, y = 48, width = 104, height = 24 },
+            },
+            no = {
+              bounds = { x = 138, y = 108, width = 115, height = 56 },
+              textBounds = { x = 136, y = 128, width = 104, height = 24 },
+            },
+          },
+          female = {
+            yes = {
+              bounds = { x = 10, y = 26, width = 115, height = 57 },
+              textBounds = { x = 16, y = 48, width = 104, height = 24 },
+            },
+            no = {
+              bounds = { x = 10, y = 108, width = 115, height = 56 },
+              textBounds = { x = 16, y = 128, width = 104, height = 24 },
+            },
+          },
+        },
       },
       widgets = widgets,
     },
@@ -469,19 +516,19 @@ local function fixtureBundle(cache, marker)
   }
 end
 
-function T.v7_bundle_publishes_without_profile_control_files()
+function T.v8_bundle_publishes_without_profile_control_files()
   local cache = introCache()
   local CacheWriter = writer()
   local backend = FakeCache.new()
   local live = CacheFs.forVersion("heartgold", backend)
-  local bundle = fixtureBundle(cache, "intro-cache-v7:fixture:ready")
+  local bundle = fixtureBundle(cache, "intro-cache-v8:fixture:ready")
 
-  Assert.isNil(bundle.manifest.genderSelector)
-  Assert.isNil(bundle.manifest.profileConfirmation)
+  Assert.notNil(bundle.manifest.genderSelector)
+  Assert.notNil(bundle.manifest.profileConfirmation)
   Assert.isTrue(CacheWriter.write(live, bundle))
   Assert.isTrue(cache.isReady(live, bundle.marker), "retained files are sufficient for readiness")
 
-  local missing = fixtureBundle(cache, "intro-cache-v7:fixture:missing")
+  local missing = fixtureBundle(cache, "intro-cache-v8:fixture:missing")
   missing.assets[missing.manifest.widgets.oak.frames[1].image] = nil
   Assert.isFalse(pcall(CacheWriter.write, live, missing), "missing retained widget files reject publication")
 end

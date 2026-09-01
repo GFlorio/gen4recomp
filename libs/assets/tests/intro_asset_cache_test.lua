@@ -57,8 +57,10 @@ local function validManifest()
     frame("assets/generated/intro/ball-open-0.png", 32, 32, 1),
     frame("assets/generated/intro/ball-open-1.png", 32, 32, 4),
   }
+  widgets.gender_male.sourceCenter = { x = 64, y = 104 }
+  widgets.gender_female.sourceCenter = { x = 192, y = 104 }
   return {
-    schemaVersion = 7,
+    schemaVersion = 8,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -67,6 +69,43 @@ local function validManifest()
       height = 192,
       sampling = "linear",
       provenance = { charMember = 0, screenMember = 3, paletteMember = 1 },
+    },
+    genderSelector = {
+      defaultTone = { r = 123, g = 45, b = 67 },
+      buttons = {
+        male = {
+          bounds = { x = 18, y = 25, width = 93, height = 148 },
+          hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+        },
+        female = {
+          bounds = { x = 144, y = 25, width = 95, height = 148 },
+          hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+        },
+      },
+    },
+    profileConfirmation = {
+      buttons = {
+        male = {
+          yes = {
+            bounds = { x = 138, y = 26, width = 115, height = 57 },
+            textBounds = { x = 136, y = 48, width = 104, height = 24 },
+          },
+          no = {
+            bounds = { x = 138, y = 108, width = 115, height = 56 },
+            textBounds = { x = 136, y = 128, width = 104, height = 24 },
+          },
+        },
+        female = {
+          yes = {
+            bounds = { x = 10, y = 26, width = 115, height = 57 },
+            textBounds = { x = 16, y = 48, width = 104, height = 24 },
+          },
+          no = {
+            bounds = { x = 10, y = 108, width = 115, height = 56 },
+            textBounds = { x = 16, y = 128, width = 104, height = 24 },
+          },
+        },
+      },
     },
     widgets = widgets,
   }
@@ -82,13 +121,20 @@ end
 
 function T.complete_schema_manifest_loads_and_declares_closed_inventory()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.equal(cache.SCHEMA, "g4-intro-assets-v7")
+  Assert.equal(cache.SCHEMA, "g4-intro-assets-v8")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
   Assert.isTrue(cache.validateManifest(manifest))
   Assert.keySet(
     manifest.widgets,
     "ball_open,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+  )
+  Assert.deepEqual(manifest.widgets.gender_male.sourceCenter, { x = 64, y = 104 })
+  Assert.deepEqual(manifest.widgets.gender_female.sourceCenter, { x = 192, y = 104 })
+  Assert.deepEqual(manifest.genderSelector.buttons.male.bounds, { x = 18, y = 25, width = 93, height = 148 })
+  Assert.deepEqual(
+    manifest.profileConfirmation.buttons.female.no.textBounds,
+    { x = 16, y = 128, width = 104, height = 24 }
   )
 end
 
@@ -126,20 +172,55 @@ function T.stale_and_malformed_manifests_fail_before_composition()
     manifest.widgets.ball_open.sourceCenter.x = 257
   end, "out-of-range ball source center")
   reject(cache, function(manifest)
-    manifest.widgets.gender_male.sourceCenter = { x = 64, y = 104 }
-  end, "obsolete selector source center")
+    manifest.schemaVersion = 7
+  end, "stale v7 schema")
+  reject(cache, function(manifest)
+    manifest.widgets.gender_male.sourceCenter = nil
+  end, "missing male selector source center")
+  reject(cache, function(manifest)
+    manifest.genderSelector.defaultTone = nil
+  end, "missing selector default tone")
+  reject(cache, function(manifest)
+    manifest.genderSelector.defaultTone.r = 256
+  end, "invalid selector default tone")
+  reject(cache, function(manifest)
+    manifest.genderSelector.buttons.male.bounds.width = 0
+  end, "invalid gender button bounds")
+  reject(cache, function(manifest)
+    manifest.genderSelector.buttons.male.backing = "control.png"
+  end, "raster gender control field")
+  reject(cache, function(manifest)
+    manifest.profileConfirmation.buttons.male.yes.focusImage = "focus.png"
+  end, "raster confirmation control field")
+  reject(cache, function(manifest)
+    manifest.profileConfirmation.buttons.female.no.textBounds.scroll = 1
+  end, "source scroll field")
   reject(cache, function(manifest)
     manifest.schemaVersion = 6
   end, "stale v6 schema")
   reject(cache, function(manifest)
-    manifest.genderSelector = { obsolete = true }
-  end, "obsolete gender selector field")
-  reject(cache, function(manifest)
-    manifest.profileConfirmation = { obsolete = true }
-  end, "obsolete profile confirmation field")
-  reject(cache, function(manifest)
     manifest.unexpected = true
   end, "unknown top-level field")
+end
+
+function T.semantic_records_do_not_add_files_to_cache_readiness()
+  local cache = require("libs.assets.src.IntroAssetCache")
+  local CacheFs = require("libs.storage.src.CacheFs")
+  local FakeCache = require("tests.support.FakeCache")
+  local backend = FakeCache.new()
+  local cacheFs = CacheFs.forVersion("heartgold", backend)
+  local manifest = validManifest()
+  backend:write(cacheFs:resolve(cache.markerPath()), "ready")
+  cacheFs.loadLua = function(_, path)
+    if path == cache.manifestPath() then
+      return manifest
+    end
+    return { schema = cache.PROVENANCE_SCHEMA, source = {}, dependencies = {} }
+  end
+  cacheFs.exists = function(_, path)
+    return path:find("assets/generated/intro/", 1, true) == 1
+  end
+  Assert.isTrue(cache.isReady(cacheFs, "ready"), "semantic geometry does not require persisted files")
 end
 
 function T.intro_contract_revision_requires_the_new_obj_geometry()

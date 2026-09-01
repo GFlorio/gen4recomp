@@ -30,6 +30,44 @@ local IntroAssets = {
     screen = 3,
     palettes = { heartgold = 1, soulsilver = 2 },
   },
+  genderSelector = {
+    paletteMembers = { heartgold = 30, soulsilver = 31 },
+    defaultToneEntry = 12,
+    buttons = {
+      male = {
+        bounds = { x = 18, y = 25, width = 93, height = 148 },
+        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+      },
+      female = {
+        bounds = { x = 144, y = 25, width = 95, height = 148 },
+        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+      },
+    },
+  },
+  profileConfirmation = {
+    buttons = {
+      male = {
+        yes = {
+          bounds = { x = 138, y = 26, width = 115, height = 57 },
+          textBounds = { x = 136, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 138, y = 108, width = 115, height = 56 },
+          textBounds = { x = 136, y = 128, width = 104, height = 24 },
+        },
+      },
+      female = {
+        yes = {
+          bounds = { x = 10, y = 26, width = 115, height = 57 },
+          textBounds = { x = 16, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 10, y = 108, width = 115, height = 56 },
+          textBounds = { x = 16, y = 128, width = 104, height = 24 },
+        },
+      },
+    },
+  },
   oak = { char = 10, palette = 11, screen = 9 },
   gender = {
     male = { char = 12, palette = 16, screen = 9 },
@@ -40,14 +78,18 @@ local IntroAssets = {
       resourceSet = 1,
       archive = "intro",
       animationIndex = 0,
-      paletteOverride = 0,
+      vram = "sub",
+      paletteNumber = 0,
+      sourceCenter = { x = 64, y = 104 },
       resourceResolution = resourceResolution,
     },
     female = {
       resourceSet = 2,
       archive = "intro",
       animationIndex = 0,
-      paletteOverride = 1,
+      vram = "sub",
+      paletteNumber = 1,
+      sourceCenter = { x = 192, y = 104 },
       resourceResolution = resourceResolution,
     },
   },
@@ -58,11 +100,8 @@ local IntroAssets = {
   ball_open = {
     archive = "intro",
     animationIndex = 3,
-    -- Source palette-slot selector resolved by IntroObjPaletteResolver against
-    -- resourceSet 5's loaded palette resource, not a local 4bpp bank index
-    -- picked independently per sprite. sSpriteTemplates assigns `.pal = 4`
-    -- uniformly to every sprite built from resourceSet 5.
-    paletteOverride = 4,
+    vram = "main",
+    paletteNumber = 5,
     resourceSet = 5,
     resourceResolution = resourceResolution,
     sourceCenter = { x = 160, y = 80 },
@@ -76,7 +115,8 @@ IntroAssets.marill_appear = {
   cell = IntroAssets.ball_open.cell,
   animation = IntroAssets.ball_open.animation,
   animationIndex = 1,
-  paletteOverride = 4,
+  vram = "main",
+  paletteNumber = 4,
   resourceSet = IntroAssets.ball_open.resourceSet,
   resourceResolution = resourceResolution,
   sourceCenter = { x = 160, y = 80 },
@@ -89,7 +129,8 @@ IntroAssets.marill = {
   cell = IntroAssets.ball_open.cell,
   animation = IntroAssets.ball_open.animation,
   animationIndex = 2,
-  paletteOverride = 4,
+  vram = "main",
+  paletteNumber = 4,
   resourceSet = IntroAssets.ball_open.resourceSet,
   resourceResolution = resourceResolution,
   sourceCenter = { x = 160, y = 80 },

@@ -53,6 +53,8 @@
 -- pre-change font cache must not pass readiness.
 -- intro OBJ geometry: animated widgets retain one OAM-origin pivot across
 -- frames and publish source-reference centers for responsive placement.
+-- intro schema 8: profile controls publish source geometry and the selector's
+-- source default tone while their raster chrome remains primitive-rendered.
 
 local DerivedAssetContract = {}
 
@@ -156,10 +158,8 @@ DerivedAssetContract.fieldUi = {
 }
 
 DerivedAssetContract.intro = {
-  -- V7 keeps only source-backed intro content; simple profile controls are
-  -- rendered by the host from primitive geometry.
-  cacheFormat = "intro-cache-v7",
-  schema = "g4-intro-assets-v7",
+  cacheFormat = "intro-cache-v8",
+  schema = "g4-intro-assets-v8",
   provenanceSchema = "g4-intro-provenance-v1",
 }
 

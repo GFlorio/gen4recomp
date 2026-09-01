@@ -185,21 +185,6 @@ local function widget(id, value)
   return true
 end
 
-local function sourceCenter(id, reference, value)
-  if
-    type(value) ~= "table"
-    or not finite(value.x)
-    or not finite(value.y)
-    or value.x < 0
-    or value.x > reference.width
-    or value.y < 0
-    or value.y > reference.height
-  then
-    return invalid("widget " .. id .. " sourceCenter is invalid", { widget = id })
-  end
-  return true
-end
-
 local function closedRecord(label, value, allowed)
   if type(value) ~= "table" then
     return invalid(label .. " is invalid", {})
@@ -212,15 +197,151 @@ local function closedRecord(label, value, allowed)
   return true
 end
 
+local function sourceCenter(id, reference, value)
+  local recordOk, recordErr = closedRecord("widget " .. id .. " sourceCenter", value, { x = true, y = true })
+  if not recordOk then
+    return false, recordErr
+  end
+  if
+    not finite(value.x)
+    or not finite(value.y)
+    or value.x < 0
+    or value.x > reference.width
+    or value.y < 0
+    or value.y > reference.height
+  then
+    return invalid("widget " .. id .. " sourceCenter is invalid", { widget = id })
+  end
+  return true
+end
+
+local function sourceRect(label, reference, value)
+  local recordOk, recordErr = closedRecord(label, value, { x = true, y = true, width = true, height = true })
+  if not recordOk then
+    return false, recordErr
+  end
+  local ok, err = bounds(label, value)
+  if not ok then
+    return false, err
+  end
+  if
+    value.x < 0
+    or value.y < 0
+    or value.x + value.width > reference.width
+    or value.y + value.height > reference.height
+  then
+    return invalid(label .. " falls outside the source reference", {})
+  end
+  return true
+end
+
+local function rgbColor(label, value)
+  local ok, err = closedRecord(label, value, { r = true, g = true, b = true })
+  if not ok then
+    return false, err
+  end
+  for _, channel in ipairs({ "r", "g", "b" }) do
+    if not integer(value[channel]) or value[channel] < 0 or value[channel] > 255 then
+      return invalid(label .. " is invalid", {})
+    end
+  end
+  return true
+end
+
+local function genderSelector(reference, value)
+  local recordOk, recordErr = closedRecord("manifest genderSelector", value, { defaultTone = true, buttons = true })
+  if not recordOk then
+    return false, recordErr
+  end
+  local toneOk, toneErr = rgbColor("manifest genderSelector defaultTone", value.defaultTone)
+  if not toneOk then
+    return false, toneErr
+  end
+  local buttons = value.buttons
+  if type(buttons) ~= "table" then
+    return invalid("manifest genderSelector buttons are required")
+  end
+  for _, gender in ipairs({ "male", "female" }) do
+    local button = buttons[gender]
+    local buttonOk, buttonErr =
+      closedRecord("manifest genderSelector " .. gender .. " button", button, { bounds = true, hitBounds = true })
+    if not buttonOk then
+      return false, buttonErr
+    end
+    local boundsOk, boundsErr = sourceRect("gender selector " .. gender .. " button", reference, button.bounds)
+    if not boundsOk then
+      return false, boundsErr
+    end
+    local hitOk, hitErr = sourceRect("gender selector " .. gender .. " hit bounds", reference, button.hitBounds)
+    if not hitOk then
+      return false, hitErr
+    end
+  end
+  for gender in pairs(buttons) do
+    if gender ~= "male" and gender ~= "female" then
+      return invalid("manifest genderSelector has an unknown button " .. tostring(gender), { gender = gender })
+    end
+  end
+  return true
+end
+
+local function profileConfirmation(reference, value)
+  local recordOk, recordErr = closedRecord("manifest profileConfirmation", value, { buttons = true })
+  if not recordOk then
+    return false, recordErr
+  end
+  local buttons = value.buttons
+  if type(buttons) ~= "table" then
+    return invalid("manifest profileConfirmation buttons are required")
+  end
+  for _, gender in ipairs({ "male", "female" }) do
+    local choices = buttons[gender]
+    local genderOk, genderErr =
+      closedRecord("manifest profileConfirmation " .. gender, choices, { yes = true, no = true })
+    if not genderOk then
+      return false, genderErr
+    end
+    for _, choice in ipairs({ "yes", "no" }) do
+      local button = choices[choice]
+      local buttonOk, buttonErr = closedRecord(
+        "manifest profileConfirmation " .. gender .. " " .. choice .. " button",
+        button,
+        { bounds = true, textBounds = true }
+      )
+      if not buttonOk then
+        return false, buttonErr
+      end
+      local boundsOk, boundsErr =
+        sourceRect("profile confirmation " .. gender .. " " .. choice .. " bounds", reference, button.bounds)
+      if not boundsOk then
+        return false, boundsErr
+      end
+      local textOk, textErr =
+        sourceRect("profile confirmation " .. gender .. " " .. choice .. " text bounds", reference, button.textBounds)
+      if not textOk then
+        return false, textErr
+      end
+    end
+  end
+  for gender in pairs(buttons) do
+    if gender ~= "male" and gender ~= "female" then
+      return invalid("manifest profileConfirmation has an unknown gender " .. tostring(gender), { gender = gender })
+    end
+  end
+  return true
+end
+
 function M.validateManifest(manifest)
-  if type(manifest) ~= "table" or manifest.schemaVersion ~= 7 then
-    return invalid("manifest schema mismatch", { expected = 7, actual = manifest and manifest.schemaVersion })
+  if type(manifest) ~= "table" or manifest.schemaVersion ~= 8 then
+    return invalid("manifest schema mismatch", { expected = 8, actual = manifest and manifest.schemaVersion })
   end
   local recordOk, recordErr = closedRecord("manifest", manifest, {
     schemaVersion = true,
     variant = true,
     sourceReference = true,
     background = true,
+    genderSelector = true,
+    profileConfirmation = true,
     widgets = true,
   })
   if not recordOk then
@@ -254,7 +375,7 @@ function M.validateManifest(manifest)
     if not ok then
       return false, err
     end
-    if id == "ball_open" or id == "marill_appear" or id == "marill" then
+    if id == "gender_male" or id == "gender_female" or id == "ball_open" or id == "marill_appear" or id == "marill" then
       local centerOk, centerErr = sourceCenter(id, reference, manifest.widgets[id].sourceCenter)
       if not centerOk then
         return false, centerErr
@@ -267,6 +388,14 @@ function M.validateManifest(manifest)
     if not REQUIRED[id] then
       return invalid("manifest contains unknown widget " .. tostring(id), { widget = id })
     end
+  end
+  local selectorOk, selectorErr = genderSelector(reference, manifest.genderSelector)
+  if not selectorOk then
+    return false, selectorErr
+  end
+  local confirmationOk, confirmationErr = profileConfirmation(reference, manifest.profileConfirmation)
+  if not confirmationOk then
+    return false, confirmationErr
   end
   return true
 end

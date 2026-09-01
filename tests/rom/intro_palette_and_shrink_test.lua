@@ -16,14 +16,58 @@ local function getBytes(archive, memberId)
   return bytes
 end
 
--- Both gender-selector resources' own shipped NCLR data only ever populates
--- bank 0; every other bank (including the configured template slot for the
--- female selector, bank 1) is all-zero in the real dump. The template slot
--- is a VRAM-palette-bank number assigned when the sprite system loads all
--- resource sets together and is not recoverable from either resource's own
--- static palette data, so the effective 4bpp bank at emitted-pixel level is
--- each OAM object's own decoded palette field, mirroring the same fallback
--- already applied to the ball/Marill reveal resource for the same reason.
+local function readPaletteRecords(romFs, resolution)
+  local archive = assert(romFs:openNarc(resolution.archive))
+  local bytes = getBytes(archive, resolution.paletteTable)
+  local BinaryReader = require("libs.codec.src.BinaryReader")
+  local reader = BinaryReader.new(bytes, "intro palette table")
+  local records = {}
+  local offset = 4
+  while true do
+    local narcId = reader:u32le(offset)
+    if narcId == 0xFFFFFFFE then
+      return records
+    end
+    local record = {
+      narcId = narcId,
+      fileId = reader:u32le(offset + 4),
+      compressed = reader:u32le(offset + 8),
+      objectId = reader:u32le(offset + 12),
+      vram = reader:u32le(offset + 16),
+      bankCount = reader:u32le(offset + 20),
+    }
+    records[#records + 1] = record
+    offset = offset + 24
+  end
+end
+
+-- Independent oracle for ObjPlttTransfer's sequential MAIN/SUB allocation.
+local function buildPaletteLayout(records)
+  local layout = { main = {}, sub = {} }
+  local cursor = { main = 0, sub = 0 }
+  for _, record in ipairs(records) do
+    local targets = {}
+    if record.vram == 1 or record.vram == 3 then
+      targets[#targets + 1] = "main"
+    end
+    if record.vram == 2 or record.vram == 3 then
+      targets[#targets + 1] = "sub"
+    end
+    for _, target in ipairs(targets) do
+      for localBank = 0, record.bankCount - 1 do
+        layout[target][cursor[target]] = { record = record, localBank = localBank }
+        cursor[target] = cursor[target] + 1
+      end
+    end
+  end
+  return layout
+end
+
+local function sourceOwner(layout, vram, paletteNumber)
+  local target = assert(({ main = "main", sub = "sub" })[vram])
+  return layout[target][paletteNumber]
+end
+
 local function decodeSelectorResource(romFs, IntroAssets, spec)
   local G2dDecoder = require("romdump.src.digest.G2dDecoder")
   local BinaryReader = require("libs.codec.src.BinaryReader")
@@ -59,7 +103,7 @@ local function decodeSelectorResource(romFs, IntroAssets, spec)
   local animation = assert(G2dDecoder.decodeAnimation(getBytes(archive, animFile)))
   local anim = assert(animation.anims[spec.animationIndex + 1])
   local cell = assert(cells.cells[anim.frames[1].cell + 1])
-  return char, palette, cell
+  return char, palette, cell, anim.frames
 end
 
 -- Render the exact image one bank hypothesis would produce for this cell,
@@ -67,6 +111,10 @@ end
 -- the widget's generated canvas (destination = object.x/y offset by anchor;
 -- source tile selection and per-pixel placement mirror its flip handling).
 local function renderCellOracle(char, palette, cell, width, height, anchorX, anchorY, bankFor)
+  -- The compiler passes a resolved 16-color view; source comparisons pass a
+  -- decoded palette record. Keep the oracle independent of that producer
+  -- representation while retaining the explicit local-bank selection.
+  local colors = palette.colors or palette
   local tileBytes = char.depth == 3 and 32 or 64
   local tileCount = #char.tiles / tileBytes
   local rgba = {}
@@ -93,7 +141,7 @@ local function renderCellOracle(char, palette, cell, width, height, anchorX, anc
             local values = { b % 16, math.floor(b / 16) }
             for pairOffset, value in ipairs(values) do
               if value ~= 0 then
-                local color = palette.colors[value + 1 + bank * 16]
+                local color = colors[value + 1 + bank * 16]
                 if color then
                   local localX = cc * 2 + (pairOffset - 1)
                   local targetX = object.flipH and 7 - localX or localX
@@ -118,16 +166,86 @@ local function renderCellOracle(char, palette, cell, width, height, anchorX, anc
   return table.concat(out)
 end
 
-function T.gender_selector_pixels_follow_each_objects_own_oam_bank_not_the_template_override(romFs)
+local function renderAnimatedCellOracle(char, palette, cell, frame, width, height, anchorX, anchorY, bankFor)
+  local tx = frame.translateX or 0
+  local ty = frame.translateY or 0
+  local sx = frame.scaleX or 1
+  local sy = frame.scaleY or 1
+  local rotation = frame.rotation or 0
+  if tx == 0 and ty == 0 and sx == 1 and sy == 1 and rotation == 0 then
+    return renderCellOracle(char, palette, cell, width, height, anchorX, anchorY, bankFor)
+  end
+  if rotation ~= 0 then
+    error("intro palette oracle does not support rotated source frames", 0)
+  end
+
+  local minX, minY = math.huge, math.huge
+  local maxX, maxY = -math.huge, -math.huge
+  for _, object in ipairs(cell.objs) do
+    minX = math.min(minX, object.x)
+    minY = math.min(minY, object.y)
+    maxX = math.max(maxX, object.x + object.width)
+    maxY = math.max(maxY, object.y + object.height)
+  end
+  local cellWidth, cellHeight = maxX - minX, maxY - minY
+  local cellRgba = renderCellOracle(char, palette, cell, cellWidth, cellHeight, -minX, -minY, bankFor)
+  local output = {}
+  for index = 1, width * height * 4 do
+    output[index] = 0
+  end
+  for dy = 0, height - 1 do
+    for dx = 0, width - 1 do
+      local worldX = -anchorX + dx
+      local worldY = -anchorY + dy
+      local sourceX = math.floor((worldX - tx) / sx - minX + 0.5)
+      local sourceY = math.floor((worldY - ty) / sy - minY + 0.5)
+      if sourceX >= 0 and sourceX < cellWidth and sourceY >= 0 and sourceY < cellHeight then
+        local sourceOffset = (sourceY * cellWidth + sourceX) * 4
+        local alpha = string.byte(cellRgba, (sourceOffset + 4) --[[@as integer]])
+        if alpha ~= 0 then
+          local outputOffset = (dy * width + dx) * 4
+          output[outputOffset + 1] = string.byte(cellRgba, (sourceOffset + 1) --[[@as integer]])
+          output[outputOffset + 2] = string.byte(cellRgba, (sourceOffset + 2) --[[@as integer]])
+          output[outputOffset + 3] = string.byte(cellRgba, (sourceOffset + 3) --[[@as integer]])
+          output[outputOffset + 4] = alpha
+        end
+      end
+    end
+  end
+  local out = {}
+  for index = 1, #output, 4096 do
+    out[#out + 1] = string.char(unpack(output, index, math.min(index + 4095, #output)))
+  end
+  return table.concat(out)
+end
+
+function T.source_palette_table_allocates_the_pinned_oak_absolute_banks(romFs)
+  local IntroAssets = require("romdump.src.config.IntroAssets")
+  local resolution = assert(IntroAssets.genderSelectors.male.resourceResolution)
+  local layout = buildPaletteLayout(readPaletteRecords(romFs, resolution))
+  for _, expected in ipairs({
+    { vram = "sub", paletteNumber = 0, objectId = 2, localBank = 0, label = "male selector" },
+    { vram = "sub", paletteNumber = 1, objectId = 3, localBank = 0, label = "female selector" },
+    { vram = "main", paletteNumber = 4, objectId = 7, localBank = 0, label = "Marill" },
+    { vram = "main", paletteNumber = 5, objectId = 7, localBank = 1, label = "ball opening" },
+  }) do
+    local slot = sourceOwner(layout, expected.vram, expected.paletteNumber)
+    Assert.notNil(slot, expected.label .. " has an allocated absolute palette bank")
+    Assert.equal(slot.record.objectId, expected.objectId, expected.label .. " owner resource")
+    Assert.equal(slot.localBank, expected.localBank, expected.label .. " owner local bank")
+  end
+end
+
+function T.generated_fourbpp_pixels_follow_absolute_palette_owners(romFs)
   local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
   local IntroAssets = require("romdump.src.config.IntroAssets")
   local PngReader = require("tests.support.PngReader")
 
-  Assert.equal(IntroAssets.genderSelectors.male.paletteOverride, 0, "male template selects slot 0")
-  Assert.equal(IntroAssets.genderSelectors.female.paletteOverride, 1, "female template selects slot 1")
-
   local bundle = assert(IntroAssetCompiler.compile(romFs))
-  local discriminatedAnyGender = false
+  local resolution = assert(IntroAssets.genderSelectors.male.resourceResolution)
+  local layout = buildPaletteLayout(readPaletteRecords(romFs, resolution))
+  local introArchive = assert(romFs:openNarc(IntroAssets.archive))
+  local discriminatedAny = false
 
   for _, gender in ipairs({ "male", "female" }) do
     local spec = IntroAssets.genderSelectors[gender]
@@ -136,8 +254,12 @@ function T.gender_selector_pixels_follow_each_objects_own_oam_bank_not_the_templ
 
     local char, palette, cell = decodeSelectorResource(romFs, IntroAssets, spec)
     Assert.isTrue(#cell.objs > 0, gender .. " selector cell has OAM objects")
+    local slot = assert(sourceOwner(layout, spec.vram, spec.paletteNumber), gender .. " absolute palette owner")
+    Assert.equal(slot.record.narcId, spec.resourceResolution.sourceNarcId, gender .. " owner archive")
+    local ownerPalette =
+      assert(require("romdump.src.digest.G2dDecoder").decodePalette(getBytes(introArchive, slot.record.fileId)))
 
-    local embeddedRgba = renderCellOracle(
+    local sourceRgba = renderCellOracle(
       char,
       palette,
       cell,
@@ -149,47 +271,28 @@ function T.gender_selector_pixels_follow_each_objects_own_oam_bank_not_the_templ
         return object.palette
       end
     )
-    local templateRgba = renderCellOracle(
+    local absoluteRgba = renderCellOracle(
       char,
-      palette,
+      ownerPalette,
       cell,
       widget.width,
       widget.height,
       widget.anchor.x,
       widget.anchor.y,
       function()
-        return spec.paletteOverride
+        return slot.localBank
       end
     )
 
-    if embeddedRgba == templateRgba then
-      -- This resource's own decoded per-object OAM palette field happens to
-      -- already agree with its template override for every object, so no
-      -- pixel can distinguish the two hypotheses; the compiled bundle must
-      -- still match both (they are identical), and the other gender carries
-      -- the discriminating assertion.
-      Assert.equal(
-        bundleRgba,
-        embeddedRgba,
-        gender .. " selector pixels must match the (here, coincident) source OAM palette bank"
-      )
-    else
-      discriminatedAnyGender = true
-      Assert.equal(
-        bundleRgba,
-        embeddedRgba,
-        "compiled "
-          .. gender
-          .. " selector pixels must follow each object's own decoded OAM palette field, not the "
-          .. "(here, unpopulated) source template palette override"
-      )
+    Assert.equal(bundleRgba, absoluteRgba, gender .. " selector pixels match the absolute-bank oracle")
+    if sourceRgba ~= absoluteRgba then
+      discriminatedAny = true
     end
   end
 
   Assert.isTrue(
-    discriminatedAnyGender,
-    "neither selector's OAM bank disagreed with its template override; this ROM fixture cannot prove which "
-      .. "hypothesis the compiler follows"
+    discriminatedAny,
+    "at least one selector must distinguish absolute-bank ownership from object-local palette selection"
   )
 end
 
@@ -394,49 +497,35 @@ function T.shrink_frames_are_portrait_compositions(romFs)
   end
 end
 
--- The pinned source (src/oaks_speech_obj.c, sSpriteTemplates) assigns exactly
--- one explicit OBJ palette selector per Oak-speech resource set: resourceSet
--- 1 (male) selects 0, resourceSet 2 (female) selects 1, and resourceSet 5
--- (ball/Marill) selects 4 for every sprite built from it. Selector zero must
--- resolve like any other explicit selector, never as an absent value.
-local sourceSelectorByResourceSet = { [1] = 0, [2] = 1, [5] = 4 }
+-- The pinned source (src/oaks_speech_obj.c, sSpriteTemplates) assigns an
+-- absolute OBJ palette number and target engine to each affected template.
+local sourcePaletteByAsset = {
+  gender_male = { vram = "sub", paletteNumber = 0 },
+  gender_female = { vram = "sub", paletteNumber = 1 },
+  ball_open = { vram = "main", paletteNumber = 5 },
+  marill_appear = { vram = "main", paletteNumber = 4 },
+  marill = { vram = "main", paletteNumber = 4 },
+}
 
 function T.oak_speech_selectors_match_pinned_source_sprite_templates(romFs)
   local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
   local IntroAssets = require("romdump.src.config.IntroAssets")
 
-  Assert.equal(IntroAssets.genderSelectors.male.paletteOverride, sourceSelectorByResourceSet[1], "male selector")
-  Assert.equal(IntroAssets.genderSelectors.female.paletteOverride, sourceSelectorByResourceSet[2], "female selector")
-  Assert.equal(
-    IntroAssets.marill.paletteOverride,
-    sourceSelectorByResourceSet[5],
-    "marill selector matches its resource set's source template"
-  )
-  Assert.equal(
-    IntroAssets.marill_appear.paletteOverride,
-    sourceSelectorByResourceSet[5],
-    "marill_appear selector matches its resource set's source template"
-  )
-  Assert.equal(
-    IntroAssets.ball_open.paletteOverride,
-    sourceSelectorByResourceSet[5],
-    "ball_open shares resourceSet 5 with Marill and must select the same source palette (4), not an adjacent bank"
-  )
+  for id, expected in pairs(sourcePaletteByAsset) do
+    local config = id:find("gender_", 1, true) == 1 and IntroAssets.genderSelectors[id:gsub("gender_", "")]
+      or IntroAssets[id]
+    Assert.equal(config.vram, expected.vram, id .. " target engine")
+    Assert.equal(config.paletteNumber, expected.paletteNumber, id .. " source palette number")
+  end
 
   local bundle = assert(IntroAssetCompiler.compile(romFs))
-  for id, resourceSet in pairs({ ball_open = 5, marill_appear = 5, marill = 5, gender_male = 1, gender_female = 2 }) do
+  for id in pairs(sourcePaletteByAsset) do
     local widget = assert(bundle.manifest.widgets[id], id .. " widget present")
     local provenance = widget.provenance or {}
-    local recordedSelector
-    for key, value in pairs(provenance) do
-      if type(value) == "number" and (tostring(key):find("pal") or tostring(key):find("slot")) then
-        recordedSelector = value
-      end
-    end
     Assert.equal(
-      recordedSelector,
-      sourceSelectorByResourceSet[resourceSet],
-      id .. " provenance must record the resolved source palette selector actually used to rasterize it"
+      provenance.paletteNumber,
+      sourcePaletteByAsset[id].paletteNumber,
+      id .. " provenance records the source palette number"
     )
   end
 end
@@ -459,6 +548,67 @@ function T.critical_widget_geometry_and_centers_survive_palette_resolution(romFs
       id .. " retains finite transformed source bounds"
     )
     Assert.isTrue(#widget.frames > 0, id .. " retains at least one decoded animation frame")
+  end
+  Assert.deepEqual(widgets.gender_male.sourceCenter, { x = 64, y = 104 })
+  Assert.deepEqual(widgets.gender_female.sourceCenter, { x = 192, y = 104 })
+  Assert.deepEqual(bundle.manifest.genderSelector.buttons.male.bounds, { x = 18, y = 25, width = 93, height = 148 })
+  Assert.deepEqual(
+    bundle.manifest.profileConfirmation.buttons.female.no.textBounds,
+    { x = 16, y = 128, width = 104, height = 24 }
+  )
+end
+
+function T.ball_and_marill_pixels_use_their_distinct_absolute_palette_banks(romFs)
+  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local IntroAssets = require("romdump.src.config.IntroAssets")
+  local PngReader = require("tests.support.PngReader")
+  local G2dDecoder = require("romdump.src.digest.G2dDecoder")
+  local bundle = assert(IntroAssetCompiler.compile(romFs))
+  local resolution = assert(IntroAssets.ball_open.resourceResolution)
+  local layout = buildPaletteLayout(readPaletteRecords(romFs, resolution))
+  local introArchive = assert(romFs:openNarc(IntroAssets.archive))
+  for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
+    local spec = assert(IntroAssets[id])
+    local slot = assert(sourceOwner(layout, spec.vram, spec.paletteNumber), id .. " absolute palette owner")
+    Assert.equal(slot.record.objectId, 7, id .. " uses resource id 7")
+    Assert.equal(slot.localBank, id == "ball_open" and 1 or 0, id .. " local palette bank")
+    local char, embeddedPalette, cell, animationFrames = decodeSelectorResource(romFs, IntroAssets, spec)
+    local ownerPalette = assert(G2dDecoder.decodePalette(getBytes(introArchive, slot.record.fileId)))
+    local widget = assert(bundle.manifest.widgets[id])
+    local _, _, bundleRgba = PngReader.rgba(assert(bundle.assets[widget.frames[1].image]))
+    local absoluteRgba = renderAnimatedCellOracle(
+      char,
+      ownerPalette,
+      cell,
+      animationFrames[1],
+      widget.width,
+      widget.height,
+      widget.anchor.x,
+      widget.anchor.y,
+      function()
+        return slot.localBank
+      end
+    )
+    Assert.equal(bundleRgba, absoluteRgba, id .. " pixels match the absolute-bank oracle")
+    local sourceRgba = renderAnimatedCellOracle(
+      char,
+      embeddedPalette,
+      cell,
+      animationFrames[1],
+      widget.width,
+      widget.height,
+      widget.anchor.x,
+      widget.anchor.y,
+      function(object)
+        return object.palette
+      end
+    )
+    if sourceRgba ~= absoluteRgba then
+      Assert.notEqual(bundleRgba, sourceRgba, id .. " pixels must follow the absolute-bank hypothesis")
+    end
+    -- The two hypotheses are both rendered explicitly.  A ROM may have an
+    -- object-local bank equal to the resolved bank, or equal colors in both
+    -- banks, so identical output is valid and must not invalidate the test.
   end
 end
 
