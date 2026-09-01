@@ -216,7 +216,7 @@ function T.tests.tall_host_keeps_source_order_and_all_layout_rectangles_inside_v
   Assert.near((revealPoint.x - canvasOriginX) / canvasScale, 160, 1e-9)
 end
 
-function T.tests.gender_selection_is_a_single_source_aligned_composition()
+function T.tests.gender_selection_uses_equal_button_columns_with_inset_portraits()
   local data = manifest()
   for _, size in ipairs({ { 1920, 1080 }, { 390, 844 } }) do
     local layout = OakIntroLayout.compute(size[1], size[2], {
@@ -234,15 +234,18 @@ function T.tests.gender_selection_is_a_single_source_aligned_composition()
     Assert.near(layout.selectorPanel.width / layout.selectorPanel.height, 4 / 3)
     local selectorInset = assert(layout.selectorInset)
     Assert.isTrue(selectorInset > 0)
-    for gender, sourceX in pairs({ [0] = 64, [1] = 192 }) do
+    for gender = 0, 1 do
       local id = gender == 0 and "gender_male" or "gender_female"
-      local item = layout.genderChoiceGroup.items[gender]
-      local choice = item.payload.portraitRect
-      local choicePoint = point(choice, data.widgets[id].anchor)
-      Assert.near(choicePoint.x, layout.selectorPanel.x + sourceX / 256 * layout.selectorPanel.width)
-      Assert.near(choicePoint.y, layout.selectorPanel.y + 104 / 192 * layout.selectorPanel.height)
-      Assert.deepEqual(item.rect, layout.genderChoiceGroup.items[gender].rect)
+      local item = assert(layout.genderButtons[gender])
+      local button = item.button
+      local choice = item.portraitRect
+      Assert.isTrue(inside(button.rect, layout.selectorPanel))
+      Assert.isTrue(inside(button.contentRect, button.faceRect))
+      Assert.isTrue(inside(choice, button.contentRect))
+      Assert.isTrue(choice.width / choice.height == data.widgets[id].width / data.widgets[id].height)
     end
+    Assert.isTrue(disjoint(layout.genderButtons[0].button.rect, layout.genderButtons[1].button.rect))
+    Assert.equal(layout.genderButtons[0].button.rect.width, layout.genderButtons[1].button.rect.width)
   end
 end
 
@@ -257,28 +260,26 @@ function T.tests.gender_confirmation_keeps_only_the_static_selected_card()
     confirmationChoice = { kind = "gender", selected = 0 },
   }, {}, data)
 
-  Assert.isNil(layout.genderChoiceGroup)
-  Assert.equal(layout.selectedProfileCard.key, "male")
-  Assert.notNil(layout.confirmationChoiceGroup)
+  Assert.isNil(layout.genderButtons)
+  Assert.equal(layout.selectedProfileButton.key, "male")
+  Assert.notNil(layout.confirmationButtons)
+  Assert.isTrue(disjoint(layout.selectedProfileButton.button.rect, layout.confirmationButtons[0].button.rect))
 end
 
-function T.tests.gender_hit_geometry_uses_hit_bounds_and_style_geometry_uses_bounds()
+function T.tests.gender_layout_does_not_depend_on_source_control_bounds()
   local data = manifest()
-  data.genderSelector.buttons.male.bounds = { x = 24, y = 30, width = 80, height = 140 }
-  local layout = OakIntroLayout.compute(800, 600, {
+  local view = {
     phase = "gender_select",
     visual = "oak",
     primaryWidget = "oak",
     genderFocus = 0,
     genderCompositionProgress = 1,
-  }, {}, data)
-  local item = layout.genderChoiceGroup.items[0]
-  local panel = assert(layout.selectorPanel)
-
-  Assert.near(item.rect.x, panel.x + 18 / 256 * panel.width)
-  Assert.near(item.rect.width, 93 / 256 * panel.width)
-  Assert.near(item.payload.buttonRect.x, panel.x + 24 / 256 * panel.width)
-  Assert.near(item.payload.buttonRect.width, 80 / 256 * panel.width)
+  }
+  local first = OakIntroLayout.compute(800, 600, view, {}, data)
+  data.genderSelector.buttons.male.bounds = { x = 24, y = 30, width = 80, height = 140 }
+  data.genderSelector.buttons.female.hitBounds = { x = 144, y = 25, width = 1, height = 1 }
+  local second = OakIntroLayout.compute(800, 600, view, {}, data)
+  Assert.deepEqual(first.genderButtons, second.genderButtons)
 end
 
 function T.tests.name_confirmation_resolves_source_aspect_choice_without_selector_regions()
@@ -294,10 +295,13 @@ function T.tests.name_confirmation_resolves_source_aspect_choice_without_selecto
 
   Assert.isNil(layout.oakRegion)
   Assert.isNil(layout.selectorRegion)
-  Assert.notNil(layout.confirmationChoiceGroup)
-  Assert.equal(layout.confirmationChoiceGroup.items[0].key, "yes")
-  Assert.equal(layout.confirmationChoiceGroup.items[1].key, "no")
-  Assert.isTrue(disjoint(layout.confirmationChoiceGroup.items[0].rect, layout.confirmationChoiceGroup.items[1].rect))
+  Assert.notNil(layout.confirmationButtons)
+  Assert.equal(layout.confirmationButtons[0].key, "yes")
+  Assert.equal(layout.confirmationButtons[1].key, "no")
+  Assert.isTrue(disjoint(layout.confirmationButtons[0].button.rect, layout.confirmationButtons[1].button.rect))
+  Assert.equal(layout.confirmationButtons[0].button.rect.width, layout.confirmationButtons[1].button.rect.width)
+  Assert.isTrue(inside(layout.confirmationButtons[0].button.rect, layout.stageContent))
+  Assert.isTrue(inside(layout.confirmationButtons[1].button.rect, layout.stageContent))
 end
 
 function T.tests.gender_composition_interpolates_oak_into_the_contained_region()

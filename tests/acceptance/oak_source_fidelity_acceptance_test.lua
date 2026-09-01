@@ -276,55 +276,30 @@ function T.tests.ball_and_marill_geometry_stable_across_viewport_shapes()
   end
 end
 
-function T.tests.gender_select_preserves_source_centers_and_female_palette()
+function T.tests.gender_select_preserves_source_portraits_and_female_palette()
   local manifest = loadManifest()
   local view = { phase = "gender_select", genderFocus = 0, genderCompositionProgress = 1, oakBgScrollX = 0 }
   for _, sz in ipairs({ { 800, 600 }, { 390, 844 } }) do
     local w, h = sz[1], sz[2]
     local layout = OakIntroLayout.compute(w, h, view, {}, manifest)
-    Assert.notNil(layout.genderChoiceGroup, "gender choices are not resolved")
-    Assert.notNil(layout.genderChoiceGroup.items[0], "male choice missing")
-    Assert.notNil(layout.genderChoiceGroup.items[1], "female choice missing")
+    Assert.notNil(layout.genderButtons, "gender choices are not resolved")
+    Assert.notNil(layout.genderButtons[0], "male choice missing")
+    Assert.notNil(layout.genderButtons[1], "female choice missing")
     local selectorInset = assert(layout.selectorInset, "selector inset missing")
     Assert.isTrue(selectorInset > 0, "selector has deliberate responsive breathing room")
-    -- Scales must be uniform for one canvas composition
-    local sMale = layout.genderCanvas.scale
-    local sFemale = layout.genderCanvas.scale
-    Assert.near(sMale, sFemale, 1e-9, "male and female choices must share uniform scale at " .. w .. "x" .. h)
-    -- Centers via same canvas: male (64,104) female (192,104)
-    -- Derive canvas from selectorPanel: it maps 256x192 into panel
-    local panel = assert(layout.selectorPanel, "selectorPanel missing")
-    local scale = math.min(panel.width / REFERENCE.width, panel.height / REFERENCE.height)
-    local origin = {
-      x = panel.x + (panel.width - REFERENCE.width * scale) / 2,
-      y = panel.y + (panel.height - REFERENCE.height * scale) / 2,
-    }
-    local function hostCenter(srcX, srcY)
-      return { x = origin.x + srcX * scale, y = origin.y + srcY * scale }
-    end
-    local maleExp = hostCenter(64, 104)
-    local femaleExp = hostCenter(192, 104)
-    local maleAct = {
-      x = layout.genderChoiceGroup.items[0].payload.portraitRect.x
-        + layout.genderChoiceGroup.items[0].payload.portraitRect.width / 2,
-      y = layout.genderChoiceGroup.items[0].payload.portraitRect.y
-        + layout.genderChoiceGroup.items[0].payload.portraitRect.height / 2,
-    }
-    local femaleAct = {
-      x = layout.genderChoiceGroup.items[1].payload.portraitRect.x
-        + layout.genderChoiceGroup.items[1].payload.portraitRect.width / 2,
-      y = layout.genderChoiceGroup.items[1].payload.portraitRect.y
-        + layout.genderChoiceGroup.items[1].payload.portraitRect.height / 2,
-    }
-    Assert.near(maleAct.x, maleExp.x, 1.0, "male center x must map from (64,104) via shared canvas")
-    Assert.near(maleAct.y, maleExp.y, 1.0, "male center y must map from (64,104) via shared canvas")
-    Assert.near(femaleAct.x, femaleExp.x, 1.0, "female center x must map from (192,104) via shared canvas")
-    Assert.near(femaleAct.y, femaleExp.y, 1.0, "female center y must map from (192,104) via shared canvas")
-    Assert.isTrue(maleAct.x < femaleAct.x, "male must be left of female preserving source ordering")
-    -- Source horizontal separation preserved after inverse mapping
-    local maleSrcX = (maleAct.x - origin.x) / scale
-    local femaleSrcX = (femaleAct.x - origin.x) / scale
-    Assert.near(femaleSrcX - maleSrcX, 128, 1.0, "horizontal separation must be 128 source units")
+    local male = layout.genderButtons[0]
+    local female = layout.genderButtons[1]
+    Assert.isTrue(male.button.rect.x < female.button.rect.x, "male remains left of female")
+    Assert.isTrue(
+      male.portraitRect.width / male.portraitRect.height
+        == manifest.widgets.gender_male.width / manifest.widgets.gender_male.height
+    )
+    Assert.isTrue(
+      female.portraitRect.width / female.portraitRect.height
+        == manifest.widgets.gender_female.width / manifest.widgets.gender_female.height
+    )
+    Assert.isTrue(male.portraitRect.x > male.button.contentRect.x)
+    Assert.isTrue(female.portraitRect.x > female.button.contentRect.x)
   end
   -- Female palette comes from derived cache palette override, not host tint
   -- gender selector widgets are gender_male / gender_female

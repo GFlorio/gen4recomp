@@ -435,9 +435,13 @@ function T.tests.single_surface_gender_selection_keeps_regions_separate()
     Assert.notNil(layout.oakRegion, "layout exposes the Oak region")
     Assert.notNil(layout.selectorRegion, "layout exposes the selector region")
     assertDisjoint(layout.oakRegion, layout.selectorRegion, "Oak and selector regions overlap")
-    Assert.notNil(layout.genderChoiceGroup, "selector choices are resolved")
-    for _, item in pairs(layout.genderChoiceGroup.items) do
-      assertInside(item.rect, layout.selectorPanel, "selector choice leaves selector panel")
+    Assert.notNil(layout.genderButtons, "selector choices are resolved")
+    for gender = 0, 1 do
+      assertInside(
+        layout.genderButtons[gender].button.rect,
+        layout.selectorPanel,
+        "selector choice leaves selector panel"
+      )
     end
   end
 end
@@ -447,12 +451,12 @@ function T.tests.wide_gender_selection_is_side_by_side_and_hit_regions_are_rende
   local layout = OakIntroLayout.compute(1920, 1080, view, { "A" }, genderManifest())
   Assert.notNil(layout.oakRegion, "wide layout exposes the Oak region")
   Assert.notNil(layout.selectorRegion, "wide layout exposes the selector region")
-  Assert.notNil(layout.genderChoiceGroup, "wide layout resolves selector choices")
+  Assert.notNil(layout.genderButtons, "wide layout resolves selector choices")
   Assert.isTrue(layout.oakRegion.x < layout.selectorRegion.x, "wide layout keeps Oak left of controls")
   assertDisjoint(layout.oakRegion, layout.selectorRegion, "wide Oak and selector regions overlap")
   for gender = 0, 1 do
     assertInside(
-      layout.genderChoiceGroup.items[gender].rect,
+      layout.genderButtons[gender].button.rect,
       layout.selectorPanel,
       "wide selector choice leaves selector panel"
     )
@@ -465,22 +469,14 @@ function T.tests.constrained_gender_selection_keeps_both_controls_and_main_conte
     local layout = OakIntroLayout.compute(size[1], size[2], view, { "A" }, genderManifest())
     Assert.notNil(layout.oakRegion, "constrained layout exposes essential Oak context")
     Assert.notNil(layout.selectorRegion, "constrained layout exposes selector controls")
-    Assert.notNil(layout.genderChoiceGroup, "constrained layout resolves both choices")
+    Assert.notNil(layout.genderButtons, "constrained layout resolves both choices")
     assertInside(layout.oakRegion, layout.viewport, "constrained Oak context leaves viewport")
     assertInside(layout.selectorRegion, layout.viewport, "constrained selector leaves viewport")
-    assertInside(
-      layout.genderChoiceGroup.items[0].rect,
-      layout.selectorPanel,
-      "constrained male choice leaves controls"
-    )
-    assertInside(
-      layout.genderChoiceGroup.items[1].rect,
-      layout.selectorPanel,
-      "constrained female choice leaves controls"
-    )
+    assertInside(layout.genderButtons[0].button.rect, layout.selectorPanel, "constrained male choice leaves controls")
+    assertInside(layout.genderButtons[1].button.rect, layout.selectorPanel, "constrained female choice leaves controls")
     assertDisjoint(
-      layout.genderChoiceGroup.items[0].rect,
-      layout.genderChoiceGroup.items[1].rect,
+      layout.genderButtons[0].button.rect,
+      layout.genderButtons[1].button.rect,
       "constrained gender choices overlap"
     )
   end
@@ -676,8 +672,7 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   state:tick(26)
   Assert.equal(state:view().phase, "gender_select")
   local genderLayout = OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }, manifest())
-  Assert.notNil(genderLayout.genderChoiceGroup)
-  Assert.notNil(genderLayout.selectedProfileCard)
+  Assert.notNil(genderLayout.genderButtons)
   state:press("confirm")
   state:press("confirm")
   state:press("confirm")

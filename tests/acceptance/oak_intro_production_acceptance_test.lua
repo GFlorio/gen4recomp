@@ -11,6 +11,7 @@ local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
+local GameAudio = require("game.hgss.src.audio.GameAudio")
 
 local T = {
   metadata = {
@@ -41,11 +42,54 @@ local function newCandidate(versionId)
   })
 end
 
-local function withProductionOak(versionId, fn)
+local function recordingSound(sound, trace)
+  local wrapped = {}
+
+  function wrapped:playMusic(id)
+    trace[#trace + 1] = { name = "music", value = id }
+    return sound:playMusic(id)
+  end
+
+  function wrapped:stopMusic()
+    trace[#trace + 1] = { name = "stop_music" }
+    return sound:stopMusic()
+  end
+
+  function wrapped:fadeMusicOut(spec)
+    trace[#trace + 1] = { name = "fade_out", value = spec }
+    return sound:fadeMusicOut(spec)
+  end
+
+  function wrapped:play(id)
+    trace[#trace + 1] = { name = "effect", value = id }
+    return sound:play(id)
+  end
+
+  function wrapped:playCry(species, form)
+    trace[#trace + 1] = { name = "cry", value = { species = species, form = form } }
+    return sound:playCry(species, form)
+  end
+
+  function wrapped:updateSoundFrame()
+    return sound:updateSoundFrame()
+  end
+
+  function wrapped:isMusicFadeActive()
+    return sound:isMusicFadeActive()
+  end
+
+  return wrapped
+end
+
+local function withProductionOak(versionId, options, fn)
+  if fn == nil then
+    fn = options
+    options = {}
+  end
   local candidate = newCandidate(versionId)
   local host = hostSeams()
   local completion = {}
-  local options = {
+  local composeOptions = {
     candidate = candidate,
     versionId = versionId,
     onComplete = function(result)
@@ -53,15 +97,26 @@ local function withProductionOak(versionId, fn)
     end,
   }
   for key, value in pairs(host) do
-    options[key] = value
+    composeOptions[key] = value
+  end
+
+  local audioTrace = options.recordAudio and {} or nil
+  local originalAudioCompose = GameAudio.compose
+  if audioTrace then
+    rawset(GameAudio, "compose", function(audioComposeOptions)
+      local composition = originalAudioCompose(audioComposeOptions)
+      composition.sound = recordingSound(composition.sound, audioTrace) --[[@as GameSound]]
+      return composition
+    end)
   end
 
   local state
   local ok, err = xpcall(function()
-    state = OakIntroComposition.compose(options)
-    fn(state, host, completion)
+    state = OakIntroComposition.compose(composeOptions)
+    fn(state, host, completion, audioTrace)
   end, debug.traceback)
 
+  rawset(GameAudio, "compose", originalAudioCompose)
   if state then
     state:dispose()
     Assert.isTrue(state.disposed, "the direct Oak composition must be disposed after each scenario")
@@ -69,6 +124,17 @@ local function withProductionOak(versionId, fn)
   if not ok then
     error(err, 0)
   end
+end
+
+local function assertOneSelectionEffect(trace, startIndex, message)
+  local effects = {}
+  for index = startIndex + 1, #trace do
+    local event = trace[index]
+    if event.name == "effect" and event.value == "SEQ_SE_DP_SELECT" then
+      effects[#effects + 1] = event
+    end
+  end
+  Assert.equal(#effects, 1, message .. " must emit one selection effect")
 end
 
 local function forEachReadyVersion(fn)
@@ -147,6 +213,20 @@ local function enterGenderSelection(state)
   Assert.equal(state:view().phase, "gender_select")
 end
 
+local function reachNameConfirmation(state)
+  advanceUntilMessage(state, "profile.gender_question")
+  enterGenderSelection(state)
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  state:keypressed("return")
+  finishDialogueBoundary(state)
+  advanceUntilPhase(state, "name_edit")
+  state:textinput("GOLD")
+  submitName(state)
+  finishDialogueBoundary(state)
+  Assert.equal(state:view().phase, "name_confirm")
+end
+
 local function assertResolvedMessage(state, messageKey, playerName)
   Assert.equal(state:view().messageKey, messageKey)
   for _ = 1, 2000 do
@@ -164,6 +244,67 @@ local function assertResolvedMessage(state, messageKey, playerName)
     state.dialogueController:step()
   end
   error("Oak dialogue did not reveal the player name")
+end
+
+function T.tests.profile_choice_activation_uses_one_selection_effect_on_composed_paths()
+  forEachReadyVersion(function(versionId)
+    withProductionOak(versionId, { recordAudio = true }, function(state, _, _, trace)
+      enterGenderSelection(state)
+      local before = #trace
+      state:keypressed("return")
+      Assert.equal(state:view().phase, "gender_confirm")
+      assertOneSelectionEffect(trace, before, "keyboard gender activation")
+
+      finishDialogueBoundary(state)
+      before = #trace
+      state:keypressed("return")
+      Assert.equal(state:view().phase, "name_prompt")
+      assertOneSelectionEffect(trace, before, "keyboard Yes activation")
+
+      finishDialogueBoundary(state)
+      advanceUntilPhase(state, "name_edit")
+      state:textinput("GOLD")
+      submitName(state)
+      finishDialogueBoundary(state)
+      before = #trace
+      state:keypressed("return")
+      Assert.equal(state:view().phase, "final_dialogue")
+      assertOneSelectionEffect(trace, before, "keyboard name confirmation")
+    end)
+
+    withProductionOak(versionId, { recordAudio = true }, function(state, _, _, trace)
+      enterGenderSelection(state)
+      local before = #trace
+      state:gamepadpressed({}, "a")
+      Assert.equal(state:view().phase, "gender_confirm")
+      assertOneSelectionEffect(trace, before, "gamepad gender activation")
+
+      finishDialogueBoundary(state)
+      before = #trace
+      state.controller:press("no")
+      Assert.equal(state:view().phase, "gender_question")
+      assertOneSelectionEffect(trace, before, "direct No activation")
+    end)
+
+    withProductionOak(versionId, { recordAudio = true }, function(state, _, _, trace)
+      enterGenderSelection(state)
+      local buttons = assert(state:view().layout.genderButtons)
+      local female = assert(buttons[1])
+      local rect = female.button.rect
+      local before = #trace
+      state:mousepressed(rect.x + rect.width / 2, rect.y + rect.height / 2, 1)
+      Assert.equal(state:view().phase, "gender_confirm")
+      assertOneSelectionEffect(trace, before, "pointer gender activation")
+    end)
+
+    withProductionOak(versionId, { recordAudio = true }, function(state, _, _, trace)
+      reachNameConfirmation(state)
+      local before = #trace
+      state.controller:press("cancel")
+      Assert.equal(state:view().phase, "gender_question")
+      assertOneSelectionEffect(trace, before, "semantic cancel activation")
+    end)
+  end)
 end
 
 local function eventsNamed(state, kind)

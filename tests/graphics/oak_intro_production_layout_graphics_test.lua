@@ -107,12 +107,12 @@ T.tests.gender_selection_uses_the_production_manifest_at_representative_sizes = 
       )
       for gender = 0, 1 do
         Assert.isTrue(
-          inside(layout.genderChoiceGroup.items[gender].rect, layout.selectorPanel),
+          inside(layout.genderButtons[gender].button.rect, layout.selectorPanel),
           entry.versionId .. " gender choice " .. gender .. " leaves the selector panel"
         )
       end
       Assert.isTrue(
-        disjoint(layout.genderChoiceGroup.items[0].rect, layout.genderChoiceGroup.items[1].rect),
+        disjoint(layout.genderButtons[0].button.rect, layout.genderButtons[1].button.rect),
         entry.versionId .. " gender choices overlap"
       )
       -- Provenance ties each selector widget to a real cell/animation, never
