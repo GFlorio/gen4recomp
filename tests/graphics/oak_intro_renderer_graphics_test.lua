@@ -6,11 +6,13 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
+local ChoiceGroup = require("libs.ui.src.ChoiceGroup")
 
 local T = {}
 
 local function textRenderer()
   return {
+    fontDef = { lineHeight = 16 },
     drawText = function() end,
     textWidth = function(_, text)
       return #text * 8
@@ -20,24 +22,55 @@ end
 
 local function genderSelector()
   local function mask(id)
-    return { image = id .. ".png", width = 4, height = 4, bounds = { x = 0, y = 0, width = 4, height = 4 } }
+    return { image = id .. ".png", width = 4, height = 4 }
   end
   return {
-    neutral = { image = "gender-selector-neutral.png", width = 256, height = 192 },
     defaultTone = { r = 200, g = 200, b = 200 },
     buttons = {
       male = {
         bounds = { x = 0, y = 0, width = 4, height = 4 },
+        hitBounds = { x = 0, y = 0, width = 4, height = 4 },
+        backing = { image = "gender-selector-male-backing.png", width = 4, height = 4 },
         pulseMask = mask("gender-selector-male-pulse"),
         accentMask = mask("gender-selector-male-accent"),
       },
       female = {
         bounds = { x = 0, y = 0, width = 4, height = 4 },
+        hitBounds = { x = 0, y = 0, width = 4, height = 4 },
+        backing = { image = "gender-selector-female-backing.png", width = 4, height = 4 },
         pulseMask = mask("gender-selector-female-pulse"),
         accentMask = mask("gender-selector-female-accent"),
       },
     },
   }
+end
+
+local function genderChoiceGroup()
+  return ChoiceGroup.resolve({
+    selectedIndex = 0,
+    items = {
+      {
+        key = "male",
+        rect = { x = 10, y = 10, width = 40, height = 60 },
+        payload = {
+          portraitId = "male",
+          portraitRect = { x = 10, y = 10, width = 40, height = 60 },
+          buttonRect = { x = 20, y = 10, width = 40, height = 60 },
+          button = { backing = {}, pulseMask = {}, accentMask = {} },
+        },
+      },
+      {
+        key = "female",
+        rect = { x = 100, y = 10, width = 40, height = 60 },
+        payload = {
+          portraitId = "female",
+          portraitRect = { x = 100, y = 10, width = 40, height = 60 },
+          buttonRect = { x = 110, y = 10, width = 40, height = 60 },
+          button = { backing = {}, pulseMask = {}, accentMask = {} },
+        },
+      },
+    },
+  })
 end
 
 local function manifest()
@@ -59,7 +92,6 @@ local function manifest()
     "shrink_male",
     "shrink_female",
     "ball_open",
-    "gender_background",
     "gender_male",
     "gender_female",
   }) do
@@ -77,7 +109,25 @@ local function manifest()
   }
   local background = assets.background
   assets.background = nil
-  return { background = background, widgets = assets, genderSelector = genderSelector() }
+  local confirmation = { buttons = { male = {}, female = {} } }
+  for _, gender in ipairs({ "male", "female" }) do
+    for _, choice in ipairs({ "yes", "no" }) do
+      local height = choice == "yes" and 4 or 4
+      confirmation.buttons[gender][choice] = {
+        bounds = { x = 0, y = 0, width = 4, height = height },
+        textBounds = { x = 0, y = 0, width = 4, height = 4 },
+        base = { image = "confirmation-" .. gender .. "-" .. choice .. "-base.png", width = 4, height = height },
+        focus = { image = "confirmation-" .. gender .. "-" .. choice .. "-focus.png", width = 4, height = height },
+      }
+    end
+  end
+  return {
+    schemaVersion = 6,
+    background = background,
+    widgets = assets,
+    genderSelector = genderSelector(),
+    profileConfirmation = confirmation,
+  }
 end
 
 local function view()
@@ -93,7 +143,6 @@ local function view()
     layout = {
       viewport = { x = 0, y = 0, width = 160, height = 120 },
       subject = { x = 20, y = 10, width = 80, height = 80 },
-      cards = {},
       message = { x = 0, y = 0, width = 1, height = 1 },
       nameGrid = {},
       nameKeys = {},
@@ -189,9 +238,9 @@ T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
   Assert.equal(filters["background.png"].mag, "linear")
   Assert.equal(filters["oak.png"].min, "nearest")
   Assert.equal(filters["oak.png"].mag, "nearest")
-  Assert.deepEqual(filters["gender-selector-neutral.png"], { min = "nearest", mag = "nearest" })
+  Assert.deepEqual(filters["gender-selector-male-backing.png"], { min = "nearest", mag = "nearest" })
   Assert.deepEqual(filters["gender_male.png"], { min = "nearest", mag = "nearest" })
-  Assert.isNil(filters["gender_background.png"], "opaque selector background is not loaded")
+  Assert.isNil(filters["gender-selector-neutral.png"], "obsolete selector neutral surface is not loaded")
   renderer:dispose()
   for _, image in ipairs(graphics.images) do
     Assert.isTrue(image.released)
@@ -250,12 +299,7 @@ T.gender_gradient_covers_the_full_viewport_not_a_composition_region = function()
   gender.primaryWidget = nil
   gender.layout.viewport = { x = 11, y = 13, width = 1600, height = 900 }
   gender.layout.oakRegion = { x = 11, y = 13, width = 500, height = 900 }
-  gender.layout.genderBackground = { x = 600, y = 100, width = 400, height = 300 }
-  gender.layout.genderChoices = {
-    [0] = { x = 600, y = 100, width = 100, height = 150 },
-    [1] = { x = 800, y = 100, width = 100, height = 150 },
-  }
-  gender.layout.genderCanvas = { origin = { x = 600, y = 100 }, scale = 1 }
+  gender.layout.genderChoiceGroup = genderChoiceGroup()
   gender.genderFocus = 0
   gender.focusBlinkDelta = 0
 
@@ -330,6 +374,25 @@ function T.constructor_releases_images_when_quad_creation_fails()
   Assert.isTrue(tostring(err):find("injected newQuad failure", 1, true) ~= nil)
   for _, image in ipairs(graphics.images) do
     Assert.isTrue(image.released)
+  end
+end
+
+function T.constructor_rejects_nil_shader_and_releases_each_image_once()
+  local graphics = FakeGraphics.new({ shaderReturnsNil = true })
+  local ok, err = pcall(function()
+    OakIntroRenderer.new({
+      manifest = manifest(),
+      graphics = graphics,
+      imageLoader = function(_)
+        return graphics.newImage()
+      end,
+      text = textRenderer(),
+    })
+  end)
+  Assert.isFalse(ok)
+  Assert.isTrue(tostring(err):find("shader", 1, true) ~= nil)
+  for _, image in ipairs(graphics.images) do
+    Assert.equal(image.releaseCount, 1)
   end
 end
 
@@ -415,12 +478,7 @@ T.gender_focus_leaves_portrait_draw_color_untinted = function()
   local gender = view()
   gender.phase = "gender_select"
   gender.primaryWidget = nil
-  gender.layout.genderBackground = { x = 0, y = 0, width = 160, height = 120, scale = 1 }
-  gender.layout.genderChoices = {
-    [0] = { x = 10, y = 10, width = 40, height = 60, scale = 1 },
-    [1] = { x = 100, y = 10, width = 40, height = 60, scale = 1 },
-  }
-  gender.layout.genderCanvas = { origin = { x = 0, y = 0 }, scale = 1 }
+  gender.layout.genderChoiceGroup = genderChoiceGroup()
   gender.genderFocus = 0
   gender.focusBlinkDelta = 8
 

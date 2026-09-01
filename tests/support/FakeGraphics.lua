@@ -26,7 +26,7 @@ local FakeGraphics = {}
 -- verify exact restoration after a draw. The returned table is structurally
 -- a love.Graphics subset plus the recording fields; call sites pass it as
 -- the renderers' injectable graphics namespace.
----@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer, failOnShaderCall?: integer }
+---@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer, failOnShaderCall?: integer, shaderReturnsNil?: boolean }
 ---@return FakeGraphics
 function FakeGraphics.new(opts)
   opts = opts or {}
@@ -65,6 +65,9 @@ function FakeGraphics.new(opts)
       if opts.failOnShaderCall == shaderCalls then
         error("injected newShader failure")
       end
+      if opts.shaderReturnsNil then
+        return nil
+      end
       local shader = { source = source, released = false, sends = {} }
       shader.send = function(_, name, value)
         shader.sends[#shader.sends + 1] = { name = name, value = value }
@@ -84,6 +87,7 @@ function FakeGraphics.new(opts)
       local image
       image = {
         released = false,
+        releaseCount = 0,
         filters = {},
         setFilter = function(_, min, mag)
           image.filters[#image.filters + 1] = { min = min, mag = mag }
@@ -97,6 +101,7 @@ function FakeGraphics.new(opts)
       }
       image.release = function()
         image.released = true
+        image.releaseCount = image.releaseCount + 1
       end
       images[#images + 1] = image
       return image

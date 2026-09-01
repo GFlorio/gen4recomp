@@ -207,7 +207,7 @@ local function syntheticCompilerSource(animationFrames, objectPalette)
   return source, restore, archive.reads
 end
 
-function T.gender_selector_neutral_surface_preserves_source_chrome_only()
+function T.gender_selector_compiles_bounded_opaque_cards_and_aligned_masks()
   local Compiler = compiler()
   local source, restore = syntheticCompilerSource()
   local ok, result = xpcall(function()
@@ -218,62 +218,28 @@ function T.gender_selector_neutral_surface_preserves_source_chrome_only()
     error(result, 0)
   end
 
-  local neutral = assert(result.manifest.genderSelector.neutral)
-  local width, height, rgba = PngReader.rgba(assert(result.assets[neutral.image]))
-  Assert.equal(width, 8)
-  Assert.equal(height, 192)
-  -- Row 10 (tile 10, value 11) is not itself a dynamic frame value, but it is
-  -- tile-grid-adjacent to row 11 (tile 11, value 12: the male pulse entry),
-  -- so source composition ties it to that selector frame's static border.
-  local _, _, _, backgroundAlpha = PngReader.pixel(rgba, width, 0, 0)
-  local _, _, _, adjacentFrameBorderAlpha = PngReader.pixel(rgba, width, 0, 80)
-  local _, _, _, dynamicAlpha = PngReader.pixel(rgba, width, 0, 88)
-  -- Row 1 (tile 1, value 2) is bank-0 but shares no adjacency with any
-  -- dynamic frame entry, so it is unrelated backing rather than chrome.
-  local _, _, _, unrelatedBackingAlpha = PngReader.pixel(rgba, width, 0, 8)
-  Assert.equal(backgroundAlpha, 0, "selector background is transparent")
-  Assert.equal(adjacentFrameBorderAlpha, 255, "static selector chrome adjacent to a dynamic entry remains opaque")
-  Assert.equal(dynamicAlpha, 0, "dynamic selector roles remain outside neutral chrome")
-  Assert.equal(unrelatedBackingAlpha, 0, "unrelated bank-0 backing far from any frame entry is transparent")
-end
-
--- The gender-selector screen member (51) is shared by `gender_background` and
--- the selector itself; every other decoded screen in this fixture keeps the
--- suite's ordinary flat single-column layout. Row 2 reuses the same source
--- tile id as row 5, but only row 2 sits directly beneath a dynamic
--- frame-semantic tile (row 1's accent entry); row 5 is separated from any
--- dynamic tile by two background-bank (3) rows on each side, so nothing in
--- the source screen composition ties it to either selector frame.
-local function syntheticSelectorTopologyScreen()
-  local entries = {}
-  local function push(tile, palette)
-    entries[#entries + 1] = { tile = tile, palette = palette, flipH = false, flipV = false }
-  end
-  push(11, 0) -- row0: male pulse (dynamic, value 12) - frame
-  push(12, 0) -- row1: male accent (dynamic, value 13) - frame
-  push(1, 0) -- row2: value 2, adjacent to row1 - proven frame border
-  push(2, 3) -- row3: background gap
-  push(2, 3) -- row4: background gap
-  push(1, 0) -- row5: same tile id as row2, isolated - unrelated backing
-  push(2, 3) -- row6: background gap
-  push(13, 0) -- row7: female pulse (dynamic, value 14) - frame
-  push(14, 0) -- row8: female accent (dynamic, value 15) - frame
-  push(2, 3) -- row9: background gap
-  return { width = 8, height = 8 * #entries, entries = entries }
-end
-
-function T.unrelated_backing_sharing_a_frame_tile_id_does_not_survive_classification()
-  local Compiler = compiler()
-  local source, restore = syntheticCompilerSource()
-  local decoder = require("romdump.src.digest.G2dDecoder")
-  local defaultDecodeScreen = decoder.decodeScreen
-  rawset(decoder, "decodeScreen", function(bytes, opts)
-    if opts and opts.label == "gender selector screen" then
-      return syntheticSelectorTopologyScreen()
+  Assert.isNil(result.manifest.genderSelector.neutral)
+  Assert.isNil(result.manifest.widgets.gender_background)
+  local config = require("romdump.src.config.IntroAssets")
+  for _, gender in ipairs({ "male", "female" }) do
+    local bounds = result.manifest.genderSelector.buttons[gender].bounds
+    Assert.deepEqual(bounds, config.genderChoiceBounds[gender])
+    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
+      local surface = result.manifest.genderSelector.buttons[gender][kind]
+      local width, height, rgba = PngReader.rgba(assert(result.assets[surface.image]))
+      Assert.equal(width, bounds.width)
+      Assert.equal(height, bounds.height)
+      if kind == "backing" then
+        local _, _, _, alpha = PngReader.pixel(rgba, width, 0, 0)
+        Assert.equal(alpha, 255, "card backing is opaque")
+      end
     end
-    return defaultDecodeScreen(bytes, opts)
-  end)
+  end
+end
 
+function T.profile_confirmation_compiles_source_aspect_base_and_focus_surfaces()
+  local Compiler = compiler()
+  local source, restore = syntheticCompilerSource()
   local ok, result = xpcall(function()
     return Compiler.compile(source)
   end, debug.traceback)
@@ -282,18 +248,21 @@ function T.unrelated_backing_sharing_a_frame_tile_id_does_not_survive_classifica
     error(result, 0)
   end
 
-  local neutral = assert(result.manifest.genderSelector.neutral)
-  local width, height, rgba = PngReader.rgba(assert(result.assets[neutral.image]))
-  Assert.equal(width, 8)
-  Assert.equal(height, 80)
-  local _, _, _, adjacentBorderAlpha = PngReader.pixel(rgba, width, 0, 20)
-  local _, _, _, isolatedBackingAlpha = PngReader.pixel(rgba, width, 0, 44)
-  Assert.equal(adjacentBorderAlpha, 255, "the source tile instance adjacent to a dynamic frame tile remains chrome")
-  Assert.equal(
-    isolatedBackingAlpha,
-    0,
-    "the same source tile id reused far from any dynamic frame tile is unrelated backing, not chrome"
-  )
+  local config = require("romdump.src.config.IntroAssets")
+  for _, gender in ipairs({ "male", "female" }) do
+    for _, choice in ipairs({ "yes", "no" }) do
+      local expected = config.profileConfirmation.genders[gender][choice]
+      local actual = result.manifest.profileConfirmation.buttons[gender][choice]
+      Assert.deepEqual(actual.bounds, expected.bounds)
+      Assert.deepEqual(actual.textBounds, expected.textBounds)
+      for _, kind in ipairs({ "base", "focus" }) do
+        local surface = actual[kind]
+        local width, height = PngReader.rgba(assert(result.assets[surface.image]))
+        Assert.equal(width, expected.bounds.width)
+        Assert.equal(height, expected.bounds.height)
+      end
+    end
+  end
 end
 
 function T.gender_selectors_compile_their_configured_cell_animations()
@@ -539,28 +508,65 @@ local function fixtureBundle(cache, marker)
     end
     assets[image] = "png"
   end
-  local genderSelector = { neutral = {}, buttons = { male = {}, female = {} } }
-  local neutralImage = cache.assetDir() .. "/gender-selector-neutral.png"
-  genderSelector.neutral = { image = neutralImage, width = 256, height = 192 }
+  local genderSelector = { buttons = { male = {}, female = {} } }
   genderSelector.defaultTone = { r = 200, g = 200, b = 200 }
-  assets[neutralImage] = "png"
+  local genderBounds = {
+    male = { x = 18, y = 25, width = 93, height = 148 },
+    female = { x = 144, y = 25, width = 95, height = 148 },
+  }
+  local profileConfirmation = { buttons = {} }
   for _, gender in ipairs({ "male", "female" }) do
+    local bounds = genderBounds[gender]
+    genderSelector.buttons[gender].bounds = bounds
+    genderSelector.buttons[gender].hitBounds = bounds
+    genderSelector.buttons[gender].backing = {
+      image = cache.assetDir() .. "/gender-selector-" .. gender .. "-backing.png",
+      width = bounds.width,
+      height = bounds.height,
+    }
+    assets[genderSelector.buttons[gender].backing.image] = "png"
+    profileConfirmation.buttons[gender] = {}
     for _, kind in ipairs({ "pulseMask", "accentMask" }) do
       local maskImage = cache.assetDir() .. "/gender-selector-" .. gender .. "-" .. kind .. ".png"
       genderSelector.buttons[gender][kind] = {
         image = maskImage,
-        width = 4,
-        height = 4,
-        bounds = { x = 0, y = 0, width = 4, height = 4 },
+        width = bounds.width,
+        height = bounds.height,
       }
       assets[maskImage] = "png"
     end
-    genderSelector.buttons[gender].bounds = { x = 0, y = 0, width = 4, height = 4 }
+    for _, choice in ipairs({ "yes", "no" }) do
+      local y = choice == "yes" and 26 or 108
+      local height = choice == "yes" and 57 or 56
+      local buttonBounds = { x = gender == "male" and 138 or 10, y = y, width = 115, height = height }
+      local textBounds = {
+        x = gender == "male" and 136 or 16,
+        y = choice == "yes" and 48 or 128,
+        width = 104,
+        height = 24,
+      }
+      profileConfirmation.buttons[gender][choice] = {
+        bounds = buttonBounds,
+        textBounds = textBounds,
+        base = {
+          image = cache.assetDir() .. "/" .. gender .. "-" .. choice .. "-base.png",
+          width = 115,
+          height = height,
+        },
+        focus = {
+          image = cache.assetDir() .. "/" .. gender .. "-" .. choice .. "-focus.png",
+          width = 115,
+          height = height,
+        },
+      }
+      assets[profileConfirmation.buttons[gender][choice].base.image] = "png"
+      assets[profileConfirmation.buttons[gender][choice].focus.image] = "png"
+    end
   end
   return {
     marker = marker,
     manifest = {
-      schemaVersion = 5,
+      schemaVersion = 6,
       variant = "heartgold",
       sourceReference = { width = 256, height = 192 },
       background = {
@@ -572,6 +578,7 @@ local function fixtureBundle(cache, marker)
       },
       widgets = widgets,
       genderSelector = genderSelector,
+      profileConfirmation = profileConfirmation,
     },
     dependencies = {
       schema = cache.PROVENANCE_SCHEMA,

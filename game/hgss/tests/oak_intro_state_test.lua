@@ -40,6 +40,7 @@ local DIALOGUE_CURSOR_PLACEMENT = { x = 240, y = 168, width = 16, height = 16 }
 ---@field dispose fun(self: OakIntroStateTest.Renderer)
 
 local INTRO_MANIFEST = {
+  schemaVersion = 6,
   sourceReference = { width = 256, height = 192 },
   background = { width = 256, height = 192, sampling = "linear" },
   widgets = {
@@ -49,11 +50,17 @@ local INTRO_MANIFEST = {
       anchor = { x = 20, y = 100 },
       sourceBounds = { x = 40, y = 30, width = 80, height = 100 },
     },
-    gender_background = {
-      width = 256,
-      height = 192,
-      anchor = { x = 128, y = 192 },
-      sourceBounds = { x = 0, y = 0, width = 256, height = 192 },
+    male = {
+      width = 64,
+      height = 96,
+      anchor = { x = 32, y = 48 },
+      sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
+    },
+    female = {
+      width = 64,
+      height = 96,
+      anchor = { x = 32, y = 48 },
+      sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
     },
     gender_male = {
       width = 64,
@@ -68,6 +75,43 @@ local INTRO_MANIFEST = {
       anchor = { x = 32, y = 48 },
       sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
       sourceCenter = { x = 192, y = 104 },
+    },
+  },
+  genderSelector = {
+    defaultTone = { r = 200, g = 200, b = 200 },
+    buttons = {
+      male = {
+        bounds = { x = 18, y = 25, width = 93, height = 148 },
+        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+      },
+      female = {
+        bounds = { x = 144, y = 25, width = 95, height = 148 },
+        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+      },
+    },
+  },
+  profileConfirmation = {
+    buttons = {
+      male = {
+        yes = {
+          bounds = { x = 138, y = 26, width = 115, height = 57 },
+          textBounds = { x = 136, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 138, y = 108, width = 115, height = 56 },
+          textBounds = { x = 136, y = 128, width = 104, height = 24 },
+        },
+      },
+      female = {
+        yes = {
+          bounds = { x = 10, y = 26, width = 115, height = 57 },
+          textBounds = { x = 16, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 10, y = 108, width = 115, height = 56 },
+          textBounds = { x = 16, y = 128, width = 104, height = 24 },
+        },
+      },
     },
   },
 }
@@ -186,13 +230,28 @@ function T.pointer_hits_the_same_drawn_virtual_key_geometry()
   Assert.deepEqual(controller.text, { "é" })
 end
 
-function T.pointer_hits_the_same_choice_rows_used_by_presentation()
+function T.pointer_hits_the_same_choice_group_used_by_presentation()
   local state, controller = stateHarness()
   controller.phase = "gender_confirm"
   controller.choice = { kind = "gender", selected = 0 }
   local layout = state:view().layout
-  state:mousepressed(layout.choiceRows[0].x + 1, layout.choiceRows[0].y + 1, 1)
-  state:mousepressed(layout.choiceRows[1].x + 1, layout.choiceRows[1].y + 1, 1)
+  Assert.isNil(layout.genderChoiceGroup)
+  state:mousepressed(
+    layout.selectedProfileCard.rect.x + layout.selectedProfileCard.rect.width / 2,
+    layout.selectedProfileCard.rect.y + layout.selectedProfileCard.rect.height / 2,
+    1
+  )
+  Assert.deepEqual(controller.pressed, {})
+  state:mousepressed(
+    layout.confirmationChoiceGroup.items[0].rect.x + 1,
+    layout.confirmationChoiceGroup.items[0].rect.y + 1,
+    1
+  )
+  state:mousepressed(
+    layout.confirmationChoiceGroup.items[1].rect.x + 1,
+    layout.confirmationChoiceGroup.items[1].rect.y + 1,
+    1
+  )
   Assert.deepEqual(controller.pressed, { "yes", "no" })
 end
 
@@ -201,7 +260,7 @@ function T.pointer_cannot_activate_gender_selection_during_host_composition()
   controller.phase = "gender_composition_transition"
   controller.compositionProgress = 0
   local layout = state:view().layout
-  Assert.isNil(layout.genderHitRegions)
+  Assert.isNil(layout.genderChoiceGroup)
   state:mousepressed(320, 240, 1)
   state:touchpressed(1, 320, 240)
   Assert.deepEqual(controller.pressed, {})
@@ -327,11 +386,13 @@ end
 -- `update`/`draw` boundary, the same seam the running game uses.
 
 local SHRINK_MANIFEST = {
+  schemaVersion = 6,
   sourceReference = INTRO_MANIFEST.sourceReference,
   background = INTRO_MANIFEST.background,
+  genderSelector = INTRO_MANIFEST.genderSelector,
+  profileConfirmation = INTRO_MANIFEST.profileConfirmation,
   widgets = {
     oak = INTRO_MANIFEST.widgets.oak,
-    gender_background = INTRO_MANIFEST.widgets.gender_background,
     gender_male = INTRO_MANIFEST.widgets.gender_male,
     gender_female = INTRO_MANIFEST.widgets.gender_female,
     male = {

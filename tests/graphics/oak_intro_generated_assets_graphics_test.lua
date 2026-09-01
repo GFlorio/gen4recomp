@@ -78,7 +78,7 @@ T.tests.gender_portrait_frames_have_source_pixels_and_centers = function()
   Assert.isTrue(ready > 0, "derived-cache capability promised a ready game version")
 end
 
-T.tests.selector_neutral_surface_has_transparent_background = function()
+T.tests.gender_card_backings_are_opaque = function()
   local ready = 0
   for _, versionId in ipairs(GameVersion.ORDER) do
     if RomImporter.isReady(versionId) then
@@ -86,13 +86,16 @@ T.tests.selector_neutral_surface_has_transparent_background = function()
       local cache = CacheFs.forVersion(versionId)
       local manifest = assert(cache:loadLua("data/generated/intro/intro.lua"))
       local selector = assert(manifest.genderSelector)
-      local bytes = assert(cache:read(selector.neutral.image), versionId .. " selector neutral image is missing")
-      local data = love.image.newImageData(love.filesystem.newFileData(bytes, selector.neutral.image))
-      local _, _, _, backgroundAlpha = data:getPixel(128, 20)
-      Assert.equal(backgroundAlpha, 0, versionId .. " selector background alpha")
-      local _, _, _, chromeAlpha = data:getPixel(18, 36)
-      Assert.equal(chromeAlpha, 1, versionId .. " selector chrome alpha")
-      data:release()
+      for _, gender in ipairs({ "male", "female" }) do
+        local backing = assert(selector.buttons[gender].backing)
+        local bytes = assert(cache:read(backing.image), versionId .. " " .. gender .. " backing is missing")
+        local data = love.image.newImageData(love.filesystem.newFileData(bytes, backing.image))
+        for _, point in ipairs({ { 0, 0 }, { backing.width - 1, backing.height - 1 } }) do
+          local _, _, _, alpha = data:getPixel(point[1], point[2])
+          Assert.equal(alpha, 1, versionId .. " " .. gender .. " backing corner is opaque")
+        end
+        data:release()
+      end
     end
   end
   Assert.isTrue(ready > 0, "derived-cache capability promised a ready game version")

@@ -3,6 +3,46 @@ local IntroAssetImage = require("romdump.src.digest.IntroAssetImage")
 
 local T = {}
 
+local function surface(width, height)
+  local bytes = {}
+  for y = 0, height - 1 do
+    for x = 0, width - 1 do
+      bytes[#bytes + 1] = string.char(x + 1, y + 1, x + y + 1, 255)
+    end
+  end
+  return { width = width, height = height, rgba = table.concat(bytes) }
+end
+
+function T.crop_wrapped_samples_no_wrap_and_each_axis()
+  local Image = require("romdump.src.digest.IntroAssetImage")
+  local source = surface(3, 2)
+  local function pixel(result, x, y)
+    local offset = (y * result.width + x) * 4
+    return string.byte(result.rgba, offset + 1), string.byte(result.rgba, offset + 2)
+  end
+  local plain = Image.cropWrapped(source, { x = 1, y = 0, width = 2, height = 2 }, 0, 0)
+  Assert.deepEqual({ pixel(plain, 0, 0) }, { 2, 1 })
+  Assert.deepEqual({ pixel(plain, 1, 1) }, { 3, 2 })
+  local xWrapped = Image.cropWrapped(source, { x = 2, y = 0, width = 2, height = 1 }, 1, 0)
+  Assert.deepEqual({ pixel(xWrapped, 0, 0) }, { 1, 1 })
+  Assert.deepEqual({ pixel(xWrapped, 1, 0) }, { 2, 1 })
+  local yWrapped = Image.cropWrapped(source, { x = 0, y = 1, width = 1, height = 2 }, 0, 1)
+  Assert.deepEqual({ pixel(yWrapped, 0, 0) }, { 1, 1 })
+  Assert.deepEqual({ pixel(yWrapped, 0, 1) }, { 1, 2 })
+end
+
+function T.crop_wrapped_handles_both_axes_and_rejects_invalid_geometry()
+  local Image = require("romdump.src.digest.IntroAssetImage")
+  local source = surface(3, 2)
+  local result = Image.cropWrapped(source, { x = 2, y = 1, width = 2, height = 2 }, 1, 1)
+  Assert.equal(string.byte(result.rgba, 1), 1)
+  Assert.equal(string.byte(result.rgba, 2), 1)
+  Assert.equal(string.byte(result.rgba, 5), 2)
+  Assert.throws(function()
+    Image.cropWrapped(source, { x = 0, y = 0, width = 0, height = 1 }, 0, 0)
+  end)
+end
+
 function T.reduces_rows_by_dominant_color_and_stable_tie_break()
   local rgba = string.char(10, 0, 0, 255, 20, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 0, 0, 0, 0, 1, 0, 0, 255)
   local gradient = IntroAssetImage.reduceGradient(3, 2, rgba)
@@ -22,7 +62,7 @@ function T.rejects_transparent_rows_and_flat_gradients()
 end
 
 function T.crops_static_and_animated_alpha_union_with_stable_anchor()
-  local function surface(points)
+  local function pointSurface(points)
     local pixels = {}
     for i = 1, 4 * 3 * 4 do
       pixels[i] = string.char(0)
@@ -37,8 +77,8 @@ function T.crops_static_and_animated_alpha_union_with_stable_anchor()
     return { width = 4, height = 3, rgba = table.concat(pixels) }
   end
   local frames = {
-    surface({ { x = 1, y = 1, r = 4, g = 5, b = 6 } }),
-    surface({ { x = 2, y = 2, r = 7, g = 8, b = 9 } }),
+    pointSurface({ { x = 1, y = 1, r = 4, g = 5, b = 6 } }),
+    pointSurface({ { x = 2, y = 2, r = 7, g = 8, b = 9 } }),
   }
   local cropped = IntroAssetImage.cropAlphaUnion(frames, { x = 2, y = 2 })
   Assert.equal(cropped.width, 2)
