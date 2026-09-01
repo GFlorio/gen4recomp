@@ -178,6 +178,10 @@ local function forceAutonomy(mgr, direction, onStep)
       return true
     end,
     detach = function() end,
+    applyPendingMovementType = function() end,
+    state = function(_, actorId)
+      return { movementType = assert(mgr:getById(actorId)).movementType }
+    end,
     step = function(_, actorId, capability)
       if onStep then
         onStep(capability)
@@ -1187,6 +1191,107 @@ function T.hidden_actors_report_hidden_snapshots_and_stay_solid()
   Assert.equal(world:snapshot("map:61:object:0").visible, false, "hide_object reflects in snapshots")
   world:show("map:61:object:0")
   Assert.equal(world:snapshot("map:61:object:0").visible, true, "show_object restores snapshot visibility")
+end
+
+function T.scripted_reposition_autonomous_reservation_and_destroy_keep_stable_cells_transactional()
+  local map = runtimeMap({
+    object({ objectEventId = 0, eventFlag = 401, movementType = "wander_around", x = 31, xRange = 2, yRange = -1 }),
+  })
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+        cellKey = "0:0",
+        sourceSurfaceId = 12,
+      },
+      {
+        id = 1,
+        minX = 32,
+        minZ = 0,
+        maxX = 64,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+        cellKey = "1:0",
+        sourceSurfaceId = 13,
+      },
+    },
+  })
+  map.fieldRegion = {
+    sourceSurface = function(_, cellKey, sourceSurfaceId)
+      if cellKey == "0:0" and sourceSurfaceId == 12 then
+        return 0
+      elseif cellKey == "1:0" and sourceSurfaceId == 13 then
+        return 1
+      end
+      return nil
+    end,
+  }
+  local eventState = FieldEventState.new()
+  local mgr = manager(map.fieldData.events.objects, { eventState = eventState, map = map })
+  local actorId = "map:61:object:0"
+  local actor = assert(mgr:getById(actorId))
+
+  Assert.equal(actor.fieldX, 31)
+  Assert.equal(actor.cellKey, "0:0")
+  Assert.equal(actor.sourceSurfaceId, 12)
+  Assert.equal(assert(mgr:getAt(61, stableCandidate(31, 3, 0, "0:0", 12))), actor)
+
+  mgr:beginScriptedAction(actorId, { action = "walk", direction = "east", speed = "normal" })
+  mgr:advanceScriptedAction(actorId, 8, 8)
+  mgr:commitScriptedAction(actorId)
+
+  Assert.equal(actor.fieldX, 32)
+  Assert.equal(actor.cellKey, "1:0", "scripted commit must publish the destination source cell")
+  Assert.equal(actor.sourceSurfaceId, 13)
+  Assert.isNil(mgr:getAt(61, stableCandidate(31, 3, 0, "0:0", 12)))
+  Assert.equal(assert(mgr:getAt(61, stableCandidate(32, 3, 1, "1:0", 13))), actor)
+
+  forceAutonomy(mgr, "east")
+  mgr:step(1)
+  local entry = assert(mgr.maps[61])
+  local action = assert(entry.autonomousActions[actorId])
+  Assert.equal(actor.fieldX, 32, "an autonomous step keeps the scripted committed cell until completion")
+  Assert.equal(action.destination.fieldX, 33)
+  Assert.notNil(entry.reservations[action.reservationKey], "the autonomous destination must be reserved")
+
+  for tick = 2, 9 do
+    mgr:step(tick)
+  end
+
+  Assert.equal(actor.fieldX, 33)
+  Assert.equal(actor.cellKey, "1:0")
+  Assert.equal(actor.sourceSurfaceId, 13)
+  Assert.isNil(mgr:getAt(61, stableCandidate(32, 3, 1, "1:0", 13)))
+  Assert.equal(assert(mgr:getAt(61, stableCandidate(33, 3, 1, "1:0", 13))), actor)
+
+  eventState:setFlag(401)
+  mgr:step(10)
+
+  Assert.isNil(mgr:getById(actorId), "destroying an actor cancels its active autonomous action")
+  Assert.isNil(entry.autonomousActions[actorId], "destroying an actor clears its autonomous action")
+  Assert.isNil(entry.reservations[action.reservationKey], "destroying an actor clears its destination reservation")
+  Assert.isNil(
+    mgr:getAt(61, stableCandidate(31, 3, 0, "0:0", 12)),
+    "destroying an actor leaves its scripted departure cell free"
+  )
+  Assert.isNil(
+    mgr:getAt(61, stableCandidate(32, 3, 1, "1:0", 13)),
+    "destroying an actor leaves its autonomous departure cell free"
+  )
+  Assert.isNil(mgr:getAt(61, stableCandidate(33, 3, 1, "1:0", 13)), "destroying an actor vacates its committed cell")
+  Assert.throws(function()
+    mgr.autonomy:state(actorId)
+  end)
+  mgr:dispose()
 end
 
 function T.player_cannot_step_into_a_visible_solid_actor_cell()

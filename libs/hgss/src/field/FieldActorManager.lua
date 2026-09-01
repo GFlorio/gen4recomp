@@ -17,6 +17,7 @@ local FieldActorAutonomy = require("libs.hgss.src.field.FieldActorAutonomy")
 local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
 local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
+local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 
 -- Pinned HGSS special object ids: the field camera target and the walking
@@ -176,6 +177,17 @@ local PARTNER_OBJECT_ID = 253
 ---@field fieldZ integer
 ---@field worldY number?
 
+---@class FieldActorResolvedPosition
+---@field fieldX integer
+---@field fieldZ integer
+---@field worldX number?
+---@field worldY number?
+---@field worldZ number?
+---@field surfaceId integer?
+---@field cellKey string?
+---@field sourceSurfaceId integer?
+---@field resident boolean
+
 ---@class FieldActorManager.ActorPosition
 ---@field fieldX integer
 ---@field fieldZ integer
@@ -311,6 +323,27 @@ local function candidateForActor(actor)
     cellKey = cellKey and sourceSurfaceId and cellKey or nil,
     sourceSurfaceId = cellKey and sourceSurfaceId or nil,
   }
+end
+
+---@param entry FieldActorManager.Entry
+---@param actor FieldActorManager.Actor
+---@param position FieldActorResolvedPosition
+local function publishResolvedPosition(entry, actor, position)
+  local oldKey
+  if actor.resident and actor.solid then
+    oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
+  end
+  local newKey
+  if position.resident and actor.solid then
+    newKey = occupancyKey(entry.runtimeMap, actor.mapId, position --[[@as FieldOccupancyCandidate]])
+  end
+  if oldKey and entry.occupancy[oldKey] == actor then
+    entry.occupancy[oldKey] = nil
+  end
+  if newKey then
+    entry.occupancy[newKey] = actor
+  end
+  actor:setPosition(position)
 end
 
 local function isResident(runtimeMap, fieldX, fieldZ)
@@ -661,8 +694,6 @@ local function populateEntry(self, entry, eventState)
   end
 end
 
-local AUTONOMOUS_STEP_TICKS = 8
-
 local function savedProjection(entry, actor, record)
   actor = assert(actor)
   actor.sourceEvent = assert(actor.sourceEvent)
@@ -969,7 +1000,7 @@ function FieldActorManager:captureObjects()
               cellKey = action.destination.cellKey,
               sourceSurfaceId = action.destination.sourceSurfaceId,
             },
-            durationTicks = AUTONOMOUS_STEP_TICKS,
+            durationTicks = MovementCalibration.SPEED_TICKS.normal,
             progressTicks = action.progressTicks,
           }
         end
@@ -1171,6 +1202,7 @@ local function resolveAutonomousDestination(self, entry, actor, direction, conte
       worldX = world.x,
       worldY = world.y,
       worldZ = world.z,
+      resident = isResident(runtimeMap, fieldX, fieldZ),
     }
   end)
   if not ok then
@@ -1214,9 +1246,12 @@ function FieldActorManager:_beginAutonomousAction(entry, actor, direction, conte
         worldY = actor.worldY,
         worldZ = actor.worldZ,
         surfaceId = actor.surfaceId,
+        cellKey = actor.cellKey,
+        sourceSurfaceId = actor.sourceSurfaceId,
+        resident = actor.resident,
       },
       dest = destination,
-      durationTicks = AUTONOMOUS_STEP_TICKS,
+      durationTicks = MovementCalibration.SPEED_TICKS.normal,
     }, "autonomous")
   end)
   if not ok then
@@ -1229,8 +1264,9 @@ end
 
 function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
   action.progressTicks = action.progressTicks + 1
-  actor:advanceAction(action.progressTicks, AUTONOMOUS_STEP_TICKS)
-  if action.progressTicks < AUTONOMOUS_STEP_TICKS then
+  local durationTicks = MovementCalibration.SPEED_TICKS.normal
+  actor:advanceAction(action.progressTicks, durationTicks)
+  if action.progressTicks < durationTicks then
     return
   end
   local destination = action.destination
@@ -1241,12 +1277,18 @@ function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
   if actor.solid then
     assert(entry.occupancy[newKey] == nil, "autonomous destination became occupied")
     assert(entry.occupancy[oldKey] == actor, "autonomous departure occupancy is missing")
-    entry.occupancy[oldKey] = nil
-    entry.occupancy[newKey] = actor
   end
-  actor:commitAction()
-  actor.cellKey = destination.cellKey
-  actor.sourceSurfaceId = destination.sourceSurfaceId
+  assert(
+    occupancyKey(entry.runtimeMap, actor.mapId, destination --[[@as FieldOccupancyCandidate]]) == newKey,
+    "autonomous destination changed"
+  )
+  local resolvedDestination =
+    assert(actor:commitAction() --[[@as FieldActorResolvedPosition]], "autonomous action destination is missing")
+  assert(
+    occupancyKey(entry.runtimeMap, actor.mapId, resolvedDestination --[[@as FieldOccupancyCandidate]]) == newKey,
+    "autonomous action destination changed"
+  )
+  publishResolvedPosition(entry, actor, resolvedDestination)
   entry.reservations[action.reservationKey] = nil
   entry.autonomousActions[actor.actorId] = nil
   self.autonomy:applyPendingMovementType(actor.actorId)
@@ -1716,16 +1758,7 @@ function FieldActorManager:setPosition(actorId, position, options)
       )
     end
   end
-  if actor.resident and actor.solid then
-    local oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
-    if entry.occupancy[oldKey] == actor then
-      entry.occupancy[oldKey] = nil
-    end
-  end
-  if resident and actor.solid then
-    entry.occupancy[assert(newKey)] = actor
-  end
-  actor:setPosition({
+  publishResolvedPosition(entry, actor, {
     fieldX = position.fieldX,
     fieldZ = position.fieldZ,
     worldY = sample and sample.worldY or nil,
@@ -1821,6 +1854,9 @@ function FieldActorManager:_resolveScriptedDestination(actor, direction, distanc
   local destFieldX, destFieldZ = startFieldX, startFieldZ
   local destWorldX, destWorldY, destWorldZ = startWorldX, startWorldY, startWorldZ
   local destSurfaceId = actor.surfaceId
+  local destCellKey = actor.cellKey
+  local destSourceSurfaceId = actor.sourceSurfaceId
+  local destResident = actor.resident
   if direction ~= nil and distance ~= "zero" then
     local delta = assert(deltaMap[direction], "unknown direction " .. tostring(direction))
     destFieldX = startFieldX + delta.fieldX
@@ -1836,6 +1872,10 @@ function FieldActorManager:_resolveScriptedDestination(actor, direction, distanc
     local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, destFieldX, destFieldZ, sample.worldY)
     destWorldX, destWorldY, destWorldZ = world.x, world.y, world.z
     destSurfaceId = sample.surfaceId
+    local plate = assert(entry.runtimeMap.terrain:plate(sample.surfaceId), "scripted destination surface is missing")
+    destCellKey, destSourceSurfaceId = sourceIdentityFromPlate(plate)
+    destCellKey = destCellKey or cellKeyFor(destFieldX, destFieldZ)
+    destResident = isResident(entry.runtimeMap, destFieldX, destFieldZ)
   elseif direction ~= nil and distance == "zero" then
     -- zero jump stays on same tile; no surface change.
     destFieldX, destFieldZ = startFieldX, startFieldZ
@@ -1850,6 +1890,9 @@ function FieldActorManager:_resolveScriptedDestination(actor, direction, distanc
       worldY = startWorldY,
       worldZ = startWorldZ,
       surfaceId = actor.surfaceId,
+      cellKey = actor.cellKey,
+      sourceSurfaceId = actor.sourceSurfaceId,
+      resident = actor.resident,
     },
     dest = {
       fieldX = destFieldX,
@@ -1858,6 +1901,9 @@ function FieldActorManager:_resolveScriptedDestination(actor, direction, distanc
       worldY = destWorldY,
       worldZ = destWorldZ,
       surfaceId = destSurfaceId,
+      cellKey = destCellKey or cellKeyFor(destFieldX, destFieldZ),
+      sourceSurfaceId = destSourceSurfaceId,
+      resident = destResident,
     },
   }
 end
@@ -1897,7 +1943,6 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     or kind == "emote"
     or kind == "gesture"
   then
-    local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
     durationTicks = MovementCalibration.actionTicks(action)
   else
     Errors.raise(
@@ -1922,6 +1967,9 @@ function FieldActorManager:beginScriptedAction(actorId, action)
         worldY = actor.worldY,
         worldZ = actor.worldZ,
         surfaceId = actor.surfaceId,
+        cellKey = actor.cellKey,
+        sourceSurfaceId = actor.sourceSurfaceId,
+        resident = actor.resident,
       },
       dest = {
         fieldX = actor.fieldX,
@@ -1930,6 +1978,9 @@ function FieldActorManager:beginScriptedAction(actorId, action)
         worldY = actor.worldY,
         worldZ = actor.worldZ,
         surfaceId = actor.surfaceId,
+        cellKey = actor.cellKey,
+        sourceSurfaceId = actor.sourceSurfaceId,
+        resident = actor.resident,
       },
     }
   end
@@ -1968,26 +2019,10 @@ function FieldActorManager:commitScriptedAction(actorId)
   if not m then
     return
   end
-  -- Only walk/jump change occupancy; walk_in_place/face never.
-  if m.action == "walk" or m.action == "jump" then
-    if m.destFieldX ~= m.startFieldX or m.destFieldZ ~= m.startFieldZ or m.destSurfaceId ~= m.startSurfaceId then
-      local entry = assert(self.maps[actor.mapId], "actor map entry missing")
-      if actor.solid then
-        local newKey = occupancyKey(
-          entry.runtimeMap,
-          actor.mapId,
-          { fieldX = m.destFieldX, fieldZ = m.destFieldZ, surfaceId = m.destSurfaceId }
-        )
-        local oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
-        if entry.occupancy[oldKey] == actor then
-          entry.occupancy[oldKey] = nil
-        end
-        -- Scripted movement bypasses inter-object collision check: takes over slot.
-        entry.occupancy[newKey] = actor
-      end
-    end
-  end
-  actor:commitScriptedAction()
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  local destination =
+    assert(actor:commitScriptedAction() --[[@as FieldActorResolvedPosition]], "scripted action destination is missing")
+  publishResolvedPosition(entry, actor, destination)
 end
 
 ---@param actorId string

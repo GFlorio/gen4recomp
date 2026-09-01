@@ -9,7 +9,9 @@ local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
+local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 local StartMenuPolicy = require("libs.hgss.src.ui.StartMenuPolicy")
 
 local T = {
@@ -278,6 +280,67 @@ function T.tests.new_bark_friend_and_marill_scene_follows_the_house_scene()
         and world:isFlagSet(FLAG_HIDE_NEW_BARK_MARILL)
         and not snapshot.fieldLocked
     end, 400)
+
+    local runtimeMap = game.runtime.runtimeMap
+    local hiddenFlags = {
+      [FLAG_HIDE_NEW_BARK_FRIEND] = true,
+      [FLAG_HIDE_NEW_BARK_MARILL] = true,
+    }
+    local hiddenEventsChecked = 0
+    for _, event in ipairs(runtimeMap.fieldData.events.objects) do
+      if hiddenFlags[event.eventFlag] then
+        hiddenEventsChecked = hiddenEventsChecked + 1
+        local actorId = "map:" .. runtimeMap.mapId .. ":object:" .. event.objectEventId
+        Assert.isNil(game.runtime.actors:getById(actorId), "a hidden New Bark actor must not remain live: " .. actorId)
+        local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
+        local surface = SurfaceResolver.new(runtimeMap.terrain):resolve({
+          localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+          localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+          currentY = event.y / 16,
+        })
+        Assert.isNil(
+          game.runtime.actors:getAt(runtimeMap.mapId, {
+            fieldX = event.x,
+            fieldZ = event.z,
+            surfaceId = surface.surfaceId,
+          }),
+          "a hidden New Bark actor's source cell must have no occupant: " .. actorId
+        )
+      end
+    end
+    Assert.equal(hiddenEventsChecked, 2, "New Bark must declare both hidden friend and Marill object events")
+
+    local reportedGhostCells = {
+      { fieldX = 689, fieldZ = 394 },
+      { fieldX = 689, fieldZ = 395 },
+      { fieldX = 689, fieldZ = 396 },
+      { fieldX = 689, fieldZ = 397 },
+      { fieldX = 686, fieldZ = 403 },
+      { fieldX = 687, fieldZ = 403 },
+    }
+    local resolver = SurfaceResolver.new(runtimeMap.terrain)
+    for _, cell in ipairs(reportedGhostCells) do
+      local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, cell.fieldX, cell.fieldZ)
+      local candidates = runtimeMap.terrain:candidatesAt(
+        localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ + FieldCoordinates.TILE_CENTER_OFFSET
+      )
+      if #candidates > 0 then
+        local surface = resolver:resolve({
+          localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+          localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+          currentY = 0,
+        })
+        Assert.isNil(
+          game.runtime.actors:getAt(runtimeMap.mapId, {
+            fieldX = cell.fieldX,
+            fieldZ = cell.fieldZ,
+            surfaceId = surface.surfaceId,
+          }),
+          "a reported New Bark ghost cell must have no actor occupant: " .. cell.fieldX .. ":" .. cell.fieldZ
+        )
+      end
+    end
 
     -- The scene variable no longer satisfies the same one-shot trigger
     -- (value 1), so it must not restart.

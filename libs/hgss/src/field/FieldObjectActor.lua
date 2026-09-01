@@ -217,12 +217,18 @@ function FieldObjectActor:beginAction(descriptor, owner)
     startWorldY = start.worldY,
     startWorldZ = start.worldZ,
     startSurfaceId = start.surfaceId,
+    startCellKey = start.cellKey,
+    startSourceSurfaceId = start.sourceSurfaceId,
+    startResident = start.resident == true,
     destFieldX = dest.fieldX,
     destFieldZ = dest.fieldZ,
     destWorldX = dest.worldX,
     destWorldY = dest.worldY,
     destWorldZ = dest.worldZ,
     destSurfaceId = dest.surfaceId,
+    destCellKey = dest.cellKey,
+    destSourceSurfaceId = dest.sourceSurfaceId,
+    destResident = dest.resident == true,
     startPose = self.pose,
     startPoseTick = self.poseTick,
     -- A repeated face is a stationary animated action, transient to this
@@ -331,16 +337,13 @@ function FieldObjectActor:commitAction()
     fieldX = m.destFieldX,
     fieldZ = m.destFieldZ,
     surfaceId = m.destSurfaceId,
+    cellKey = m.destCellKey,
+    sourceSurfaceId = m.destSourceSurfaceId,
     worldX = m.destWorldX,
     worldY = m.destWorldY,
     worldZ = m.destWorldZ,
+    resident = m.destResident,
   }
-  self.fieldX = m.destFieldX
-  self.fieldZ = m.destFieldZ
-  self.surfaceId = m.destSurfaceId
-  self.worldX = m.destWorldX
-  self.worldY = m.destWorldY
-  self.worldZ = m.destWorldZ
   -- The transaction settles: a completed action never leaves a residual
   -- render-only offset for the next action (or idle) to inherit.
   self.presentationOffset.x = 0
