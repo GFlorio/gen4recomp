@@ -469,15 +469,15 @@ function T.gender_selector_frame_highlight_semantics_are_generated(romFs)
   local selector = bundle.manifest.genderSelector
   if selector == nil then
     error(
-      "compiled intro manifest has no semantic gender-selector frame data (neutral surface plus per-button "
+      "compiled intro manifest has no semantic gender-selector button frame data (backing plus per-button "
         .. "pulse-tone and accent masks); the renderer would have to tint portraits instead",
       0
     )
   end
-  Assert.notNil(selector.neutral, "neutral selector surface is present")
   Assert.notNil(selector.defaultTone, "source default tone is preserved for the sine pulse")
   for _, gender in ipairs({ "male", "female" }) do
     local button = assert(selector.buttons and selector.buttons[gender], gender .. " selector button entry present")
+    Assert.notNil(button.backing, gender .. " source backing surface is present")
     Assert.notNil(button.pulseMask, gender .. " pulse-tone mask is present")
     Assert.notNil(button.accentMask, gender .. " selected/unselected accent mask is present")
     Assert.notNil(button.bounds, gender .. " selector button source bounds are present")

@@ -63,7 +63,7 @@ local function assertBallSource(bundle)
 end
 
 local function assertVariant(bundle, versionId, paletteMember)
-  Assert.equal(bundle.manifest.schemaVersion, 5)
+  Assert.equal(bundle.manifest.schemaVersion, 6)
   Assert.equal(bundle.manifest.variant, versionId)
   Assert.equal(sourceMember(bundle, "background:char"), 0)
   Assert.equal(sourceMember(bundle, "background:screen"), 3)
@@ -104,11 +104,26 @@ local function assertGenderSource(bundle, paletteMember)
     Assert.isTrue(#bundle.manifest.widgets[id].frames > 0, id .. " has visible frames")
     Assert.notNil(bundle.assets[bundle.manifest.widgets[id].frames[1].image], id .. " has image output")
   end
-  Assert.notNil(bundle.manifest.widgets.gender_background, "gender auxiliary background is present")
-  Assert.notNil(bundle.assets[bundle.manifest.widgets.gender_background.image], "gender background has image output")
-  Assert.equal(sourceMember(bundle, "gender-background:char"), 32)
-  Assert.equal(sourceMember(bundle, "gender-background:screen"), 51)
-  Assert.equal(sourceMember(bundle, "gender-background:palette"), paletteMember)
+  local selector = assert(bundle.manifest.genderSelector)
+  Assert.isNil(selector.neutral, "broad selector neutral surface is removed")
+  Assert.equal(sourceMember(bundle, "gender-selector:char"), 32)
+  Assert.equal(sourceMember(bundle, "gender-selector:screen"), 51)
+  Assert.equal(sourceMember(bundle, "gender-selector:palette"), paletteMember)
+  local choiceBounds = require("romdump.src.config.IntroAssets").genderChoiceBounds
+  for _, gender in ipairs({ "male", "female" }) do
+    local button = selector.buttons[gender]
+    local expected = choiceBounds[gender]
+    Assert.deepEqual(button.bounds, expected)
+    Assert.deepEqual(button.hitBounds, expected)
+    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
+      local surface = assert(button[kind])
+      Assert.equal(surface.width, expected.width)
+      Assert.equal(surface.height, expected.height)
+      local width, height = PngReader.rgba(assert(bundle.assets[surface.image]))
+      Assert.equal(width, expected.width)
+      Assert.equal(height, expected.height)
+    end
+  end
   for _, id in ipairs({ "gender_male", "gender_female" }) do
     for role, memberId in pairs({
       ["resdat-header"] = 78,
@@ -139,80 +154,15 @@ function T.both_variants_compile_the_correct_gradient(romFs, versionId)
   Assert.equal(payloadBytes(first), payloadBytes(second), "same source produces deterministic image bytes")
 end
 
-local function selectorAlphaAt(assets, image, x, y)
-  local width, height, rgba = PngReader.rgba(assert(assets[image]))
-  if x < 0 or y < 0 or x >= width or y >= height then
-    return 0
-  end
-  local _, _, _, alpha = PngReader.pixel(rgba, width, x, y)
-  return alpha
-end
-
--- A pixel is button-frame chrome if it is opaque in the shared neutral layer
--- or in either gender's pulse/accent role mask; those masks are cropped to
--- their own local bounds, so a source-space sample first offsets into each
--- mask's local coordinate space.
-local function selectorFrameOpaque(bundle, x, y)
-  local gs = bundle.manifest.genderSelector
-  if selectorAlphaAt(bundle.assets, gs.neutral.image, x, y) > 0 then
-    return true
-  end
-  for _, gender in ipairs({ "male", "female" }) do
-    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
-      local mask = gs.buttons[gender][kind]
-      if selectorAlphaAt(bundle.assets, mask.image, x - mask.bounds.x, y - mask.bounds.y) > 0 then
-        return true
-      end
-    end
-  end
-  return false
-end
-
-function T.gender_selector_backing_is_transparent_while_frame_chrome_remains(romFs)
+function T.gender_selector_backing_is_opaque_and_masks_are_bounded(romFs)
   local bundle = assert(compiler().compile(romFs))
-  local male = bundle.manifest.genderSelector.buttons.male.bounds
-  local female = bundle.manifest.genderSelector.buttons.female.bounds
-
-  -- Negative: broad DS backing behind, outside, and between the two cards.
-  -- These source-space samples sit well clear of both button frames.
-  local negatives = {
-    { name = "left margin, level with the cards", x = 0, y = 100 },
-    { name = "left margin, above the cards", x = 5, y = 10 },
-    { name = "bottom fill, left of both cards", x = 0, y = 190 },
-    { name = "bottom fill, between the cards", x = math.floor((male.x + male.width + female.x) / 2), y = 190 },
-    { name = "bottom fill, right of both cards", x = 200, y = 190 },
-    { name = "gap between the two cards", x = math.floor((male.x + male.width + female.x) / 2), y = 104 },
-  }
-  for _, sample in ipairs(negatives) do
-    Assert.isFalse(
-      selectorFrameOpaque(bundle, sample.x, sample.y),
-      "expected transparent backing at " .. sample.name .. " (" .. sample.x .. "," .. sample.y .. ")"
-    )
-  end
-
-  -- Positive: every side and corner of both button frames remains chrome.
-  local positives = {}
-  for _, card in ipairs({ { id = "male", bounds = male }, { id = "female", bounds = female } }) do
-    local b = card.bounds
-    local points = {
-      { "top mid", b.x + math.floor(b.width / 2), b.y },
-      { "bottom mid", b.x + math.floor(b.width / 2), b.y + b.height - 1 },
-      { "left mid", b.x, b.y + math.floor(b.height / 2) },
-      { "right mid", b.x + b.width - 1, b.y + math.floor(b.height / 2) },
-      { "top-left corner", b.x, b.y },
-      { "top-right corner", b.x + b.width - 1, b.y },
-      { "bottom-left corner", b.x, b.y + b.height - 1 },
-      { "bottom-right corner", b.x + b.width - 1, b.y + b.height - 1 },
-    }
-    for _, point in ipairs(points) do
-      positives[#positives + 1] = { name = card.id .. " " .. point[1], x = point[2], y = point[3] }
+  for _, gender in ipairs({ "male", "female" }) do
+    local backing = bundle.manifest.genderSelector.buttons[gender].backing
+    local width, height, rgba = PngReader.rgba(assert(bundle.assets[backing.image]))
+    for _, point in ipairs({ { 0, 0 }, { width - 1, 0 }, { 0, height - 1 }, { width - 1, height - 1 } }) do
+      local _, _, _, alpha = PngReader.pixel(rgba, width, point[1], point[2])
+      Assert.equal(alpha, 255, gender .. " backing corner is opaque")
     end
-  end
-  for _, sample in ipairs(positives) do
-    Assert.isTrue(
-      selectorFrameOpaque(bundle, sample.x, sample.y),
-      "expected frame chrome at " .. sample.name .. " (" .. sample.x .. "," .. sample.y .. ")"
-    )
   end
 end
 
@@ -220,13 +170,11 @@ function T.compiled_visuals_are_stable_semantic_widgets(romFs)
   local bundle = assert(compiler().compile(romFs))
   Assert.keySet(
     bundle.manifest.widgets,
-    "ball_open,female,gender_background,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+    "ball_open,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
   )
   for id, widget in pairs(bundle.manifest.widgets) do
     Assert.equal(widget.sampling, "nearest", id .. " uses nearest sampling")
-    if id ~= "gender_background" then
-      Assert.isTrue(widget.width < 256 or widget.height < 192, id .. " is not a full-screen visual")
-    end
+    Assert.isTrue(widget.width < 256 or widget.height < 192, id .. " is not a full-screen visual")
     Assert.isTrue(widget.anchor.x >= 0 and widget.anchor.x <= widget.width, id .. " anchor x is bounded")
     Assert.isTrue(widget.anchor.y >= 0 and widget.anchor.y <= widget.height, id .. " anchor y is bounded")
     Assert.isTrue(widget.sourceBounds.x + widget.sourceBounds.width <= 256, id .. " source bounds fit width")

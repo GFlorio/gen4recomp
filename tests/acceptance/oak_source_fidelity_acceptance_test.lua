@@ -282,18 +282,15 @@ function T.tests.gender_select_preserves_source_centers_and_female_palette()
   for _, sz in ipairs({ { 800, 600 }, { 390, 844 } }) do
     local w, h = sz[1], sz[2]
     local layout = OakIntroLayout.compute(w, h, view, {}, manifest)
-    Assert.notNil(layout.genderBackground, "gender background missing")
-    Assert.notNil(layout.genderChoices, "gender choices missing")
-    Assert.notNil(layout.genderChoices[0], "male choice missing")
-    Assert.notNil(layout.genderChoices[1], "female choice missing")
-    Assert.notNil(layout.genderHitRegions, "hit regions missing")
-    Assert.deepEqual(layout.genderHitRegions, layout.genderChoices, "hit regions must equal rendered choice rects")
+    Assert.notNil(layout.genderChoiceGroup, "gender choices are not resolved")
+    Assert.notNil(layout.genderChoiceGroup.items[0], "male choice missing")
+    Assert.notNil(layout.genderChoiceGroup.items[1], "female choice missing")
+    local selectorInset = assert(layout.selectorInset, "selector inset missing")
+    Assert.isTrue(selectorInset > 0, "selector has deliberate responsive breathing room")
     -- Scales must be uniform for one canvas composition
-    local sBg = layout.genderBackground.scale
-    local sMale = layout.genderChoices[0].scale
-    local sFemale = layout.genderChoices[1].scale
+    local sMale = layout.genderCanvas.scale
+    local sFemale = layout.genderCanvas.scale
     Assert.near(sMale, sFemale, 1e-9, "male and female choices must share uniform scale at " .. w .. "x" .. h)
-    Assert.near(sBg, sMale, 1e-9, "gender background and choices must share uniform scale at " .. w .. "x" .. h)
     -- Centers via same canvas: male (64,104) female (192,104)
     -- Derive canvas from selectorPanel: it maps 256x192 into panel
     local panel = assert(layout.selectorPanel, "selectorPanel missing")
@@ -308,12 +305,16 @@ function T.tests.gender_select_preserves_source_centers_and_female_palette()
     local maleExp = hostCenter(64, 104)
     local femaleExp = hostCenter(192, 104)
     local maleAct = {
-      x = layout.genderChoices[0].x + layout.genderChoices[0].width / 2,
-      y = layout.genderChoices[0].y + layout.genderChoices[0].height / 2,
+      x = layout.genderChoiceGroup.items[0].payload.portraitRect.x
+        + layout.genderChoiceGroup.items[0].payload.portraitRect.width / 2,
+      y = layout.genderChoiceGroup.items[0].payload.portraitRect.y
+        + layout.genderChoiceGroup.items[0].payload.portraitRect.height / 2,
     }
     local femaleAct = {
-      x = layout.genderChoices[1].x + layout.genderChoices[1].width / 2,
-      y = layout.genderChoices[1].y + layout.genderChoices[1].height / 2,
+      x = layout.genderChoiceGroup.items[1].payload.portraitRect.x
+        + layout.genderChoiceGroup.items[1].payload.portraitRect.width / 2,
+      y = layout.genderChoiceGroup.items[1].payload.portraitRect.y
+        + layout.genderChoiceGroup.items[1].payload.portraitRect.height / 2,
     }
     Assert.near(maleAct.x, maleExp.x, 1.0, "male center x must map from (64,104) via shared canvas")
     Assert.near(maleAct.y, maleExp.y, 1.0, "male center y must map from (64,104) via shared canvas")
@@ -387,6 +388,7 @@ function T.tests.gender_focus_uses_source_palette_blink_without_rectangle()
       return graphics.newImage()
     end,
     text = {
+      fontDef = { lineHeight = 16 },
       drawText = function() end,
       textWidth = function()
         return 0

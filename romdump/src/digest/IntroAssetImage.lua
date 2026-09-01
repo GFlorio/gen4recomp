@@ -14,6 +14,30 @@ end
 local function validateSurface(surface)
   assert(type(surface) == "table" and surface.width > 0 and surface.height > 0)
   assert(type(surface.rgba) == "string")
+  assert(#surface.rgba == surface.width * surface.height * 4)
+end
+
+function IntroAssetImage.cropWrapped(surface, bounds, scrollX, scrollY)
+  validateSurface(surface)
+  assert(type(bounds) == "table")
+  for _, field in ipairs({ "x", "y", "width", "height" }) do
+    assert(type(bounds[field]) == "number" and bounds[field] % 1 == 0)
+  end
+  assert(bounds.width > 0 and bounds.height > 0)
+  assert(type(scrollX) == "number" and scrollX % 1 == 0)
+  assert(type(scrollY) == "number" and scrollY % 1 == 0)
+  local rows = {}
+  for y = 0, bounds.height - 1 do
+    local row = {}
+    for x = 0, bounds.width - 1 do
+      local sourceX = (bounds.x + x + scrollX) % surface.width
+      local sourceY = (bounds.y + y + scrollY) % surface.height
+      local r, g, b, a = rgbaAt(surface.rgba, surface.width, sourceX, sourceY)
+      row[#row + 1] = string.char(r, g, b, a)
+    end
+    rows[#rows + 1] = table.concat(row)
+  end
+  return { width = bounds.width, height = bounds.height, rgba = table.concat(rows) }
 end
 
 function IntroAssetImage.reduceGradient(width, height, rgba)

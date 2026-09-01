@@ -4,6 +4,7 @@
 
 local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
 local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
+local ChoiceGroup = require("libs.ui.src.ChoiceGroup")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentationLayout")
 
@@ -40,7 +41,6 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@class OakIntroStateLayout
 ---@field viewport OakIntroStateRectangle
 ---@field message OakIntroStateRectangle
----@field cards table<integer, OakIntroStateRectangle>
 ---@field nameGrid table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string? }>
 ---@field nameKeys table<integer, { rect: OakIntroStateRectangle, kind: string, glyph: string?, label: string? }>
 ---@field namePreview OakIntroStateRectangle?
@@ -50,9 +50,9 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field revealCanvas { scale: number, origin: { x: number, y: number } }?
 ---@field reveal OakIntroStateSubjectRectangle?
 ---@field stage OakIntroStateRectangle
----@field profileCards table<integer, OakIntroStateRectangle>
----@field choicePanel OakIntroStateRectangle?
----@field choiceRows table<integer, OakIntroStateRectangle>?
+---@field genderChoiceGroup table?
+---@field confirmationChoiceGroup table?
+---@field selectedProfileCard table?
 ---@field virtualKeyColumns integer?
 ---@field genderFocus integer
 ---@field subject OakIntroStateSubjectRectangle?
@@ -61,9 +61,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field oakRegion OakIntroStateRectangle?
 ---@field selectorRegion OakIntroStateRectangle?
 ---@field selectorPanel OakIntroStateRectangle?
----@field genderBackground OakIntroStateSubjectRectangle?
----@field genderChoices table<integer, OakIntroStateSubjectRectangle>
----@field genderHitRegions table<integer, OakIntroStateRectangle>?
+---@field selectorInset number?
 ---@field genderCanvas { scale: number, origin: { x: number, y: number } }?
 
 ---@class OakIntroStateView: OakIntroControllerView
@@ -435,21 +433,23 @@ end
 function OakIntroState:_pointer(x, y)
   local view = self:view()
   local layout = view.layout
-  if view.confirmationChoice then
-    for selected = 0, 1 do
-      if OakIntroLayout.contains(layout.choiceRows[selected], x, y) then
-        self.controller:press(selected == 0 and "yes" or "no")
-        self:_sync()
-        return
-      end
+  if self.dialogueController and self.dialogueController:isModal() then
+    self:_sync()
+    return
+  elseif layout.confirmationChoiceGroup then
+    local selected = ChoiceGroup.hitTest(layout.confirmationChoiceGroup, x, y)
+    if selected ~= nil then
+      self.controller:press(selected == 0 and "yes" or "no")
+      self:_sync()
+      return
     end
-  elseif view.phase == "gender_select" then
-    for gender = 0, 1 do
-      if OakIntroLayout.contains(layout.genderHitRegions[gender], x, y) then
-        self.controller:press(gender == 0 and "left" or "right")
-        self.controller:press("confirm")
-        return
-      end
+  elseif layout.genderChoiceGroup then
+    local gender = ChoiceGroup.hitTest(layout.genderChoiceGroup, x, y)
+    if gender ~= nil then
+      self.controller:press(gender == 0 and "left" or "right")
+      self.controller:press("confirm")
+      self:_sync()
+      return
     end
   elseif view.phase == "name_edit" then
     for _, entry in pairs(layout.nameKeys or layout.nameGrid) do

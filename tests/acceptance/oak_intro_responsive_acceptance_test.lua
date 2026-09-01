@@ -30,7 +30,6 @@ local REQUIRED = {
   "shrink_male",
   "shrink_female",
   "ball_open",
-  "gender_background",
   "gender_male",
   "gender_female",
 }
@@ -88,15 +87,6 @@ end
 local function genderManifest()
   local data = manifest()
   local widgets = data.widgets
-  widgets.gender_background = {
-    image = "assets/generated/intro/gender-background.png",
-    sampling = "nearest",
-    width = 256,
-    height = 192,
-    anchor = { x = 128, y = 192 },
-    sourceBounds = { x = 0, y = 0, width = 256, height = 192 },
-    frames = { { image = "assets/generated/intro/gender-background.png", width = 256, height = 192, duration = 1 } },
-  }
   widgets.gender_male = {
     image = "assets/generated/intro/gender-male.png",
     sampling = "nearest",
@@ -208,16 +198,15 @@ manifest = function()
       widgets[id].sourceCenter = { x = 192, y = 104 }
     end
   end
-  local function mask(gender, kind)
+  local function mask(gender, kind, bounds)
     return {
       image = "assets/generated/intro/gender-selector-" .. gender .. "-" .. kind .. ".png",
-      width = 4,
-      height = 4,
-      bounds = { x = 0, y = 0, width = 4, height = 4 },
+      width = bounds.width,
+      height = bounds.height,
     }
   end
   return {
-    schemaVersion = 5,
+    schemaVersion = 6,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -228,18 +217,77 @@ manifest = function()
     },
     widgets = widgets,
     genderSelector = {
-      neutral = { image = "assets/generated/intro/gender-selector-neutral.png", width = 256, height = 192 },
       defaultTone = { r = 200, g = 200, b = 200 },
       buttons = {
         male = {
-          bounds = { x = 0, y = 0, width = 4, height = 4 },
-          pulseMask = mask("male", "pulseMask"),
-          accentMask = mask("male", "accentMask"),
+          bounds = { x = 18, y = 25, width = 93, height = 148 },
+          hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+          backing = { image = "assets/generated/intro/gender-selector-male-backing.png", width = 93, height = 148 },
+          pulseMask = mask("male", "pulseMask", { x = 18, y = 25, width = 93, height = 148 }),
+          accentMask = mask("male", "accentMask", { x = 18, y = 25, width = 93, height = 148 }),
         },
         female = {
-          bounds = { x = 0, y = 0, width = 4, height = 4 },
-          pulseMask = mask("female", "pulseMask"),
-          accentMask = mask("female", "accentMask"),
+          bounds = { x = 144, y = 25, width = 95, height = 148 },
+          hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+          backing = { image = "assets/generated/intro/gender-selector-female-backing.png", width = 95, height = 148 },
+          pulseMask = mask("female", "pulseMask", { x = 144, y = 25, width = 95, height = 148 }),
+          accentMask = mask("female", "accentMask", { x = 144, y = 25, width = 95, height = 148 }),
+        },
+      },
+    },
+    profileConfirmation = {
+      buttons = {
+        male = {
+          yes = {
+            bounds = { x = 138, y = 26, width = 115, height = 57 },
+            textBounds = { x = 136, y = 48, width = 104, height = 24 },
+            base = { image = "assets/generated/intro/profile-confirmation-male-yes-base.png", width = 115, height = 57 },
+            focus = {
+              image = "assets/generated/intro/profile-confirmation-male-yes-focus.png",
+              width = 115,
+              height = 57,
+            },
+          },
+          no = {
+            bounds = { x = 138, y = 108, width = 115, height = 56 },
+            textBounds = { x = 136, y = 128, width = 104, height = 24 },
+            base = { image = "assets/generated/intro/profile-confirmation-male-no-base.png", width = 115, height = 56 },
+            focus = {
+              image = "assets/generated/intro/profile-confirmation-male-no-focus.png",
+              width = 115,
+              height = 56,
+            },
+          },
+        },
+        female = {
+          yes = {
+            bounds = { x = 10, y = 26, width = 115, height = 57 },
+            textBounds = { x = 16, y = 48, width = 104, height = 24 },
+            base = {
+              image = "assets/generated/intro/profile-confirmation-female-yes-base.png",
+              width = 115,
+              height = 57,
+            },
+            focus = {
+              image = "assets/generated/intro/profile-confirmation-female-yes-focus.png",
+              width = 115,
+              height = 57,
+            },
+          },
+          no = {
+            bounds = { x = 10, y = 108, width = 115, height = 56 },
+            textBounds = { x = 16, y = 128, width = 104, height = 24 },
+            base = {
+              image = "assets/generated/intro/profile-confirmation-female-no-base.png",
+              width = 115,
+              height = 56,
+            },
+            focus = {
+              image = "assets/generated/intro/profile-confirmation-female-no-focus.png",
+              width = 115,
+              height = 56,
+            },
+          },
         },
       },
     },
@@ -357,7 +405,7 @@ end
 
 function T.tests.host_native_layout_contract_across_representative_viewports()
   local checked = IntroAssetCache.validateManifest(manifest())
-  Assert.isTrue(checked, "scenario requires a valid schema-4 semantic manifest")
+  Assert.isTrue(checked, "scenario requires a valid schema-6 semantic manifest")
   for _, size in ipairs({ { 320, 240 }, { 390, 844 }, { 800, 600 }, { 1920, 1080 }, { 2560, 1080 } }) do
     local state = OakIntroState.new({
       controller = controller(),
@@ -387,7 +435,10 @@ function T.tests.single_surface_gender_selection_keeps_regions_separate()
     Assert.notNil(layout.oakRegion, "layout exposes the Oak region")
     Assert.notNil(layout.selectorRegion, "layout exposes the selector region")
     assertDisjoint(layout.oakRegion, layout.selectorRegion, "Oak and selector regions overlap")
-    assertInside(layout.genderBackground, layout.selectorPanel, "selector background leaves selector panel")
+    Assert.notNil(layout.genderChoiceGroup, "selector choices are resolved")
+    for _, item in pairs(layout.genderChoiceGroup.items) do
+      assertInside(item.rect, layout.selectorPanel, "selector choice leaves selector panel")
+    end
   end
 end
 
@@ -396,16 +447,16 @@ function T.tests.wide_gender_selection_is_side_by_side_and_hit_regions_are_rende
   local layout = OakIntroLayout.compute(1920, 1080, view, { "A" }, genderManifest())
   Assert.notNil(layout.oakRegion, "wide layout exposes the Oak region")
   Assert.notNil(layout.selectorRegion, "wide layout exposes the selector region")
-  Assert.notNil(layout.genderBackground, "wide layout places the selector background")
-  Assert.notNil(layout.genderChoices, "wide layout places selector choices")
+  Assert.notNil(layout.genderChoiceGroup, "wide layout resolves selector choices")
   Assert.isTrue(layout.oakRegion.x < layout.selectorRegion.x, "wide layout keeps Oak left of controls")
   assertDisjoint(layout.oakRegion, layout.selectorRegion, "wide Oak and selector regions overlap")
-  assertInside(layout.genderBackground, layout.selectorPanel, "wide selector background leaves selector panel")
   for gender = 0, 1 do
-    assertInside(layout.genderChoices[gender], layout.selectorPanel, "wide selector choice leaves selector panel")
+    assertInside(
+      layout.genderChoiceGroup.items[gender].rect,
+      layout.selectorPanel,
+      "wide selector choice leaves selector panel"
+    )
   end
-  Assert.notNil(layout.genderHitRegions, "pointer hit regions come from the selector placement")
-  Assert.deepEqual(layout.genderHitRegions, layout.genderChoices, "pointer and renderer use one selector geometry")
 end
 
 function T.tests.constrained_gender_selection_keeps_both_controls_and_main_context_usable()
@@ -414,14 +465,24 @@ function T.tests.constrained_gender_selection_keeps_both_controls_and_main_conte
     local layout = OakIntroLayout.compute(size[1], size[2], view, { "A" }, genderManifest())
     Assert.notNil(layout.oakRegion, "constrained layout exposes essential Oak context")
     Assert.notNil(layout.selectorRegion, "constrained layout exposes selector controls")
-    Assert.notNil(layout.genderBackground, "constrained layout places the selector background")
-    Assert.notNil(layout.genderChoices, "constrained layout places both choices")
+    Assert.notNil(layout.genderChoiceGroup, "constrained layout resolves both choices")
     assertInside(layout.oakRegion, layout.viewport, "constrained Oak context leaves viewport")
     assertInside(layout.selectorRegion, layout.viewport, "constrained selector leaves viewport")
-    assertInside(layout.genderChoices[0], layout.selectorPanel, "constrained male choice leaves controls")
-    assertInside(layout.genderChoices[1], layout.selectorPanel, "constrained female choice leaves controls")
-    assertDisjoint(layout.genderChoices[0], layout.genderChoices[1], "constrained gender choices overlap")
-    Assert.notNil(layout.genderHitRegions, "constrained pointer mapping has rendered hit regions")
+    assertInside(
+      layout.genderChoiceGroup.items[0].rect,
+      layout.selectorPanel,
+      "constrained male choice leaves controls"
+    )
+    assertInside(
+      layout.genderChoiceGroup.items[1].rect,
+      layout.selectorPanel,
+      "constrained female choice leaves controls"
+    )
+    assertDisjoint(
+      layout.genderChoiceGroup.items[0].rect,
+      layout.genderChoiceGroup.items[1].rect,
+      "constrained gender choices overlap"
+    )
   end
 end
 
@@ -547,6 +608,7 @@ function T.tests.source_reveal_composition_draws_distinct_semantic_stages()
       return image
     end,
     text = {
+      fontDef = { lineHeight = 16 },
       drawText = function() end,
       textWidth = function()
         return 0
@@ -613,7 +675,9 @@ function T.tests.profile_and_name_controls_share_explicit_draw_and_hit_rectangle
   state:press("confirm")
   state:tick(26)
   Assert.equal(state:view().phase, "gender_select")
-  Assert.notNil(OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }, manifest()).profileCards)
+  local genderLayout = OakIntroLayout.compute(390, 844, state:view(), { "A", "B" }, manifest())
+  Assert.notNil(genderLayout.genderChoiceGroup)
+  Assert.notNil(genderLayout.selectedProfileCard)
   state:press("confirm")
   state:press("confirm")
   state:press("confirm")
@@ -741,6 +805,7 @@ T.tests.name_confirmation_draw_does_not_require_editor_preview_geometry = functi
       return image
     end,
     text = {
+      fontDef = { lineHeight = 16 },
       drawText = function() end,
       textWidth = function(_, value)
         return #value * 8

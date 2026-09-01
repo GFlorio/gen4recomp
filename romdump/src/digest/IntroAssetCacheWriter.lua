@@ -47,22 +47,27 @@ local function stageBundle(tx, bundle)
       end
     end
   end
-  if not stage:exists(manifest.genderSelector.neutral.image, "file") then
-    Errors.raise(
-      "INTRO_CACHE_READBACK_FAILED",
-      "intro gender selector neutral surface missing after stage",
-      { image = manifest.genderSelector.neutral.image }
-    )
-  end
   for _, gender in ipairs({ "male", "female" }) do
     local button = manifest.genderSelector.buttons[gender]
-    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
       if not stage:exists(button[kind].image, "file") then
         Errors.raise(
           "INTRO_CACHE_READBACK_FAILED",
           "intro gender selector mask missing after stage",
           { image = button[kind].image }
         )
+      end
+    end
+    for _, choice in ipairs({ "yes", "no" }) do
+      local confirmation = manifest.profileConfirmation.buttons[gender][choice]
+      for _, kind in ipairs({ "base", "focus" }) do
+        if not stage:exists(confirmation[kind].image, "file") then
+          Errors.raise(
+            "INTRO_CACHE_READBACK_FAILED",
+            "intro profile confirmation surface missing after stage",
+            { image = confirmation[kind].image }
+          )
+        end
       end
     end
   end
@@ -74,7 +79,7 @@ end
 ---@return boolean
 function IntroAssetCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and bundle and bundle.marker and bundle.manifest and bundle.dependencies and bundle.assets)
-  assert(bundle.manifest.schemaVersion == 5, "intro manifest schema mismatch")
+  assert(bundle.manifest.schemaVersion == 6, "intro manifest schema mismatch")
   local tx = ArtifactPublisher.begin(cacheFs, "intro", { IntroAssetCache.assetDir(), IntroAssetCache.dir() })
   local ok, err = pcall(stageBundle, tx, bundle)
   if not ok then

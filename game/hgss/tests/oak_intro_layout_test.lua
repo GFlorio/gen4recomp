@@ -21,13 +21,15 @@ end
 
 local function manifestWithWidth(sourceWidth)
   local data = {
+    schemaVersion = 6,
     sourceReference = { width = sourceWidth, height = 192 },
     background = { width = sourceWidth, height = 192, sampling = "linear" },
     widgets = {
       oak = widget(80, 100, { x = 20, y = 100 }, { x = 20, y = 30, width = 80, height = 100 }),
+      male = widget(96, 120, { x = 24, y = 110 }, { x = 36, y = 24, width = 96, height = 120 }),
+      female = widget(88, 116, { x = 22, y = 108 }, { x = 48, y = 28, width = 88, height = 116 }),
       ball_open = widget(40, 30, { x = 20, y = 30 }, { x = 140, y = 50, width = 40, height = 30 }),
       marill = widget(40, 30, { x = 20, y = 30 }, { x = 140, y = 50, width = 40, height = 30 }),
-      gender_background = widget(256, 192, { x = 128, y = 192 }, { x = 0, y = 0, width = 256, height = 192 }),
       gender_male = widget(40, 60, { x = 20, y = 30 }, { x = 0, y = 0, width = 40, height = 60 }),
       gender_female = widget(40, 60, { x = 20, y = 30 }, { x = 0, y = 0, width = 40, height = 60 }),
     },
@@ -36,6 +38,43 @@ local function manifestWithWidth(sourceWidth)
   data.widgets.marill.sourceCenter = { x = 160, y = 80 }
   data.widgets.gender_male.sourceCenter = { x = 64, y = 104 }
   data.widgets.gender_female.sourceCenter = { x = 192, y = 104 }
+  data.genderSelector = {
+    defaultTone = { r = 200, g = 200, b = 200 },
+    buttons = {
+      male = {
+        bounds = { x = 18, y = 25, width = 93, height = 148 },
+        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+      },
+      female = {
+        bounds = { x = 144, y = 25, width = 95, height = 148 },
+        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+      },
+    },
+  }
+  data.profileConfirmation = {
+    buttons = {
+      male = {
+        yes = {
+          bounds = { x = 138, y = 26, width = 115, height = 57 },
+          textBounds = { x = 136, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 138, y = 108, width = 115, height = 56 },
+          textBounds = { x = 136, y = 128, width = 104, height = 24 },
+        },
+      },
+      female = {
+        yes = {
+          bounds = { x = 10, y = 26, width = 115, height = 57 },
+          textBounds = { x = 16, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 10, y = 108, width = 115, height = 56 },
+          textBounds = { x = 16, y = 128, width = 104, height = 24 },
+        },
+      },
+    },
+  }
   return data
 end
 
@@ -193,16 +232,72 @@ function T.tests.gender_selection_is_a_single_source_aligned_composition()
     Assert.isTrue(inside(layout.selectorRegion, layout.viewport))
     Assert.isTrue(disjoint(layout.oakRegion, layout.selectorRegion))
     Assert.near(layout.selectorPanel.width / layout.selectorPanel.height, 4 / 3)
-    Assert.isTrue(inside(layout.genderBackground, layout.selectorPanel))
+    local selectorInset = assert(layout.selectorInset)
+    Assert.isTrue(selectorInset > 0)
     for gender, sourceX in pairs({ [0] = 64, [1] = 192 }) do
       local id = gender == 0 and "gender_male" or "gender_female"
-      local choice = layout.genderChoices[gender]
+      local item = layout.genderChoiceGroup.items[gender]
+      local choice = item.payload.portraitRect
       local choicePoint = point(choice, data.widgets[id].anchor)
       Assert.near(choicePoint.x, layout.selectorPanel.x + sourceX / 256 * layout.selectorPanel.width)
       Assert.near(choicePoint.y, layout.selectorPanel.y + 104 / 192 * layout.selectorPanel.height)
-      Assert.deepEqual(layout.genderHitRegions[gender], choice)
+      Assert.deepEqual(item.rect, layout.genderChoiceGroup.items[gender].rect)
     end
   end
+end
+
+function T.tests.gender_confirmation_keeps_only_the_static_selected_card()
+  local data = manifest()
+  local layout = OakIntroLayout.compute(800, 600, {
+    phase = "gender_confirm",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 1,
+    confirmationChoice = { kind = "gender", selected = 0 },
+  }, {}, data)
+
+  Assert.isNil(layout.genderChoiceGroup)
+  Assert.equal(layout.selectedProfileCard.key, "male")
+  Assert.notNil(layout.confirmationChoiceGroup)
+end
+
+function T.tests.gender_hit_geometry_uses_hit_bounds_and_style_geometry_uses_bounds()
+  local data = manifest()
+  data.genderSelector.buttons.male.bounds = { x = 24, y = 30, width = 80, height = 140 }
+  local layout = OakIntroLayout.compute(800, 600, {
+    phase = "gender_select",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 1,
+  }, {}, data)
+  local item = layout.genderChoiceGroup.items[0]
+  local panel = assert(layout.selectorPanel)
+
+  Assert.near(item.rect.x, panel.x + 18 / 256 * panel.width)
+  Assert.near(item.rect.width, 93 / 256 * panel.width)
+  Assert.near(item.payload.buttonRect.x, panel.x + 24 / 256 * panel.width)
+  Assert.near(item.payload.buttonRect.width, 80 / 256 * panel.width)
+end
+
+function T.tests.name_confirmation_resolves_source_aspect_choice_without_selector_regions()
+  local layout = OakIntroLayout.compute(800, 600, {
+    phase = "name_confirm",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    confirmationChoice = { kind = "name", selected = 0 },
+    genderCompositionProgress = 0,
+    oakBgScrollX = 0,
+  }, {}, manifest())
+
+  Assert.isNil(layout.oakRegion)
+  Assert.isNil(layout.selectorRegion)
+  Assert.notNil(layout.confirmationChoiceGroup)
+  Assert.equal(layout.confirmationChoiceGroup.items[0].key, "yes")
+  Assert.equal(layout.confirmationChoiceGroup.items[1].key, "no")
+  Assert.isTrue(disjoint(layout.confirmationChoiceGroup.items[0].rect, layout.confirmationChoiceGroup.items[1].rect))
 end
 
 function T.tests.gender_composition_interpolates_oak_into_the_contained_region()

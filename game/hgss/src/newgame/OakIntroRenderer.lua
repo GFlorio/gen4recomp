@@ -10,6 +10,9 @@
 ---@field bindings table
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
+local ChoiceGroup = require("libs.ui.src.ChoiceGroup")
+local PaintList = require("libs.ui.src.PaintList")
+local OakChoiceStyles = require("game.hgss.src.newgame.OakChoiceStyles")
 local REQUIRED_ASSETS = {
   "oak",
   "marill",
@@ -44,11 +47,9 @@ local function releaseAll(resources)
   end
 end
 
--- Gender selector masks/neutral surface are single-frame source-cropped
--- images, same as any other widget asset, addressed under synthetic
--- "genderSelector.<gender>.<kind>" ids so the ordinary widget loader/binder
--- can load and quad them without a second resource-loading path.
-local function genderSelectorAssets(selector)
+-- Generated choice surfaces are represented as ordinary single-frame assets so
+-- the renderer retains one image acquisition and release owner.
+local function choiceAssets(manifest)
   local assets = {}
   local function single(id, image, width, height)
     assets[id] = {
@@ -59,12 +60,23 @@ local function genderSelectorAssets(selector)
       frames = { { x = 0, y = 0, image = image, width = width, height = height, duration = 1 } },
     }
   end
-  single("genderSelector.neutral", selector.neutral.image, selector.neutral.width, selector.neutral.height)
   for _, gender in ipairs({ "male", "female" }) do
-    local button = selector.buttons[gender]
-    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+    local button = manifest.genderSelector.buttons[gender]
+    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
       local mask = button[kind]
       single("genderSelector." .. gender .. "." .. kind, mask.image, mask.width, mask.height)
+    end
+    for _, choice in ipairs({ "yes", "no" }) do
+      local confirmation = manifest.profileConfirmation.buttons[gender][choice]
+      for _, kind in ipairs({ "base", "focus" }) do
+        local surface = confirmation[kind]
+        single(
+          "profileConfirmation." .. gender .. "." .. choice .. "." .. kind,
+          surface.image,
+          surface.width,
+          surface.height
+        )
+      end
     end
   end
   return assets
@@ -76,9 +88,7 @@ local function loadResources(manifest, graphics, imageLoader)
   local assets = {}
   local ok, failure = pcall(function()
     for assetId, asset in pairs(manifest.widgets) do
-      if assetId ~= "gender_background" then
-        assets[assetId] = asset
-      end
+      assets[assetId] = asset
     end
     assets.background = {
       image = manifest.background.image,
@@ -96,7 +106,7 @@ local function loadResources(manifest, graphics, imageLoader)
         },
       },
     }
-    for assetId, asset in pairs(genderSelectorAssets(manifest.genderSelector)) do
+    for assetId, asset in pairs(choiceAssets(manifest)) do
       assets[assetId] = asset
     end
     for assetId, asset in pairs(assets) do
@@ -141,20 +151,32 @@ function OakIntroRenderer.new(options)
   local selector = options.manifest.genderSelector
   assert(type(selector) == "table", "Oak renderer requires the generated gender selector semantics")
   assert(
-    type(selector.neutral) == "table" and type(selector.neutral.image) == "string",
-    "Oak renderer requires the gender selector neutral surface"
+    selector.neutral == nil and type(selector.defaultTone) == "table" and type(selector.buttons) == "table",
+    "Oak renderer requires v6 gender selector semantics"
   )
-  assert(type(selector.defaultTone) == "table", "Oak renderer requires the gender selector default tone")
-  assert(type(selector.buttons) == "table", "Oak renderer requires gender selector buttons")
+  assert(type(options.manifest.profileConfirmation) == "table", "Oak renderer requires profile confirmation semantics")
   for _, gender in ipairs({ "male", "female" }) do
     local button = selector.buttons[gender]
     assert(type(button) == "table", "Oak renderer is missing the gender selector " .. gender .. " button")
-    for _, kind in ipairs({ "pulseMask", "accentMask" }) do
+    for _, kind in ipairs({ "backing", "pulseMask", "accentMask" }) do
       local mask = button[kind]
       assert(
-        type(mask) == "table" and type(mask.image) == "string" and type(mask.bounds) == "table",
+        type(mask) == "table"
+          and type(mask.image) == "string"
+          and type(mask.width) == "number"
+          and type(mask.height) == "number"
+          and mask.width > 0
+          and mask.height > 0,
         "Oak renderer is missing the gender selector " .. gender .. " " .. kind
       )
+    end
+    local confirmation = options.manifest.profileConfirmation.buttons[gender]
+    assert(type(confirmation) == "table", "Oak renderer is missing profile confirmation " .. gender)
+    for _, choice in ipairs({ "yes", "no" }) do
+      for _, kind in ipairs({ "base", "focus" }) do
+        local surface = confirmation[choice][kind]
+        assert(type(surface) == "table" and type(surface.image) == "string")
+      end
     end
   end
   local graphics = options.graphics or love.graphics
@@ -171,6 +193,14 @@ function OakIntroRenderer.new(options)
     end
     releaseAll(acquired)
     error(revealShader, 0)
+  end
+  if revealShader == nil then
+    local acquired = {}
+    for _, image in pairs(images) do
+      acquired[#acquired + 1] = image
+    end
+    releaseAll(acquired)
+    error("Oak renderer shader construction returned no shader", 0)
   end
   return setmetatable({
     assets = renderedAssets,
@@ -213,7 +243,7 @@ local function drawAsset(self, assetId, frameIndex, region, opacity, brightness,
   end
   local tr, tg, tb = 1, 1, 1
   if tint ~= nil then
-    tr, tg, tb = tint[1], tint[2], tint[3]
+    tr, tg, tb = tint.r or tint[1], tint.g or tint[2], tint.b or tint[3]
   end
   self.graphics.setColor(tr, tg, tb, opacity or 1)
   self.graphics.draw(binding.image, binding.quad, x, y, 0, scale, scale)
@@ -232,62 +262,20 @@ local function drawBackground(self, region)
   self.graphics.draw(binding.image, binding.quad, region.x, region.y, 0, sx, sy)
 end
 
--- OakSpeech_BlinkHighlightedGenderFrame (pinned source) sine-modulates the
--- selected button's frame tone and reddens its accent, restoring the
--- unselected frame to the neutral default tone/gray accent. Both channels
--- are RGB555-domain values (0..31) expanded to renderer color space.
-local SELECTED_ACCENT = { 31, 7, 7 }
-local UNSELECTED_ACCENT = { 27, 28, 28 }
-
-local function expandChannel(value)
-  return math.floor((value * 255 + 15) / 31) / 255
-end
-
-local function canvasRect(canvas, bounds)
-  return {
-    x = canvas.origin.x + bounds.x * canvas.scale,
-    y = canvas.origin.y + bounds.y * canvas.scale,
-    width = bounds.width * canvas.scale,
-    height = bounds.height * canvas.scale,
-    scale = canvas.scale,
-  }
-end
-
----@param view table
----@param layout table
-function OakIntroRenderer:_drawGenderFocus(view, layout)
-  local canvas = assert(layout.genderCanvas, "Oak layout must expose the gender selector canvas")
-  local selector = self.genderSelector
-  local delta = view.focusBlinkDelta
-  assert(type(delta) == "number", "gender focus requires a blink delta")
-  local pulseChannel = math.max(0, math.min(31, 16 + delta))
-  local focusedTone = expandChannel(pulseChannel)
-  local defaultTone = selector.defaultTone
-  local defaultToneTint = { defaultTone.r / 255, defaultTone.g / 255, defaultTone.b / 255 }
-  for gender, key in pairs({ [0] = "male", [1] = "female" }) do
-    local isFocused = view.genderFocus == gender
-    local button = assert(selector.buttons[key])
-    local toneTint = isFocused and { focusedTone, focusedTone, focusedTone } or defaultToneTint
-    local accent = isFocused and SELECTED_ACCENT or UNSELECTED_ACCENT
-    local accentTint = { expandChannel(accent[1]), expandChannel(accent[2]), expandChannel(accent[3]) }
-    drawAsset(
-      self,
-      "genderSelector." .. key .. ".pulseMask",
-      1,
-      canvasRect(canvas, button.pulseMask.bounds),
-      1,
-      nil,
-      toneTint
-    )
-    drawAsset(
-      self,
-      "genderSelector." .. key .. ".accentMask",
-      1,
-      canvasRect(canvas, button.accentMask.bounds),
-      1,
-      nil,
-      accentTint
-    )
+function OakIntroRenderer:_executePaintList(paintList)
+  for _, command in ipairs(paintList:commands()) do
+    if command.kind == "image" then
+      drawAsset(self, command.assetKey, 1, command.rect, nil, nil, command.tint)
+    else
+      local destination = command.rect
+      local lineHeight = assert(self.text.fontDef and self.text.fontDef.lineHeight)
+      local width = self.text:textWidth(command.text)
+      self.graphics.push()
+      self.graphics.translate(destination.x + destination.width / 2, destination.y + destination.height / 2)
+      self.graphics.scale(command.scale, command.scale)
+      self.text:drawText(command.text, -width / 2, -lineHeight / 2)
+      self.graphics.pop()
+    end
   end
 end
 
@@ -317,35 +305,26 @@ function OakIntroRenderer:_draw(view)
     graphics.rectangle("fill", layout.viewport.x, layout.viewport.y, layout.viewport.width, layout.viewport.height)
   end
   if view.phase == "gender_select" or view.phase == "gender_confirm" then
-    local canvas = assert(layout.genderCanvas, "Oak layout must expose the gender selector canvas")
-    drawAsset(self, "genderSelector.neutral", 1, canvasRect(canvas, { x = 0, y = 0, width = 256, height = 192 }))
-    self:_drawGenderFocus(view, layout)
-    -- The full-color portrait ("male"/"female") is scaled to fit inside the
-    -- selector card's own pinned box (from "gender_male"/"gender_female")
-    -- rather than placed 1:1 by source coordinate, since the two widgets
-    -- use unrelated art with different native proportions/anchors.
-    for gender, id in pairs({ [0] = "male", [1] = "female" }) do
-      local box = assert(layout.genderChoices[gender])
-      drawAsset(self, id, 1, { x = box.x, y = box.y, width = box.width, height = box.height })
-    end
-  end
-  if view.confirmationChoice then
-    local rows = assert(layout.choiceRows)
-    local labels = assert(view.choiceLabels)
-    for selected = 0, 1 do
-      local row = rows[selected]
-      graphics.setColor(
-        selected == view.confirmationChoice.selected and 0.18 or 0.08,
-        selected == view.confirmationChoice.selected and 0.35 or 0.12,
-        selected == view.confirmationChoice.selected and 0.62 or 0.2,
-        1
+    local paintList = PaintList.new()
+    if view.phase == "gender_select" then
+      ChoiceGroup.paint(
+        assert(layout.genderChoiceGroup),
+        paintList,
+        OakChoiceStyles.paintProfileChoice,
+        { selector = self.genderSelector, focusBlinkDelta = assert(view.focusBlinkDelta) }
       )
-      graphics.rectangle("fill", row.x, row.y, row.width, row.height)
-      graphics.setColor(1, 1, 1, 1)
-      local label = labels[selected]
-      local width = self.text.textWidth and self.text:textWidth(label) or 0
-      self.text:drawText(label, row.x + (row.width - width) / 2, row.y + (row.height - 16) / 2)
+    elseif layout.selectedProfileCard then
+      OakChoiceStyles.paintStaticProfileCard(paintList, layout.selectedProfileCard, { selector = self.genderSelector })
     end
+    self:_executePaintList(paintList)
+  end
+  if layout.confirmationChoiceGroup then
+    local paintList = PaintList.new()
+    ChoiceGroup.paint(layout.confirmationChoiceGroup, paintList, OakChoiceStyles.paintConfirmationChoice, {
+      gender = view.genderFocus == 0 and "male" or "female",
+      labels = assert(view.choiceLabels),
+    })
+    self:_executePaintList(paintList)
   end
   graphics.setColor(1, 1, 1, 1)
   if view.phase == "name_edit" and view.name ~= "" then

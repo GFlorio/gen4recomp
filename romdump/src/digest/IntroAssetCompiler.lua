@@ -142,7 +142,7 @@ local function renderChar(char, palette)
   return { width = width, height = height, rgba = concatBytes(rgba) }
 end
 
-local function renderScreen(char, palette, screen)
+local function renderScreen(char, palette, screen, paletteBankOverride)
   local rgba = newRgba(screen.width, screen.height)
   local columns = screen.width / 8
   for row = 0, screen.height / 8 - 1 do
@@ -156,7 +156,7 @@ local function renderScreen(char, palette, screen)
         row * 8,
         entry.tile,
         palette,
-        entry.palette,
+        paletteBankOverride or entry.palette,
         entry.flipH,
         entry.flipV
       )
@@ -763,21 +763,17 @@ local GENDER_SELECTOR_MASK_TARGETS = {
   { gender = "female", kind = "accentMask", bank = 0, value = 15 },
 }
 
-local GENDER_SELECTOR_BACKGROUND_BANK = 3
-
--- Decode every bank-0 screen entry's per-pixel source color indices without
--- yet deciding chrome membership, and note which entries directly carry a
--- dynamic frame-semantic value (the pulse/accent palette entries HGSS's
--- blink routine rewrites for the selected gender frame). Bank-3 entries are
--- background by construction and are neither decoded nor considered.
-local function decodeGenderSelectorBankZeroEntries(char, screen, targetsByValue)
+-- Decode bank-0 screen entries' per-pixel source color indices. The dynamic
+-- palette values are cropped into card-local masks below; all other rendered
+-- pixels remain part of the opaque source backing.
+local function decodeGenderSelectorBankZeroEntries(char, screen)
   local tileBytes = 32
   local tileCount = #char.tiles / tileBytes
   local width, height = screen.width, screen.height
   local columns = width / 8
-  local entryPixels, dynamicEntries = {}, {}
+  local entryPixels = {}
   for index, entry in ipairs(screen.entries) do
-    if entry.palette ~= 0 and entry.palette ~= GENDER_SELECTOR_BACKGROUND_BANK then
+    if entry.palette ~= 0 and entry.palette ~= 3 then
       sourceError("intro gender selector uses an unknown palette bank", { palette = entry.palette })
     end
     if entry.tile < 0 or entry.tile >= tileCount then
@@ -795,49 +791,13 @@ local function decodeGenderSelectorBankZeroEntries(char, screen, targetsByValue)
             local targetX = entry.flipH and 7 - localX or localX
             local targetY = entry.flipV and 7 - tileRow or tileRow
             pixels[#pixels + 1] = { x = targetX, y = targetY, value = value }
-            if targetsByValue[value] then
-              dynamicEntries[index] = true
-            end
           end
         end
       end
       entryPixels[index] = pixels
     end
   end
-  return entryPixels, dynamicEntries, columns, height / 8
-end
-
--- A bank-0 tile instance belongs to a selector frame only when it itself
--- carries a dynamic frame-semantic pixel value, or when it is directly
--- tile-grid-adjacent to one that does. Adjacency is checked only against the
--- dynamic entries themselves (not transitively through other newly admitted
--- static neighbors), so a long unbroken run of unrelated bank-0 backing that
--- merely touches the frame's outermost ring at one edge cannot ride that
--- single contact into full-row/full-column membership; only the frame's own
--- immediate static border tiles are picked up this way. Background-bank (3)
--- entries are never candidates.
-local function floodFillGenderSelectorFrameMembers(entryPixels, dynamicEntries, columns, rows)
-  local member = {}
-  for index in pairs(dynamicEntries) do
-    member[index] = true
-  end
-  for index in pairs(entryPixels) do
-    if not member[index] then
-      local zero = index - 1
-      local row, column = math.floor(zero / columns), zero % columns
-      for _, delta in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
-        local nRow, nColumn = row + delta[1], column + delta[2]
-        if nRow >= 0 and nRow < rows and nColumn >= 0 and nColumn < columns then
-          local neighborIndex = nRow * columns + nColumn + 1
-          if dynamicEntries[neighborIndex] then
-            member[index] = true
-            break
-          end
-        end
-      end
-    end
-  end
-  return member
+  return entryPixels, columns, height / 8
 end
 
 local function classifyGenderSelectorMasks(char, screen)
@@ -846,7 +806,6 @@ local function classifyGenderSelectorMasks(char, screen)
   end
   local width, height = screen.width, screen.height
   local masks = {}
-  local chrome = newRgba(width, height)
   local targetsByValue = {}
   for _, target in ipairs(GENDER_SELECTOR_MASK_TARGETS) do
     masks[target.gender] = masks[target.gender] or {}
@@ -854,9 +813,8 @@ local function classifyGenderSelectorMasks(char, screen)
     assert(target.bank == 0, "gender selector dynamic frame entries are defined on bank 0")
     targetsByValue[target.value] = target
   end
-  local entryPixels, dynamicEntries, columns, rows = decodeGenderSelectorBankZeroEntries(char, screen, targetsByValue)
-  local frameMembers = floodFillGenderSelectorFrameMembers(entryPixels, dynamicEntries, columns, rows)
-  for index in pairs(frameMembers) do
+  local entryPixels, columns = decodeGenderSelectorBankZeroEntries(char, screen)
+  for index in pairs(entryPixels) do
     local zero = index - 1
     local row, column = math.floor(zero / columns), zero % columns
     for _, pixel in ipairs(entryPixels[index]) do
@@ -866,12 +824,10 @@ local function classifyGenderSelectorMasks(char, screen)
       if target then
         local mask = masks[target.gender][target.kind]
         mask[offset + 1], mask[offset + 2], mask[offset + 3], mask[offset + 4] = 255, 255, 255, 255
-      elseif pixel.value ~= 0 then
-        chrome[offset + 4] = 255
       end
     end
   end
-  return masks, chrome, width, height
+  return masks, width, height
 end
 
 local function compileGenderSelector(archive, dependencies, manifest, assets, spec)
@@ -879,48 +835,42 @@ local function compileGenderSelector(archive, dependencies, manifest, assets, sp
   local screenBytes = decodeMember(archive, spec.screen, "gender selector screen", spec.archive)
   addDependency(dependencies, spec.archive, spec.screen, screenBytes, "gender-selector:screen")
   local screen = decode("decodeScreen", screenBytes, "gender selector screen", spec.screen, spec.archive)
-  local masks, chrome, width, height = classifyGenderSelectorMasks(char, screen)
+  local masks, width, height = classifyGenderSelectorMasks(char, screen)
   local rendered = renderScreen(char, palette.colors, screen)
-  local neutral = {}
-  for offset = 1, #rendered.rgba, 4 do
-    neutral[offset] = string.byte(rendered.rgba, offset)
-    neutral[offset + 1] = string.byte(rendered.rgba, offset + 1)
-    neutral[offset + 2] = string.byte(rendered.rgba, offset + 2)
-    neutral[offset + 3] = chrome[offset + 3]
-  end
-  local neutralPath = IntroAssetCache.assetDir() .. "/gender-selector-neutral.png"
-  assets[neutralPath] = PngWriter.encode(width, height, concatBytes(neutral))
 
   local buttons = {}
   for _, gender in ipairs({ "male", "female" }) do
-    local button, unionBounds = {}, nil
+    local sourceBounds = assert(spec.choiceBounds[gender])
+    local backing = IntroAssetImage.cropWrapped(rendered, sourceBounds, 0, 0)
+    local backingRgba = {}
+    for offset = 1, #backing.rgba, 4 do
+      backingRgba[offset] = string.byte(backing.rgba, offset)
+      backingRgba[offset + 1] = string.byte(backing.rgba, offset + 1)
+      backingRgba[offset + 2] = string.byte(backing.rgba, offset + 2)
+      backingRgba[offset + 3] = 255
+    end
+    local backingPath = assetPath("gender-selector-" .. gender .. "-backing")
+    assets[backingPath] = PngWriter.encode(backing.width, backing.height, concatBytes(backingRgba))
+    local button = {
+      bounds = sourceBounds,
+      hitBounds = { x = sourceBounds.x, y = sourceBounds.y, width = sourceBounds.width, height = sourceBounds.height },
+      backing = { image = backingPath, width = backing.width, height = backing.height },
+    }
     for _, kind in ipairs({ "pulseMask", "accentMask" }) do
-      local surface = { width = width, height = height, rgba = concatBytes(masks[gender][kind]) }
-      local cropped = IntroAssetImage.cropAlphaUnion({ surface }, { x = width / 2, y = height / 2 })
+      local surface = IntroAssetImage.cropWrapped(
+        { width = width, height = height, rgba = concatBytes(masks[gender][kind]) },
+        sourceBounds,
+        0,
+        0
+      )
       local path = assetPath("gender-selector-" .. gender .. "-" .. kind)
-      assets[path] = PngWriter.encode(cropped.width, cropped.height, cropped.frames[1].rgba)
+      assets[path] = PngWriter.encode(surface.width, surface.height, surface.rgba)
       button[kind] = {
         image = path,
-        width = cropped.width,
-        height = cropped.height,
-        bounds = cropped.sourceBounds,
+        width = surface.width,
+        height = surface.height,
       }
-      local b = cropped.sourceBounds
-      if unionBounds == nil then
-        unionBounds = { minX = b.x, minY = b.y, maxX = b.x + b.width, maxY = b.y + b.height }
-      else
-        unionBounds.minX = math.min(unionBounds.minX, b.x)
-        unionBounds.minY = math.min(unionBounds.minY, b.y)
-        unionBounds.maxX = math.max(unionBounds.maxX, b.x + b.width)
-        unionBounds.maxY = math.max(unionBounds.maxY, b.y + b.height)
-      end
     end
-    button.bounds = {
-      x = unionBounds.minX,
-      y = unionBounds.minY,
-      width = unionBounds.maxX - unionBounds.minX,
-      height = unionBounds.maxY - unionBounds.minY,
-    }
     buttons[gender] = button
   end
 
@@ -929,10 +879,43 @@ local function compileGenderSelector(archive, dependencies, manifest, assets, sp
     sourceError("gender selector default tone palette entry is missing", {})
   end
   manifest.genderSelector = {
-    neutral = { image = neutralPath, width = width, height = height },
     defaultTone = { r = defaultToneColor.r, g = defaultToneColor.g, b = defaultToneColor.b },
     buttons = buttons,
   }
+end
+
+local function compileProfileConfirmation(archive, dependencies, manifest, assets, spec)
+  local function surface(sourceSpec, role)
+    local char, palette = loadCharPalette(archive, dependencies, sourceSpec, role)
+    local screenBytes = decodeMember(archive, sourceSpec.screen, role .. " screen", sourceSpec.archive)
+    addDependency(dependencies, sourceSpec.archive, sourceSpec.screen, screenBytes, role .. ":screen")
+    local screen = decode("decodeScreen", screenBytes, role .. " screen", sourceSpec.screen, sourceSpec.archive)
+    return renderScreen(char, palette.colors, screen, 0)
+  end
+  local base = surface(
+    { archive = config.archive, char = spec.base.char, palette = spec.palette, screen = spec.base.screen },
+    "profile-confirmation-base"
+  )
+  local focus = surface(
+    { archive = config.archive, char = spec.focus.char, palette = spec.palette, screen = spec.focus.screen },
+    "profile-confirmation-focus"
+  )
+  manifest.profileConfirmation = { buttons = {} }
+  for _, gender in ipairs({ "male", "female" }) do
+    manifest.profileConfirmation.buttons[gender] = {}
+    for _, choice in ipairs({ "yes", "no" }) do
+      local choiceSpec = spec.genders[gender][choice]
+      local record = { bounds = choiceSpec.bounds, textBounds = choiceSpec.textBounds }
+      for kind, source in pairs({ base = base, focus = focus }) do
+        local cropped =
+          IntroAssetImage.cropWrapped(source, choiceSpec.bounds, spec.genders[gender].scrollX, choiceSpec.scrollY)
+        local path = assetPath("profile-confirmation-" .. gender .. "-" .. choice .. "-" .. kind)
+        assets[path] = PngWriter.encode(cropped.width, cropped.height, cropped.rgba)
+        record[kind] = { image = path, width = cropped.width, height = cropped.height }
+      end
+      manifest.profileConfirmation.buttons[gender][choice] = record
+    end
+  end
 end
 
 local function sourceArchive(romFs, archiveName)
@@ -960,7 +943,7 @@ function IntroAssetCompiler.compile(romFs)
   local resourceDataArchive = sourceArchive(romFs, resourceResolution.archive)
   local dependencies, assets = {}, {}
   local manifest = {
-    schemaVersion = 5,
+    schemaVersion = 6,
     variant = variant,
     sourceReference = { width = 256, height = 192 },
     widgets = {},
@@ -1011,9 +994,10 @@ function IntroAssetCompiler.compile(romFs)
     char = config.genderBackground.char,
     palette = genderBackgroundPalette,
     screen = config.genderBackground.screen,
+    choiceBounds = config.genderChoiceBounds,
   }
-  compileSingle(archive, dependencies, manifest, assets, "gender_background", genderBackground, "gender-background")
   compileGenderSelector(archive, dependencies, manifest, assets, genderBackground)
+  compileProfileConfirmation(archive, dependencies, manifest, assets, config.profileConfirmation)
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
   compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)

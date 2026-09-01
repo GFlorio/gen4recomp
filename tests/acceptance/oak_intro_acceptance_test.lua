@@ -51,6 +51,7 @@ local function profileWidget(width, height, x, y)
 end
 
 local INTRO_MANIFEST = {
+  schemaVersion = 6,
   sourceReference = { width = 256, height = 192 },
   background = { width = 1, height = 192, sampling = "linear" },
   widgets = {
@@ -59,12 +60,6 @@ local INTRO_MANIFEST = {
       height = 100,
       anchor = { x = 20, y = 100 },
       sourceBounds = { x = 40, y = 30, width = 80, height = 100 },
-    },
-    gender_background = {
-      width = 256,
-      height = 192,
-      anchor = { x = 128, y = 192 },
-      sourceBounds = { x = 0, y = 0, width = 256, height = 192 },
     },
     gender_male = {
       width = 64,
@@ -105,6 +100,43 @@ local INTRO_MANIFEST = {
     female = profileWidget(88, 116, 48, 28),
     shrink_male = profileWidget(44, 68, 142, 70),
     shrink_female = profileWidget(40, 64, 150, 72),
+  },
+  genderSelector = {
+    defaultTone = { r = 200, g = 200, b = 200 },
+    buttons = {
+      male = {
+        bounds = { x = 18, y = 25, width = 93, height = 148 },
+        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
+      },
+      female = {
+        bounds = { x = 144, y = 25, width = 95, height = 148 },
+        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
+      },
+    },
+  },
+  profileConfirmation = {
+    buttons = {
+      male = {
+        yes = {
+          bounds = { x = 138, y = 26, width = 115, height = 57 },
+          textBounds = { x = 136, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 138, y = 108, width = 115, height = 56 },
+          textBounds = { x = 136, y = 128, width = 104, height = 24 },
+        },
+      },
+      female = {
+        yes = {
+          bounds = { x = 10, y = 26, width = 115, height = 57 },
+          textBounds = { x = 16, y = 48, width = 104, height = 24 },
+        },
+        no = {
+          bounds = { x = 10, y = 108, width = 115, height = 56 },
+          textBounds = { x = 16, y = 128, width = 104, height = 24 },
+        },
+      },
+    },
   },
 }
 
@@ -585,7 +617,7 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
     App.resize(420, 800)
     Assert.equal(App.state.state:view().layout.viewport.width, 420)
     Assert.equal(App.state.state:view().genderFocus, 1)
-    local card = App.state.state:view().layout.cards[App.state.state:view().genderFocus]
+    local card = App.state.state:view().layout.genderChoiceGroup.items[App.state.state:view().genderFocus].rect
     App.state.state:touchpressed("finger-1", card.x + 1, card.y + 1)
     Assert.equal(App.state.state:view().phase, "gender_confirm")
 

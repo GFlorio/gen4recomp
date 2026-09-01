@@ -74,7 +74,7 @@ local function renderPortraits(scope, cache, manifest, layout)
     local frame = widget.frames[1]
     local image = scope:own(newImage(cache, frame.image))
     image:setFilter(widget.sampling, widget.sampling)
-    local choice = layout.genderChoices[gender - 1]
+    local choice = layout.genderChoiceGroup.items[gender - 1].payload.portraitRect
     local scale = math.min(choice.width / frame.width, choice.height / frame.height)
     local x = choice.x + (choice.width - frame.width * scale) / 2
     local y = choice.y + (choice.height - frame.height * scale) / 2
@@ -149,6 +149,8 @@ local function assertSamePixel(expected, actual, x, y, label)
   )
 end
 
+local selectorViewFor
+
 function T.both_portraits_survive_final_composition(scope)
   for _, entry in ipairs(readyManifests()) do
     local view = selectorView(entry.manifest, 256, 192)
@@ -171,48 +173,102 @@ function T.both_portraits_survive_final_composition(scope)
   end
 end
 
-function T.transparent_selector_reveals_the_host_gradient(scope)
+local function portraitIsVisibleAt(data, rect, x, y)
+  if x < rect.x or y < rect.y or x >= rect.x + rect.width or y >= rect.y + rect.height then
+    return false
+  end
+  local sourceX = math.floor((x - rect.x) / rect.scale)
+  local sourceY = math.floor((y - rect.y) / rect.scale)
+  if sourceX < 0 or sourceY < 0 or sourceX >= data:getWidth() or sourceY >= data:getHeight() then
+    return false
+  end
+  local _, _, _, alpha = data:getPixel(sourceX, sourceY)
+  return alpha > 0
+end
+
+local function findStaticCardPixel(scope, cache, manifest, item)
+  local button = item.payload.button
+  local pulse = loadImageData(scope, cache, button.pulseMask.image)
+  local accent = loadImageData(scope, cache, button.accentMask.image)
+  local portrait = manifest.widgets[item.payload.portraitId].frames[1]
+  local portraitData = loadImageData(scope, cache, portrait.image)
+  for localY = 0, button.backing.height - 1 do
+    for localX = 0, button.backing.width - 1 do
+      local _, _, _, pulseAlpha = pulse:getPixel(localX, localY)
+      local _, _, _, accentAlpha = accent:getPixel(localX, localY)
+      if pulseAlpha == 0 and accentAlpha == 0 then
+        local x = math.floor(item.payload.buttonRect.x + (localX + 0.5) * item.payload.buttonRect.scale + 0.5)
+        local y = math.floor(item.payload.buttonRect.y + (localY + 0.5) * item.payload.buttonRect.scale + 0.5)
+        if not portraitIsVisibleAt(portraitData, item.payload.portraitRect, x, y) then
+          return x, y, localX, localY
+        end
+      end
+    end
+  end
+  return nil
+end
+
+local function findFocusPixel(scope, cache, manifest, item)
+  local pulse = loadImageData(scope, cache, item.payload.button.pulseMask.image)
+  local portrait = manifest.widgets[item.payload.portraitId].frames[1]
+  local portraitData = loadImageData(scope, cache, portrait.image)
+  for localY = 0, pulse:getHeight() - 1 do
+    for localX = 0, pulse:getWidth() - 1 do
+      local _, _, _, alpha = pulse:getPixel(localX, localY)
+      if alpha > 0 then
+        local x = math.floor(item.payload.buttonRect.x + (localX + 0.5) * item.payload.buttonRect.scale + 0.5)
+        local y = math.floor(item.payload.buttonRect.y + (localY + 0.5) * item.payload.buttonRect.scale + 0.5)
+        if not portraitIsVisibleAt(portraitData, item.payload.portraitRect, x, y) then
+          return x, y
+        end
+      end
+    end
+  end
+  return nil
+end
+
+function T.card_interiors_use_source_backing_and_focus_surfaces(scope)
   for _, entry in ipairs(readyManifests()) do
-    local selector = selectorView(entry.manifest, 256, 192)
+    local selector = selectorViewFor(entry.manifest, 256, 192, 0, 0)
     local renderer = rendererFor(scope, entry.cache, entry.manifest)
     local background = render(scope, renderer, backgroundView(entry.manifest, 256, 192))
     local actual = render(scope, renderer, selector)
-    local sourceX, sourceY = 128, 20
-    local x = math.floor(selector.layout.genderCanvas.origin.x + sourceX * selector.layout.genderCanvas.scale + 0.5)
-    local y = math.floor(selector.layout.genderCanvas.origin.y + sourceY * selector.layout.genderCanvas.scale + 0.5)
-    assertSamePixel(background, actual, x, y, entry.versionId .. " transparent selector area")
-
-    local mask = entry.manifest.genderSelector.buttons.male.pulseMask
-    local maskData = loadImageData(scope, entry.cache, mask.image)
-    local chromeX, chromeY
-    for localY = 0, maskData:getHeight() - 1 do
-      for localX = 0, maskData:getWidth() - 1 do
-        local _, _, _, alpha = maskData:getPixel(localX, localY)
-        if alpha > 0 then
-          chromeX = mask.bounds.x + localX
-          chromeY = mask.bounds.y + localY
-          break
-        end
-      end
-      if chromeX ~= nil then
-        break
-      end
+    for gender = 0, 1 do
+      local item = selector.layout.genderChoiceGroup.items[gender]
+      local backing = loadImageData(scope, entry.cache, item.payload.button.backing.image)
+      local x, y, localX, localY = assert(findStaticCardPixel(scope, entry.cache, entry.manifest, item))
+      local expectedR, expectedG, expectedB, expectedA = backing:getPixel(localX, localY)
+      local actualR, actualG, actualB, actualA = actual:getPixel(x, y)
+      Assert.isTrue(
+        quantize(actualR) == quantize(expectedR)
+          and quantize(actualG) == quantize(expectedG)
+          and quantize(actualB) == quantize(expectedB)
+          and quantize(actualA) == quantize(expectedA),
+        string.format(
+          "%s %s source backing expected (%d,%d,%d,%d), got (%d,%d,%d,%d)",
+          entry.versionId,
+          item.key,
+          quantize(expectedR),
+          quantize(expectedG),
+          quantize(expectedB),
+          quantize(expectedA),
+          quantize(actualR),
+          quantize(actualG),
+          quantize(actualB),
+          quantize(actualA)
+        )
+      )
+      local br, bg, bb = background:getPixel(x, y)
+      local ar, ag, ab = actual:getPixel(x, y)
+      Assert.isTrue(
+        quantize(ar) ~= quantize(br) or quantize(ag) ~= quantize(bg) or quantize(ab) ~= quantize(bb),
+        entry.versionId .. " " .. item.key .. " backing must cover the host gradient"
+      )
     end
-    Assert.notNil(chromeX, entry.versionId .. " generated selector chrome is empty")
-    local finalX =
-      math.floor(selector.layout.genderCanvas.origin.x + chromeX * selector.layout.genderCanvas.scale + 0.5)
-    local finalY =
-      math.floor(selector.layout.genderCanvas.origin.y + chromeY * selector.layout.genderCanvas.scale + 0.5)
-    local br, bg, bb = background:getPixel(finalX, finalY)
-    local ar, ag, ab = actual:getPixel(finalX, finalY)
-    Assert.isTrue(
-      quantize(ar) ~= quantize(br) or quantize(ag) ~= quantize(bg) or quantize(ab) ~= quantize(bb),
-      entry.versionId .. " source-derived selector chrome is not visible"
-    )
   end
 end
 
-local function selectorViewFor(manifest, width, height, genderFocus, focusBlinkDelta)
+selectorViewFor = function(manifest, width, height, genderFocus, focusBlinkDelta)
   local view = selectorView(manifest, width, height)
   view.genderFocus = genderFocus
   view.focusBlinkDelta = focusBlinkDelta
@@ -220,39 +276,30 @@ local function selectorViewFor(manifest, width, height, genderFocus, focusBlinkD
   return view
 end
 
--- Only each card's own pulse/accent role pixels may react to which gender is
--- focused; static backing must stay exactly as transparent (or opaque, for
--- real frame chrome) no matter which card is focused or how far the blink
--- has traveled. A source point clear of both cards is sampled across the two
--- selections and the mid-pulse phase: it must equal the host gradient (never
--- opaque backing) and must not itself change with focus/phase, which would
--- mean it was wrongly wired into a dynamic role instead of being ordinary
--- static backing.
-function T.selection_and_pulse_phase_never_reveal_static_backing(scope)
+function T.selection_changes_each_card_focus_surface(scope)
   for _, entry in ipairs(readyManifests()) do
     local renderer = rendererFor(scope, entry.cache, entry.manifest)
-    local background = render(scope, renderer, backgroundView(entry.manifest, 256, 192))
-    local maleView = selectorViewFor(entry.manifest, 256, 192, 0, 8)
-    local femaleView = selectorViewFor(entry.manifest, 256, 192, 1, -8)
-    local maleFocused = render(scope, renderer, maleView)
-    local femaleFocused = render(scope, renderer, femaleView)
-
-    local canvas = assert(maleView.layout.genderCanvas)
-    local sourceX, sourceY = 0, 100
-    local x = math.floor(canvas.origin.x + sourceX * canvas.scale + 0.5)
-    local y = math.floor(canvas.origin.y + sourceY * canvas.scale + 0.5)
-
-    assertSamePixel(background, maleFocused, x, y, entry.versionId .. " static backing while male is focused")
-    assertSamePixel(background, femaleFocused, x, y, entry.versionId .. " static backing while female is focused")
-    assertSamePixel(maleFocused, femaleFocused, x, y, entry.versionId .. " static backing must not react to focus")
+    for focused = 0, 1 do
+      local focusedView = selectorViewFor(entry.manifest, 256, 192, focused, 0)
+      local otherView = selectorViewFor(entry.manifest, 256, 192, 1 - focused, 0)
+      local focusedImage = render(scope, renderer, focusedView)
+      local otherImage = render(scope, renderer, otherView)
+      local item = focusedView.layout.genderChoiceGroup.items[focused]
+      local x, y = findFocusPixel(scope, entry.cache, entry.manifest, item)
+      Assert.notNil(x, entry.versionId .. " " .. item.key .. " has no focus pixel")
+      Assert.notNil(y, entry.versionId .. " " .. item.key .. " has no focus pixel")
+      x, y = assert(x), assert(y)
+      local fr, fg, fb = focusedImage:getPixel(x, y)
+      local or_, og, ob = otherImage:getPixel(x, y)
+      Assert.isTrue(
+        quantize(fr) ~= quantize(or_) or quantize(fg) ~= quantize(og) or quantize(fb) ~= quantize(ob),
+        entry.versionId .. " " .. item.key .. " focus surface does not react to selection"
+      )
+    end
   end
 end
 
--- Broad DS backing behind/outside/between the two cards must never survive
--- into the final composited frame: at a source point clear of both button
--- frames, the selector draw must let the host background gradient show
--- through exactly as it does at any other transparent selector point.
-function T.broad_selector_backing_does_not_survive_final_composition(scope)
+function T.host_gradient_remains_outside_and_between_cards(scope)
   for _, entry in ipairs(readyManifests()) do
     local selector = selectorView(entry.manifest, 256, 192)
     local renderer = rendererFor(scope, entry.cache, entry.manifest)
@@ -273,7 +320,7 @@ function T.broad_selector_backing_does_not_survive_final_composition(scope)
         actual,
         x,
         y,
-        entry.versionId .. " " .. sample.name .. " must reveal the host gradient, not selector backing"
+        entry.versionId .. " " .. sample.name .. " must retain the host gradient"
       )
     end
   end
