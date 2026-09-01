@@ -6,6 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local S = require("gen4.script")
+local Schema = require("libs.script.src.Schema")
 local Registry = require("libs.script.src.Registry")
 local Composition = require("libs.script.src.Composition")
 local TaskRegistry = require("libs.script.src.TaskRegistry")
@@ -554,6 +555,22 @@ function T.source_backed_locomotion_matrix_preserves_timing_and_visible_frames()
       endFieldZ = 3,
     },
     {
+      label = "walk slightly fast",
+      action = { action = "walk", direction = "east", speed = "slightly_fast", tiles = 1 },
+      poseTicks = { 1, 2, 4, 5, 6, 8 },
+      frameIndexes = { 4, 4, 4, 5, 5, 5 },
+      endFieldX = 3,
+      endFieldZ = 3,
+    },
+    {
+      label = "walk run",
+      action = { action = "walk", direction = "east", speed = "run", tiles = 1 },
+      poseTicks = { 2, 4 },
+      frameIndexes = { 4, 4 },
+      endFieldX = 3,
+      endFieldZ = 3,
+    },
+    {
       label = "walk-in-place slower",
       action = { action = "walk_in_place", direction = "east", speed = "slower" },
       poseTicks = { 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12 },
@@ -693,12 +710,66 @@ function T.half_rate_locomotion_keeps_integer_continuous_pose_phase()
   Assert.equal(actor.presentationOffset.y, 0, "the second half-rate action clears its bob")
 end
 
-function T.specialized_walk_speed_preserves_baseline_pose_progression()
-  local observed = runLocomotion({ action = "walk", direction = "east", speed = "slightly_fast", tiles = 1 })
-  Assert.deepEqual(observed.poseTicks, { 1, 2, 3, 4, 5, 6 }, "an untraced speed remains at baseline 1x")
-  Assert.deepEqual(observed.frameIndexes, { 4, 4, 4, 4, 5, 5 }, "an untraced speed keeps its existing frames")
-  Assert.equal(observed.actor.fieldX, 3, "an untraced speed keeps its existing translation")
-  Assert.equal(observed.durationTicks, 6, "an untraced speed keeps its existing duration")
+function T.supported_locomotion_profiles_have_explicit_pose_cadence()
+  local progressTicks = 14
+  local expectedWalk = {
+    slower = 14,
+    slow = 7,
+    normal = 14,
+    fast = 28,
+    faster = 14,
+    slightly_fast = 18,
+    slightly_faster = 14,
+    fastest = 14,
+    run = 28,
+    hgss_96 = 14,
+    hgss_97 = 14,
+    hgss_98 = 14,
+    hgss_99 = 14,
+  }
+  local expectedJump = {
+    slower = 14,
+    slow = 7,
+    normal = 14,
+    fast = 14,
+    faster = 14,
+    slightly_fast = 14,
+    slightly_faster = 14,
+    fastest = 14,
+    run = 14,
+    hgss_96 = 14,
+    hgss_97 = 14,
+    hgss_98 = 14,
+    hgss_99 = 14,
+  }
+
+  Assert.throws(function()
+    MovementCalibration.poseProgressTicks({ action = "walk", speed = "impossible" }, progressTicks)
+  end, "an unsupported walk speed must fail instead of inheriting one-unit cadence")
+
+  for _, speed in ipairs(Schema.ENUMS.speed) do
+    Assert.equal(
+      MovementCalibration.poseProgressTicks({ action = "walk", speed = speed }, progressTicks),
+      expectedWalk[speed],
+      speed .. " walk cadence is explicit"
+    )
+    Assert.equal(
+      MovementCalibration.poseProgressTicks({ action = "jump", distance = "far", speed = speed }, progressTicks),
+      expectedJump[speed],
+      speed .. " jump cadence is explicit"
+    )
+  end
+
+  Assert.equal(
+    MovementCalibration.poseProgressTicks({ action = "walk", speed = "slightly_fast" }, 0),
+    0,
+    "slightly_fast starts at zero pose progress"
+  )
+  Assert.equal(
+    MovementCalibration.poseProgressTicks({ action = "walk", speed = "slightly_fast" }, 7),
+    9,
+    "slightly_fast cadence repeats beyond one period"
+  )
 end
 
 function T.normal_and_fast_locomotion_keep_independent_pose_cadence()

@@ -50,27 +50,71 @@ MovementCalibration.JUMP_HEIGHTS = {
   far = 1.2,
 }
 
--- Source-backed pose progress rates, keyed by semantic action and speed.
--- Unsupported combinations retain the baseline one pose unit per fixed tick.
-local POSE_RATES = {
+-- Periodic pose progress deltas, keyed by semantic action and speed.
+local POSE_CADENCES = {
   walk = {
-    slow = { numerator = 1, denominator = 2 },
-    normal = { numerator = 1, denominator = 1 },
-    fast = { numerator = 2, denominator = 1 },
+    -- Source-backed walk cadences.
+    slow = { 0, 1 },
+    normal = { 1 },
+    fast = { 2 },
+    slightly_fast = { 1, 1, 2, 1, 1, 2 },
+    run = { 2 },
+    -- Explicitly preserve the existing local/unverified walk profiles.
+    slower = { 1 },
+    faster = { 1 },
+    slightly_faster = { 1 },
+    fastest = { 1 },
+    hgss_96 = { 1 },
+    hgss_97 = { 1 },
+    hgss_98 = { 1 },
+    hgss_99 = { 1 },
   },
   walk_in_place = {
-    slower = { numerator = 1, denominator = 2 },
-    slow = { numerator = 1, denominator = 2 },
-    normal = { numerator = 1, denominator = 1 },
-    fast = { numerator = 2, denominator = 1 },
+    -- Preserve the existing walk-in-place cadence profiles.
+    slower = { 0, 1 },
+    slow = { 0, 1 },
+    normal = { 1 },
+    fast = { 2 },
   },
   jump = {
-    slow = { numerator = 1, denominator = 2 },
-    fast = { numerator = 1, denominator = 1 },
+    -- Preserve the existing jump cadence profiles.
+    slow = { 0, 1 },
+    fast = { 1 },
+    -- Explicitly preserve the other current jump speed profiles.
+    slower = { 1 },
+    normal = { 1 },
+    faster = { 1 },
+    slightly_fast = { 1 },
+    slightly_faster = { 1 },
+    fastest = { 1 },
+    run = { 1 },
+    hgss_96 = { 1 },
+    hgss_97 = { 1 },
+    hgss_98 = { 1 },
+    hgss_99 = { 1 },
   },
 }
 
--- Convert fixed action progress to the source-backed integer pose phase.
+-- Compute cumulative pose progress from complete cadence periods and a prefix.
+---@param cadence integer[]
+---@param progressTicks integer
+---@return integer
+local function cumulativePoseProgress(cadence, progressTicks)
+  local periodProgress = 0
+  for _, poseDelta in ipairs(cadence) do
+    periodProgress = periodProgress + poseDelta
+  end
+
+  local completePeriods = math.floor(progressTicks / #cadence)
+  local remainingTicks = progressTicks % #cadence
+  local progress = completePeriods * periodProgress
+  for tick = 1, remainingTicks do
+    progress = progress + cadence[tick]
+  end
+  return progress
+end
+
+-- Convert fixed action progress to cumulative integer pose phase.
 ---@param action { action: string, speed: string? }
 ---@param progressTicks integer
 ---@return integer
@@ -79,12 +123,10 @@ function MovementCalibration.poseProgressTicks(action, progressTicks)
     type(progressTicks) == "number" and progressTicks >= 0 and progressTicks % 1 == 0,
     "pose progress must be a non-negative integer"
   )
-  local actionRates = POSE_RATES[action.action]
-  local rate = actionRates and actionRates[action.speed]
-  if not rate then
-    return progressTicks
-  end
-  return math.floor(progressTicks * rate.numerator / rate.denominator)
+  local actionCadences = POSE_CADENCES[action.action]
+  local cadence = actionCadences and actionCadences[action.speed]
+  assert(cadence, "unknown pose cadence " .. tostring(action.action) .. " " .. tostring(action.speed))
+  return cumulativePoseProgress(cadence, progressTicks)
 end
 
 -- Resolve the tick duration of one movement action. The
