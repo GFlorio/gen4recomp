@@ -88,7 +88,7 @@ function T.off_window_solid_actor_blocks_without_publishing_destination_state()
       events = {
         objects = {
           object(0, 1, 0, 0),
-          object(1, 1, 0, 4 * 16, 34),
+          object(1, 1, 0, 4 * 16 * 4096, 34),
         },
       },
     },

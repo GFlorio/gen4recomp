@@ -206,8 +206,11 @@ local FieldActorManager = {}
 ---@cast FieldActorManager FieldActorManager
 FieldActorManager.__index = FieldActorManager
 
--- Raw event Y is a 1/16-unit fixed-point hint, matching the field event decoder.
-local EVENT_Y_UNITS = 16
+-- MapObject_SetPositionVectorFromObjectEvent uses FX32 source coordinates;
+-- object-event Y is expressed in 16 model units per runtime world tile.
+local FX32_ONE = 4096
+local SOURCE_MODEL_UNITS_PER_TILE = 16
+local OBJECT_EVENT_Y_UNITS = SOURCE_MODEL_UNITS_PER_TILE * FX32_ONE
 
 -- MapObject_GetPositionVectorYCoordUInt shifts the source model Y by /8 and
 -- then converts it to FX32 tiles. Runtime world Y is already normalized to
@@ -362,7 +365,7 @@ local function resolveSurfaceAt(runtimeMap, fieldX, fieldZ, sourceY, actorId)
     local surfaceOptions = {
       localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
       localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-      currentY = sourceY / EVENT_Y_UNITS,
+      currentY = sourceY / OBJECT_EVENT_Y_UNITS,
     } ---@type FieldActorSurfaceOptions
     return SurfaceResolver.new(runtimeMap.terrain):resolve(surfaceOptions) --[[@as FieldActorSurfaceSample]]
   end)

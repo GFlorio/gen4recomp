@@ -1,15 +1,22 @@
--- ROM-conformance test: the field-actor graphics table, resource bundles, and
--- compiled visuals against a real HGSS dump. It asserts only structural facts --
--- counts, offsets, member IDs, frame timings, hashes -- and never checks in a
--- decoded texel. Runs only in the ROM-gated layer.
+-- ROM-conformance test: field-actor graphics/resources plus one runtime terrain
+-- projection composition against a real HGSS dump. Runs only in the ROM-gated
+-- layer and never checks in a decoded commercial asset.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
+local FieldActorDefinitionProvider = require("libs.hgss.src.field.FieldActorDefinitionProvider")
+local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
+local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
+local MapResolver = require("romdump.src.digest.MapResolver")
+local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 local FieldActorGraphics = require("romdump.src.digest.FieldActorGraphics")
 local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
 local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter")
-local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local ZoneEvents = require("romdump.src.digest.ZoneEvents")
 local manifest = require("romdump.src.config.FieldActors")
 
 local T = {}
@@ -196,4 +203,60 @@ function T.compilation_is_deterministic_and_writes_a_ready_cache(romFs, version)
   end
 end
 
-return require("tests.rom.support.RomSuite").fromFacts(T)
+function T.nonzero_object_event_y_reaches_runtime_surface_projection(romFs, version)
+  local symbol = "MAP_MAHOGANY_SOUVENIR_SHOP"
+  local resolved = assert(MapResolver.resolve(romFs, symbol))
+  local runtimeMap = RomRuntimeMap.compile(romFs, symbol)
+  ---@cast runtimeMap RuntimeFieldMap
+  local field = runtimeMap.fieldData
+  local eventMember = assert(romFs:openNarc("zone_events")):readMember(assert(resolved.map.eventMemberId))
+  local raw = assert(ZoneEvents.decode(eventMember, { mapId = runtimeMap.mapId }))
+  local rawByObjectEventId = {}
+  for _, event in ipairs(raw.objectEvents) do
+    rawByObjectEventId[event.objectEventId] = event
+  end
+
+  local cache = CacheFs.forVersion(version)
+  local actorIndex = assert(FieldActorCache.loadIndex(cache))
+  local assets = FieldActorDefinitionProvider.new(cache)
+  local candidate
+  for _, event in ipairs(field.events.objects) do
+    local source = rawByObjectEventId[event.objectEventId]
+    if source and event.y ~= 0 and event.eventFlag == 0 and assets:knows(event.spriteId) then
+      local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, event.x, event.z)
+      local options = {
+        localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+        localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      }
+      local surfaces = runtimeMap.terrain:candidatesAt(options.localX, options.localZ)
+      if #surfaces > 0 then
+        local normalizedY = source.y / (16 * 4096)
+        local expected = SurfaceResolver.new(runtimeMap.terrain):resolve({
+          localX = options.localX,
+          localZ = options.localZ,
+          currentY = normalizedY,
+        })
+        candidate = { event = event, source = source, expected = expected }
+        break
+      end
+    end
+  end
+  Assert.notNil(candidate, "the map must provide a nonzero-Y object with a known actor and terrain surface")
+  local selected = assert(candidate)
+  Assert.equal(selected.event.y, selected.source.y, "generated object event preserves raw source Y")
+  Assert.isTrue(selected.event.y ~= 0, "fixture uses a nonzero source Y")
+
+  local manager = FieldActorManager.new({ assets = assets, policy = actorIndex.runtime })
+  manager:enterMap(runtimeMap, FieldEventState.new())
+  local actor = assert(manager:getById("map:" .. runtimeMap.mapId .. ":object:" .. selected.event.objectEventId))
+  Assert.equal(actor.sourceEvent.y, selected.source.y, "live actor retains the raw source Y")
+  Assert.equal(actor.surfaceId, selected.expected.surfaceId, "runtime selects the retail-height surface")
+  Assert.equal(actor.worldY, selected.expected.worldY, "runtime samples the selected terrain height")
+  Assert.isTrue(actor.worldY ~= actor.sourceEvent.y, "runtime world Y is not a raw source value")
+  manager:dispose()
+  assets:dispose()
+end
+
+local suite = require("tests.rom.support.RomSuite").fromFacts(T)
+suite.metadata.capabilities = { "rom_dump", "derived_cache" }
+return suite

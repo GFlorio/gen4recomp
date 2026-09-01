@@ -96,6 +96,10 @@ local function object(overrides)
   return event --[[@as FieldActorEvent]]
 end
 
+local function rawObjectEventY(runtimeTileY)
+  return runtimeTileY * 16 * 4096
+end
+
 local function runtimeMap(objects, mapId)
   local map = {
     mapId = mapId or 61,
@@ -477,12 +481,58 @@ function T.actor_resolves_position_surface_and_world_anchor()
 end
 
 function T.raw_event_y_hint_selects_the_stacked_surface()
-  local mgr = manager({ object({ x = 9, z = 3, y = 4 * 16 }) })
-  Assert.equal(mgr:getById("map:61:object:0").surfaceId, 1)
+  local mgr = manager({ object({ x = 9, z = 3, y = rawObjectEventY(4) }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  Assert.equal(actor.surfaceId, 1)
+  Assert.equal(actor.worldY, 4)
+  Assert.equal(actor.sourceEvent.y, rawObjectEventY(4))
+  Assert.isTrue(actor.worldY ~= actor.sourceEvent.y)
+  mgr:dispose()
+
+  local halfHeightMap = runtimeMap({ object({ x = 9, z = 3, y = 32768 }) })
+  halfHeightMap.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 8,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+      {
+        id = 1,
+        minX = 8,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0.5,
+        slopeClass = "flat",
+      },
+      {
+        id = 2,
+        minX = 8,
+        minZ = 0,
+        maxX = 32,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 4,
+        slopeClass = "flat",
+      },
+    },
+  })
+  local halfHeightMgr = manager(halfHeightMap.fieldData.events.objects, { map = halfHeightMap })
+  local halfHeightActor = assert(halfHeightMgr:getById("map:61:object:0"))
+  Assert.equal(halfHeightActor.surfaceId, 1)
+  Assert.equal(halfHeightActor.worldY, 0.5)
+  halfHeightMgr:dispose()
 end
 
 function T.reprojection_uses_the_raw_event_y_hint_when_the_surface_is_stale()
-  local mgr = manager({ object({ x = 9, z = 3, y = 4 * 16 }) })
+  local mgr = manager({ object({ x = 9, z = 3, y = rawObjectEventY(4) }) })
   local actor = assert(mgr:getById("map:61:object:0"))
   actor.surfaceId = 99
 
@@ -740,7 +790,7 @@ end
 function T.stacked_source_surfaces_keep_same_coordinates_distinct()
   local map = runtimeMap({
     object({ objectEventId = 0, x = 9, z = 3, y = 0 }),
-    object({ objectEventId = 1, x = 9, z = 3, y = 4 * 16, spriteId = 34 }),
+    object({ objectEventId = 1, x = 9, z = 3, y = rawObjectEventY(4), spriteId = 34 }),
   })
   map.terrain = TerrainSurface.new({
     plates = {
@@ -773,7 +823,7 @@ function T.stacked_source_surfaces_keep_same_coordinates_distinct()
 
   local sameSourceMap = runtimeMap({
     object({ objectEventId = 0, x = 9, z = 3, y = 0 }),
-    object({ objectEventId = 1, x = 9, z = 3, y = 4 * 16, spriteId = 34 }),
+    object({ objectEventId = 1, x = 9, z = 3, y = rawObjectEventY(4), spriteId = 34 }),
   })
   sameSourceMap.terrain = TerrainSurface.new({
     plates = {
@@ -825,7 +875,7 @@ function T.preflight_probe_uses_event_rules_without_publishing_actors()
   local destination = runtimeMap({
     object({ objectEventId = 0, eventFlag = 401 }),
     object({ objectEventId = 1, solid = false }),
-    object({ objectEventId = 2, x = 9, y = 4 * 16 }),
+    object({ objectEventId = 2, x = 9, y = rawObjectEventY(4) }),
   }, 62)
   local revision = mgr:visualRevision()
 
