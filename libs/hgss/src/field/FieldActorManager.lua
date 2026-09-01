@@ -1968,9 +1968,7 @@ function FieldActorManager:beginScriptedAction(actorId, action)
   local kind = action.action
   -- Face is instantaneous: apply the facing directly, then still flow
   -- through the generic actor transaction below (with a stay-put start/dest).
-  -- A single face settles to idle like any other non-locomotion action; a
-  -- repeated face (source `count > 1`) instead presents walking pose while
-  -- staying put, per `FieldObjectActor:beginScriptedAction`.
+  -- Every face settles to idle like any other non-locomotion action.
   if kind == "face" and action.direction ~= nil then
     actor:setFacing(action.direction)
   end
@@ -2039,9 +2037,8 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     -- The decoded semantic emote kind (e.g. "exclamation"); only meaningful
     -- when kind == "emote".
     name = action.name,
-    -- Source repetition count; only meaningful for `face`, where it
-    -- distinguishes a repeated stationary action (walking presentation) from
-    -- a single idle-facing one. Not used by any other action kind.
+    -- Source repetition count; only meaningful for `face`. Not used by any
+    -- other action kind.
     count = action.count,
   })
 end

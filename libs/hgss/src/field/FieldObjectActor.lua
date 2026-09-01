@@ -57,17 +57,6 @@ FieldObjectActor.__index = FieldObjectActor
 
 local FACINGS = { north = true, south = true, west = true, east = true }
 
--- A repeated stationary facing action (source `count > 1`) is presentation-
--- active: it drives walking pose/frame progression while translation stays
--- zero, exactly like `walk_in_place`, but a single face (count defaults to 1)
--- remains an ordinary idle-facing action. `count` is the source-decoded
--- repetition, never a derived duration.
----@param descriptor { action: string, count: integer? }
----@return boolean
-local function isAnimatedStationaryFace(descriptor)
-  return descriptor.action == "face" and (descriptor.count or 1) > 1
-end
-
 -- Walk-in-place bob amplitude, in world units (source-presentation scale,
 -- applied before any host/camera transform). Two footstep bounces per cycle.
 local WALK_IN_PLACE_BOB_AMPLITUDE = 0.15
@@ -198,11 +187,9 @@ function FieldObjectActor:beginAction(descriptor, owner)
   assert(self._motion == nil, "field actor already has an active action")
   -- descriptor: { action, direction, distance, speed, start, dest, durationTicks, name, count }
   -- `name` is the decoded semantic emote kind (e.g. "exclamation"); present
-  -- only when action == "emote". `count` is the source repetition count;
-  -- meaningful only for `face` (see `isAnimatedStationaryFace`).
+  -- only when action == "emote". `count` is the source repetition count.
   local start = descriptor.start
   local dest = descriptor.dest
-  local stationaryAnimated = isAnimatedStationaryFace(descriptor)
   self._motion = {
     owner = owner,
     action = descriptor.action,
@@ -231,9 +218,6 @@ function FieldObjectActor:beginAction(descriptor, owner)
     destResident = dest.resident == true,
     startPose = self.pose,
     startPoseTick = self.poseTick,
-    -- A repeated face is a stationary animated action, transient to this
-    -- transaction: it must never persist beyond cancel/commit.
-    stationaryAnimated = stationaryAnimated,
   }
   -- Every action transaction starts from a zero presentation offset; only
   -- walk_in_place's advance re-populates it while it is the active action.
@@ -243,24 +227,15 @@ function FieldObjectActor:beginAction(descriptor, owner)
   -- it; every other action (including a later emote with a different kind)
   -- starts from a clean slate.
   self.activeEmoteKind = descriptor.action == "emote" and descriptor.name or nil
-  -- Locomotion pose is true exactly while a locomotion action is active:
-  -- walk/jump/walk_in_place enter walking presentation, and a repeated face
-  -- joins them as a stationary animated action. Everything else (single
-  -- face/delay/emote/gesture) settles to idle here so a non-locomotion action
-  -- never inherits a stale walking pose, and a contiguous
-  -- locomotion/stationary-animated successor simply re-enters "walk" without
-  -- an observable idle frame or a reset pose clock.
+  -- Locomotion pose is true exactly while a locomotion action is active.
+  -- Everything else (face/delay/emote/gesture) settles to idle here so a
+  -- non-locomotion action never inherits a stale walking pose, while a
+  -- contiguous locomotion successor re-enters "walk" without an observable
+  -- idle frame or a reset pose clock.
   if descriptor.action == "walk" or descriptor.action == "walk_in_place" or descriptor.action == "jump" then
     if not self.animationPaused then
       self.pose = "walk"
     end
-  elseif stationaryAnimated then
-    if not self.animationPaused then
-      self.pose = "walk"
-    end
-    -- Pose phase continues across repetitions of the same repeated face:
-    -- `startPoseTick` above already snapshotted the current clock, so it is
-    -- not reset here.
   else
     self.pose = "idle"
     self.poseTick = 0
@@ -308,11 +283,16 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldY = m.startWorldY
   end
   -- Advance pose clock once per eligible tick while walking/jumping/
-  -- walk_in_place, or presenting a repeated stationary face the same way.
+  -- walk_in_place. Fast walking actions consume two source animation units
+  -- per fixed tick; simulation progress remains calibrated independently.
   if not self.animationPaused then
-    if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" or m.stationaryAnimated then
+    if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" then
+      local poseProgress = progressTicks
+      if m.speed == "fast" and (m.action == "walk" or m.action == "walk_in_place") then
+        poseProgress = progressTicks * 2
+      end
       self.pose = "walk"
-      self.poseTick = m.startPoseTick + progressTicks
+      self.poseTick = m.startPoseTick + poseProgress
     end
   end
   if progressTicks == durationTicks then
@@ -366,7 +346,7 @@ function FieldObjectActor:cancelAction()
   self.worldX = m.startWorldX
   self.worldY = m.startWorldY
   self.worldZ = m.startWorldZ
-  if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" or m.stationaryAnimated then
+  if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" then
     self.pose = m.startPose
     self.poseTick = m.startPoseTick
   end

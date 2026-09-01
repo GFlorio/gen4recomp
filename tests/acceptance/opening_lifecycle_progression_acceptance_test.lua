@@ -9,6 +9,7 @@ local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
+local FieldActorPose = require("libs.hgss.src.presentation.FieldActorPose")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
@@ -296,7 +297,7 @@ function T.tests.new_bark_friend_and_marill_scene_follows_the_house_scene()
         local surface = SurfaceResolver.new(runtimeMap.terrain):resolve({
           localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
           localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-          currentY = event.y / 16,
+          currentY = event.y / (16 * 4096),
         })
         Assert.isNil(
           game.runtime.actors:getAt(runtimeMap.mapId, {
@@ -386,6 +387,18 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
       return nil
     end
 
+    local function withCompiledVisual(record, fn)
+      local entry = assert(game.runtime.actorAssets:acquire(record.spriteId))
+      local ok, result, extra = xpcall(function()
+        return fn(entry.visual)
+      end, debug.traceback)
+      game.runtime.actorAssets:release(entry.spriteId)
+      if not ok then
+        error(result, 0)
+      end
+      return result, extra
+    end
+
     local function isImmediate(action)
       return action.action == "set_visible"
         or action.action == "lock_facing"
@@ -430,6 +443,13 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
 
           local afterActor = game.runtime.actors:getById(MARILL_ID)
           local afterRecord = drawRecord()
+          local selectedFrameIndex = afterRecord
+            and withCompiledVisual(afterRecord, function(visual)
+              local frameIndex, fellBack =
+                FieldActorPose.frameIndex(visual, afterRecord.facing, afterRecord.pose, afterRecord.poseTick)
+              Assert.isFalse(fellBack, "Marill's real visual must provide its selected pose")
+              return frameIndex
+            end)
           local tracedAction = nil
           local tracedRepeat = nil
           local tracedDirection = nil
@@ -469,12 +489,15 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
               name = tracedName,
               repeatIndex = tracedRepeat,
               activeEmoteKind = before.activeEmoteKind,
+              spriteId = afterRecord and afterRecord.spriteId or nil,
+              facing = afterRecord and afterRecord.facing or nil,
               afterAction = afterActor and afterActor:currentAction() or nil,
               fieldX = afterActor and afterActor.fieldX or nil,
               fieldZ = afterActor and afterActor.fieldZ or nil,
               worldY = afterRecord and afterRecord.world.y or nil,
               pose = afterRecord and afterRecord.pose or nil,
               poseTick = afterRecord and afterRecord.poseTick or nil,
+              frameIndex = selectedFrameIndex,
               afterEmoteKind = afterRecord and afterRecord.activeEmoteKind or nil,
             }
           end
@@ -564,13 +587,10 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     appendExpected(secondExpected, { action = "walk", direction = "west", speed = "fast", tiles = 6 }, 6)
     assertTimeline(second, secondExpected, "the friend movement")
 
-    -- The source `FaceEast 5`/`FaceWest 5`-style repeated facing actions
-    -- must present the Marill as visibly walking in place: continuous
-    -- pose-clock advancement while it stays on its tile, not a still idle
-    -- sprite for the whole repeated action. A single-count face (the
-    -- friend's opening `face west`) is not repeated and must remain idle,
-    -- exactly like the unit-layer single/repeated distinction.
-    local function assertRepeatedFaceAnimatesInPlace(records, label)
+    -- Every source repeated-facing run remains a sequence of one-tick static
+    -- facing commands. The real draw selector must therefore keep returning
+    -- the idle frame while the facing and repetition order advance.
+    local function assertRepeatedFaceStaysStatic(records, label)
       local index = 1
       while index <= #records do
         local record = records[index]
@@ -590,14 +610,13 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
             local previous = nil
             for i = index, runEnd do
               local r = records[i]
-              Assert.equal(r.pose, "walk", label .. " repeated face presents walking pose")
+              Assert.equal(r.pose, "idle", label .. " repeated face stays idle")
+              Assert.equal(r.facing, r.direction, label .. " repeated face applies each requested facing")
+              Assert.notNil(r.frameIndex, label .. " repeated face must have a selected frame")
               if previous ~= nil then
                 Assert.equal(r.fieldX, previous.fieldX, label .. " repeated face keeps logical fieldX fixed")
                 Assert.equal(r.fieldZ, previous.fieldZ, label .. " repeated face keeps logical fieldZ fixed")
-                Assert.isTrue(
-                  r.poseTick > previous.poseTick,
-                  label .. " repeated face's pose clock must advance, not reset, across repetitions"
-                )
+                Assert.equal(r.frameIndex, previous.frameIndex, label .. " repeated face keeps its idle frame")
               end
               previous = r
             end
@@ -608,8 +627,8 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
         end
       end
     end
-    assertRepeatedFaceAnimatesInPlace(first.records, "the arrival movement")
-    assertRepeatedFaceAnimatesInPlace(second.records, "the friend movement")
+    assertRepeatedFaceStaysStatic(first.records, "the arrival movement")
+    assertRepeatedFaceStaysStatic(second.records, "the friend movement")
 
     local emoteSeen = false
     for _, record in ipairs(second.records) do
@@ -627,6 +646,30 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
       end
     end
     Assert.equal(#walkInPlaceRecords, 32, "both walk-in-place repetitions retain their calibrated ticks")
+    local firstFastRepetition = {}
+    for index = 1, 4 do
+      firstFastRepetition[index] = walkInPlaceRecords[index]
+    end
+    withCompiledVisual(firstFastRepetition[1], function(visual)
+      local northWalk = assert(visual.directions.north.walk, "Marill's compiled north walk pose is required")
+      local firstFrame = assert(northWalk.frames[1])
+      local secondFrame = assert(northWalk.frames[2])
+      local selected = {}
+      for _, record in ipairs(firstFastRepetition) do
+        Assert.equal(record.action, "walk_in_place", "the first fast repetition remains walk-in-place")
+        Assert.equal(record.direction, "north", "the first fast repetition faces north")
+        Assert.equal(record.repeatIndex, 0, "the first fast repetition has the source repetition index")
+        Assert.equal(record.pose, "walk", "the first fast repetition uses walking presentation")
+        local expectedFrame = assert(FieldActorPose.frameIndex(visual, record.facing, record.pose, record.poseTick))
+        Assert.equal(record.frameIndex, expectedFrame, "the trace records the production-selected frame")
+        selected[#selected + 1] = record.frameIndex
+      end
+      Assert.equal(selected[1], firstFrame.frameIndex, "the first fast tick selects the source first frame")
+      Assert.isTrue(
+        selected[#selected] == secondFrame.frameIndex,
+        "the first fast repetition selects the source second frame before it ends"
+      )
+    end)
     local firstTileX, firstTileZ = walkInPlaceRecords[1].fieldX, walkInPlaceRecords[1].fieldZ
     local distinctY = {}
     for _, record in ipairs(walkInPlaceRecords) do
