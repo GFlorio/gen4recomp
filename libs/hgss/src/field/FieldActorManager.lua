@@ -108,14 +108,13 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field _drawRecords FieldActorManager.DrawRecord[]
 ---@field _drawRecordByActorId table<string, FieldActorManager.DrawRecord>
 ---@field autonomy FieldActorAutonomy
----@field pendingRestore table?
 ---@field step fun(self: FieldActorManager, tick: integer, context: FieldActorStepContext?)
 ---@field _resolveSpriteId fun(self: FieldActorManager, event: FieldActorEvent, eventState: FieldEventState?): integer
 ---@field _acquireVisual fun(self: FieldActorManager, spriteId: integer, actorId: string): FieldActorAsset
 ---@field _instantiate fun(self: FieldActorManager, entry: FieldActorManager.Entry, event: FieldActorEvent, eventState: FieldEventState?): FieldActorManager.Actor
 ---@field _destroy fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor)
 ---@field leaveMap fun(self: FieldActorManager, mapId: integer)
----@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState)
+---@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, restoredObjects: table?)
 ---@field dispose fun(self: FieldActorManager)
 ---@field visualRevision fun(self: FieldActorManager): integer
 ---@field collectSpriteIds fun(self: FieldActorManager, out: table<integer, boolean>)
@@ -153,9 +152,8 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field getCollisionAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field isPausable fun(self: FieldActorManager, actorId: string): boolean
 ---@field allPausable fun(self: FieldActorManager): boolean
----@field _restoreEntry fun(self: FieldActorManager, entry: FieldActorManager.Entry)
+---@field _restoreEntry fun(self: FieldActorManager, entry: FieldActorManager.Entry, snapshot: table?)
 ---@field captureObjects fun(self: FieldActorManager): table
----@field restoreObjects fun(self: FieldActorManager, objects: table)
 ---@field new fun(opts: FieldActorManagerOptions): FieldActorManager
 ---@class FieldActorManager.Actor: FieldObjectActor
 ---@field movementType string
@@ -232,7 +230,6 @@ local SURFACE_ERROR_CODES = {
 ---@field policy { variableSprites: FieldActorManager.VariableSprites }
 ---@field autonomyRng table?
 ---@field autonomySeed string?
----@field restoredObjects table?
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
 -- opts.policy: the generated actor index's runtime block
@@ -262,12 +259,8 @@ function FieldActorManager.new(opts)
       rng = opts.autonomyRng or ScriptRng.new(opts.autonomySeed or "field:autonomy"),
       profiles = FieldObjectMovement,
     }),
-    pendingRestore = opts.restoredObjects,
   }, FieldActorManager)
   ---@cast manager FieldActorManager
-  if manager.pendingRestore and manager.pendingRestore.rng then
-    manager.autonomy:restoreRng(manager.pendingRestore.rng)
-  end
   return manager
 end
 
@@ -699,6 +692,13 @@ local function savedProjection(entry, actor, record)
   actor = assert(actor)
   actor.sourceEvent = assert(actor.sourceEvent)
   local runtimeMap = entry.runtimeMap
+  if not isResident(runtimeMap, record.fieldX, record.fieldZ) then
+    return {
+      fieldX = record.fieldX,
+      fieldZ = record.fieldZ,
+      resident = false,
+    }
+  end
   local sample = resolveSurfaceAt(runtimeMap, record.fieldX, record.fieldZ, actor.sourceEvent.y, actor.actorId)
   local plate = assert(runtimeMap.terrain:plate(sample.surfaceId), "saved actor surface is missing")
   local cellKey, sourceSurfaceId = sourceIdentityFromPlate(plate)
@@ -719,12 +719,19 @@ local function savedProjection(entry, actor, record)
     worldX = world.x,
     worldY = world.y,
     worldZ = world.z,
-    resident = isResident(runtimeMap, record.fieldX, record.fieldZ),
+    resident = true,
   }
 end
 
 local function savedDestination(entry, actor, point)
   local projection = savedProjection(entry, actor, point)
+  if not projection.resident then
+    Errors.raise(
+      ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+      "saved autonomous action is outside physical residency",
+      { actorId = actor.actorId }
+    )
+  end
   if
     point.cellKey ~= nil
     and (point.cellKey ~= projection.cellKey or point.sourceSurfaceId ~= projection.sourceSurfaceId)
@@ -738,8 +745,7 @@ local function savedDestination(entry, actor, point)
   return projection
 end
 
-function FieldActorManager:_restoreEntry(entry)
-  local snapshot = self.pendingRestore
+function FieldActorManager:_restoreEntry(entry, snapshot)
   if snapshot == nil or snapshot.actors == nil or next(snapshot.actors) == nil then
     return
   end
@@ -774,7 +780,15 @@ function FieldActorManager:_restoreEntry(entry)
   local occupancy = {}
   for _, actor in ipairs(entry.order) do
     local plan = plans[actor.actorId]
-    local projection = plan and plan.projection or projectionFor(entry.runtimeMap, actor)
+    local projection = plan and plan.projection
+      or (
+        isResident(entry.runtimeMap, actor.fieldX, actor.fieldZ) and projectionFor(entry.runtimeMap, actor)
+        or {
+          fieldX = actor.fieldX,
+          fieldZ = actor.fieldZ,
+          resident = false,
+        }
+      )
     local candidate = {
       fieldX = projection.fieldX or actor.fieldX,
       fieldZ = projection.fieldZ or actor.fieldZ,
@@ -799,6 +813,13 @@ function FieldActorManager:_restoreEntry(entry)
     local plan = plans[actorId]
     local action = plan.record.action
     if action then
+      if not plan.projection.resident then
+        Errors.raise(
+          ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
+          "saved autonomous action start is outside physical residency",
+          { actorId = actorId }
+        )
+      end
       if action.start.fieldX ~= plan.record.fieldX or action.start.fieldZ ~= plan.record.fieldZ then
         Errors.raise(
           ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
@@ -855,6 +876,9 @@ function FieldActorManager:_restoreEntry(entry)
             worldY = plan.projection.worldY,
             worldZ = plan.projection.worldZ,
             surfaceId = plan.projection.surfaceId,
+            cellKey = plan.projection.cellKey,
+            sourceSurfaceId = plan.projection.sourceSurfaceId,
+            resident = plan.projection.resident,
           },
           dest = plan.destination,
           durationTicks = AUTONOMOUS_STEP_TICKS,
@@ -916,20 +940,22 @@ end
 -- and commit phases cannot duplicate a map's actors.
 ---@param runtimeMap RuntimeFieldMap
 ---@param eventState FieldEventState
+---@param restoredObjects table?
 ---@param self FieldActorManager
-function FieldActorManager:enterMap(runtimeMap, eventState)
+function FieldActorManager:enterMap(runtimeMap, eventState, restoredObjects)
   assert(runtimeMap and runtimeMap.fieldData, "enterMap requires a runtime map")
   assert(eventState, "enterMap requires a field event state")
   local mapId = runtimeMap.mapId
   local existing = self.maps[mapId]
   if existing and existing.runtimeMap == runtimeMap then
+    assert(restoredObjects == nil, "restored objects cannot be applied to an active map")
     bindEventState(self, eventState)
     self.currentMapId = mapId
     return
   end
   local entry = newEntry(runtimeMap)
   populateEntry(self, entry, eventState)
-  local restored, restoreErr = pcall(self._restoreEntry, self, entry)
+  local restored, restoreErr = pcall(self._restoreEntry, self, entry, restoredObjects)
   if not restored then
     destroyEntry(self, entry)
     error(restoreErr, 0)
@@ -938,6 +964,9 @@ function FieldActorManager:enterMap(runtimeMap, eventState)
   if not bound then
     destroyEntry(self, entry)
     error(bindErr, 0)
+  end
+  if restoredObjects and restoredObjects.rng then
+    self.autonomy:restoreRng(restoredObjects.rng)
   end
 
   local previous = self.currentMapId and self.maps[self.currentMapId] or nil
@@ -977,13 +1006,20 @@ function FieldActorManager:captureObjects()
           movementType = actor.movementType,
           fieldX = actor.fieldX,
           fieldZ = actor.fieldZ,
-          cellKey = actor.cellKey,
-          sourceSurfaceId = actor.sourceSurfaceId,
           facing = actor.facing,
           controller = controller,
         }
+        if actor.cellKey ~= nil and actor.sourceSurfaceId ~= nil then
+          record.cellKey = actor.cellKey
+          record.sourceSurfaceId = actor.sourceSurfaceId
+        end
         local action = entry.autonomousActions[actor.actorId]
         if action then
+          assert(actor.resident, "active autonomous action actor must be resident")
+          assert(
+            actor.cellKey ~= nil and actor.sourceSurfaceId ~= nil,
+            "active autonomous action actor needs a physical identity"
+          )
           local motion = assert(actor:scriptedMotionState())
           record.action = {
             owner = assert(motion.owner),
@@ -992,14 +1028,14 @@ function FieldActorManager:captureObjects()
             start = {
               fieldX = motion.startFieldX,
               fieldZ = motion.startFieldZ,
-              cellKey = actor.cellKey,
-              sourceSurfaceId = actor.sourceSurfaceId,
+              cellKey = assert(actor.cellKey),
+              sourceSurfaceId = assert(actor.sourceSurfaceId),
             },
             destination = {
               fieldX = action.destination.fieldX,
               fieldZ = action.destination.fieldZ,
-              cellKey = action.destination.cellKey,
-              sourceSurfaceId = action.destination.sourceSurfaceId,
+              cellKey = assert(action.destination.cellKey),
+              sourceSurfaceId = assert(action.destination.sourceSurfaceId),
             },
             progressTicks = action.progressTicks,
           }
@@ -1013,18 +1049,6 @@ function FieldActorManager:captureObjects()
     rng = self.autonomy:captureRng(),
     actors = actors,
   }
-end
-
----@param objects table
-function FieldActorManager:restoreObjects(objects)
-  assert(next(self.maps) == nil, "restored objects must be supplied before map activation")
-  self.pendingRestore = objects
-  if objects.rng then
-    self.autonomy:restoreRng(objects.rng)
-  end
-  for _, entry in pairs(self.maps) do
-    self:_restoreEntry(entry)
-  end
 end
 
 ---@param mapId integer
@@ -1342,7 +1366,8 @@ function FieldActorManager:step(tick, context)
           actor.poseTick = actor.poseTick + 1
         end
         if
-          not actor:isScriptedMoving()
+          actor.resident
+          and not actor:isScriptedMoving()
           and actor.interactionFacingOverride == nil
           and not context.autonomousLocked
           and not (context.actorLocked and context.actorLocked(actor.actorId))

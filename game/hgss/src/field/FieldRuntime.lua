@@ -717,11 +717,12 @@ function FieldRuntime:_load()
         and FieldEventState.new({ flags = restoredWorld.flags, vars = restoredWorld.variables })
       or self.game.worldState
     assert(self.eventState and self.eventState.serialize, "finalized game event state is required")
+    local initialActorRestore = loadedGame and restoredWorld.objects or nil
+    local initialActorRestoreMapId = loadedGame and loadedGame.mapId or nil
     self.actorAssets = FieldActorDefinitionProvider.new(cacheFs)
     self.actors = FieldActorManager.new({
       assets = self.actorAssets,
       policy = { variableSprites = self.actorConfig.variableSprites },
-      restoredObjects = restoredWorld and restoredWorld.objects or nil,
     })
 
     -- The player's graphic is one more compiled actor visual: it is acquired from
@@ -1037,7 +1038,15 @@ function FieldRuntime:_load()
       return self.interactionResolver:resolve(snapshot)
     end
     local function enterMapActors()
-      self.actors:enterMap(self.runtimeMap, self.eventState)
+      local restore = initialActorRestore
+      if restore ~= nil then
+        assert(self.runtimeMap.mapId == initialActorRestoreMapId, "loaded actor snapshot map mismatch")
+      end
+      self.actors:enterMap(self.runtimeMap, self.eventState, restore)
+      if restore ~= nil then
+        initialActorRestore = nil
+        initialActorRestoreMapId = nil
+      end
     end
     local onPreparedMap
     if self.audio then

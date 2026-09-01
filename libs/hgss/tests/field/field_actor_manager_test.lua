@@ -7,6 +7,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
+local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
@@ -151,9 +152,9 @@ local function manager(objects, opts)
   opts = opts or {}
   local assets = opts.assets or fakeAssets({ [99] = true, [34] = true, [29] = true, [0] = true })
   local eventState = opts.eventState or FieldEventState.new()
-  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY, restoredObjects = opts.restoredObjects })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
   local map = opts.map or runtimeMap(objects)
-  mgr:enterMap(map, eventState)
+  mgr:enterMap(map, eventState, opts.restoredObjects)
   return mgr, eventState, assets, map
 end
 
@@ -248,9 +249,87 @@ function T.restored_effective_movement_type_is_applied_to_the_actor()
   mgr:dispose()
 end
 
+function T.nonresident_restore_is_explicit_and_not_replayed_on_reentry()
+  local map = runtimeMap({ object({ x = 2, z = 3 }) })
+  map.coverage = {
+    containsGlobal = function(_, fieldX)
+      return fieldX < 10
+    end,
+  }
+  map.terrain = TerrainSurface.new({
+    plates = {
+      {
+        id = 0,
+        minX = 0,
+        minZ = 0,
+        maxX = 64,
+        maxZ = 32,
+        normal = { x = 0, y = 1, z = 0 },
+        distance = 0,
+        slopeClass = "flat",
+      },
+    },
+  })
+  local actorId = "map:61:object:0"
+  local snapshot = {
+    schema = "g4-field-objects-v1",
+    rng = { state = 7, calls = 0 },
+    actors = {
+      [actorId] = {
+        actorId = actorId,
+        mapId = 61,
+        objectEventId = 0,
+        sourceMovementType = "stationary",
+        movementType = "wander_north_south",
+        fieldX = 34,
+        fieldZ = 3,
+        facing = "north",
+        controller = { kind = "wander", timer = 0 },
+      },
+    },
+  }
+  local mgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true }), policy = POLICY })
+  local eventState = FieldEventState.new()
+
+  mgr:enterMap(map, eventState, snapshot)
+  local actor = assert(mgr:getById(actorId))
+  Assert.equal(actor.fieldX, 34)
+  Assert.equal(actor.facing, "north")
+  Assert.equal(actor.movementType, "wander_north_south")
+  Assert.isFalse(actor.resident)
+  Assert.isNil(actor.surfaceId)
+  local initialRngCalls = mgr.autonomy:captureRng().calls
+  local stepped, stepError = pcall(function()
+    mgr:step(1)
+    mgr:step(2)
+  end)
+  Assert.isTrue(stepped, tostring(stepError))
+  Assert.equal(mgr.autonomy:captureRng().calls, initialRngCalls, "a nonresident actor must not advance autonomy")
+  Assert.isNil(mgr.maps[61].autonomousActions[actorId], "a nonresident actor must not start an autonomous action")
+  Assert.isFalse(actor.resident)
+  Assert.isNil(actor.surfaceId)
+  Assert.equal(#mgr:drawRecords(), 0, "a nonresident actor must remain outside the physical projection")
+  local captured = mgr:captureObjects()
+  local validated, validationErr = FieldObjectSave.validate(captured)
+  Assert.notNil(validated, tostring(validationErr))
+  Assert.isNil(captured.actors[actorId].cellKey)
+  mgr.autonomy.rng:nextInt(100)
+
+  mgr:leaveMap(map.mapId)
+  mgr:enterMap(map, eventState)
+  actor = assert(mgr:getById(actorId))
+  Assert.equal(actor.fieldX, 2)
+  Assert.equal(actor.movementType, "stationary")
+  Assert.equal(mgr.autonomy:captureRng().calls, 1)
+  mgr:dispose()
+end
+
 function T.deferred_movement_type_capture_keeps_effective_profile_and_pending_type_distinct()
   local actorId = "map:61:object:0"
-  local mgr = manager({ object({ movementType = "wander_north_south", xRange = -1, yRange = -1 }) })
+  local map = runtimeMap({ object({ movementType = "wander_north_south", xRange = -1, yRange = -1 }) })
+  map.terrain:plate(0).cellKey = "0:0"
+  map.terrain:plate(0).sourceSurfaceId = 0
+  local mgr = manager(map.fieldData.events.objects, { map = map })
   local actor = assert(mgr:getById(actorId))
   mgr:step(1)
   Assert.isFalse(mgr:isPausable(actorId))
