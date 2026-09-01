@@ -5,6 +5,7 @@
 
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakGreetingPolicy = require("game.hgss.src.newgame.OakGreetingPolicy")
+local Selection = require("libs.hgss.src.ui.Selection")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class OakIntroControllerOptions
@@ -70,7 +71,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _sourceFrames integer
 ---@field private _message string|table|nil
 ---@field private _messageKey string|nil
----@field private _confirmationChoice { kind: "gender"|"name", selected: integer }?
+---@field private _confirmationChoice { kind: "gender"|"name", selection: Selection }?
 ---@field private _visual string
 ---@field private _visualFrameIndex integer
 ---@field private _visualFrameTimer integer?
@@ -596,12 +597,12 @@ function OakIntroController:press(action)
   end
   if self._confirmationChoice then
     if action == "up" or action == "down" then
-      self._confirmationChoice.selected = action == "up" and 0 or 1
+      self._confirmationChoice.selection:setSelectedIndex(action == "up" and 0 or 1)
       self._audio:play("SEQ_SE_DP_SELECT")
       return true
     end
     if action == "confirm" then
-      return self:_resolveConfirmation(self._confirmationChoice.selected)
+      return self:_resolveConfirmation(self._confirmationChoice.selection:selectedIndex())
     end
     if action == "yes" then
       return self:_resolveConfirmation(0)
@@ -777,9 +778,10 @@ function OakIntroController:view()
     sourceFrames = self._sourceFrames,
     events = self._events,
     messageKey = self._messageKey,
-    confirmationChoice = self._confirmationChoice
-        and { kind = self._confirmationChoice.kind, selected = self._confirmationChoice.selected }
-      or nil,
+    confirmationChoice = self._confirmationChoice and {
+      kind = self._confirmationChoice.kind,
+      selected = self._confirmationChoice.selection:selectedIndex(),
+    } or nil,
     dialogue = dialogue,
     primaryWidget = primaryWidget,
     revealWidget = self._revealWidget,
@@ -800,7 +802,7 @@ function OakIntroController:messageCompleted(key)
   if self._phase == "gender_confirm" or self._phase == "name_confirm" then
     self._confirmationChoice = {
       kind = self._phase == "gender_confirm" and "gender" or "name",
-      selected = 0,
+      selection = Selection.new(2, 0),
     }
     return true
   end
