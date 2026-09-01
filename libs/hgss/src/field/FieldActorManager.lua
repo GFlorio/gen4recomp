@@ -25,6 +25,7 @@ local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 -- pret/pokeheartgold src/field_system.c FieldSystem_CameraTarget).
 local CAMERA_TARGET_OBJECT_ID = 241
 local PARTNER_OBJECT_ID = 253
+local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 
 ---@class FieldActorAssets
 ---@field knows fun(self: FieldActorAssets, spriteId: integer): boolean
@@ -856,9 +857,9 @@ function FieldActorManager:_restoreEntry(entry)
             surfaceId = plan.projection.surfaceId,
           },
           dest = plan.destination,
-          durationTicks = action.durationTicks,
+          durationTicks = AUTONOMOUS_STEP_TICKS,
         }, action.owner)
-        actor:advanceAction(action.progressTicks, action.durationTicks)
+        actor:advanceAction(action.progressTicks, AUTONOMOUS_STEP_TICKS)
         stagedReservations[plan.reservationKey] = {
           actorId = actorId,
           candidate = {
@@ -1000,7 +1001,6 @@ function FieldActorManager:captureObjects()
               cellKey = action.destination.cellKey,
               sourceSurfaceId = action.destination.sourceSurfaceId,
             },
-            durationTicks = MovementCalibration.SPEED_TICKS.normal,
             progressTicks = action.progressTicks,
           }
         end
@@ -1251,7 +1251,7 @@ function FieldActorManager:_beginAutonomousAction(entry, actor, direction, conte
         resident = actor.resident,
       },
       dest = destination,
-      durationTicks = MovementCalibration.SPEED_TICKS.normal,
+      durationTicks = AUTONOMOUS_STEP_TICKS,
     }, "autonomous")
   end)
   if not ok then
@@ -1264,7 +1264,7 @@ end
 
 function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
   action.progressTicks = action.progressTicks + 1
-  local durationTicks = MovementCalibration.SPEED_TICKS.normal
+  local durationTicks = AUTONOMOUS_STEP_TICKS
   actor:advanceAction(action.progressTicks, durationTicks)
   if action.progressTicks < durationTicks then
     return

@@ -237,7 +237,7 @@ function T.restored_effective_movement_type_is_applied_to_the_actor()
           fieldX = 2,
           fieldZ = 3,
           facing = "south",
-          controller = { kind = "wander", timer = 4, blocked = false },
+          controller = { kind = "wander", timer = 4 },
         },
       },
     },

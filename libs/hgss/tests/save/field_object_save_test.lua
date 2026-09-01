@@ -21,10 +21,6 @@ local function actor(overrides)
     controller = {
       kind = "wander",
       timer = 16,
-      sequenceIndex = 1,
-      rotationIndex = 1,
-      shuttleDirection = "east",
-      blocked = false,
     },
   } ---@type table
   for key, value in pairs(overrides or {}) do
@@ -101,7 +97,6 @@ function T.source_surface_identity_is_required_for_actors_and_actions()
       direction = "east",
       start = { fieldX = 12, fieldZ = 14, cellKey = "0:0", sourceSurfaceId = 3 },
       destination = { fieldX = 13, fieldZ = 14, cellKey = nil, sourceSurfaceId = 3 },
-      durationTicks = 8,
       progressTicks = 1,
     },
   })

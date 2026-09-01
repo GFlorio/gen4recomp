@@ -34,6 +34,10 @@ local function directionIndex(directions, direction)
   return 1
 end
 
+local function validIndex(value, count)
+  return type(value) == "number" and value % 1 == 0 and value >= 1 and value <= count
+end
+
 local function wait(rng, profile)
   local choices = assert(profile.waitChoices, "movement profile wait choices are required")
   return choices[rng:nextInt(#choices) + 1]
@@ -88,7 +92,6 @@ local function resetState(state, movementType, profile)
   state.sequenceIndex = directionIndex(profile.sequence or {}, state.initialFacing)
   state.rotationIndex = directionIndex(profile.sequence or {}, state.initialFacing)
   state.shuttleDirection = state.initialFacing
-  state.blocked = false
   state.spinMode = nil
   state.spinIndex = nil
   if profile.kind == "spin" then
@@ -129,7 +132,6 @@ function FieldActorAutonomy:attach(actorId, movementType, sourceEvent)
     sequenceIndex = 1,
     rotationIndex = 1,
     shuttleDirection = sourceEvent.facingDirection,
-    blocked = false,
   }
   resetState(state, movementType, profile)
   self.states[actorId] = state
@@ -178,17 +180,22 @@ end
 ---@return table
 function FieldActorAutonomy:capture(actorId)
   local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
-  return {
+  local controller = {
     kind = state.profile.kind,
     timer = state.timer,
-    sequenceIndex = state.sequenceIndex,
-    rotationIndex = state.rotationIndex,
-    shuttleDirection = state.shuttleDirection,
-    blocked = state.blocked,
     pendingMovementType = state.pendingMovementType,
-    spinMode = state.spinMode,
-    spinIndex = state.spinIndex,
   }
+  if state.profile.kind == "pattern" then
+    controller.sequenceIndex = state.sequenceIndex
+  elseif state.profile.kind == "rotate" then
+    controller.rotationIndex = state.rotationIndex
+  elseif state.profile.kind == "shuttle" then
+    controller.shuttleDirection = state.shuttleDirection
+  elseif state.profile.kind == "spin" then
+    controller.spinMode = state.spinMode
+    controller.spinIndex = state.spinIndex
+  end
+  return controller
 end
 
 ---@param actorId string
@@ -197,27 +204,35 @@ end
 function FieldActorAutonomy:restore(actorId, movementType, controller)
   local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
   local profile = self.profiles.require(movementType)
+  assert(type(controller) == "table", "field actor autonomy controller is required")
   assert(controller.kind == profile.kind, "field actor autonomy controller kind does not match movement type")
-  assert(type(controller.timer) == "number" and controller.timer >= 0, "field actor autonomy timer is invalid")
-  state.movementType = movementType
-  state.profile = profile
+  assert(
+    type(controller.timer) == "number" and controller.timer % 1 == 0 and controller.timer >= 0,
+    "field actor autonomy timer is invalid"
+  )
+  resetState(state, movementType, profile)
   state.timer = controller.timer
-  state.sequenceIndex = controller.sequenceIndex or state.sequenceIndex
-  state.rotationIndex = controller.rotationIndex or state.rotationIndex
-  state.shuttleDirection = controller.shuttleDirection or state.shuttleDirection
-  state.blocked = controller.blocked == true
   state.pendingMovementType = controller.pendingMovementType
-  if profile.kind == "spin" then
+  assert(
+    state.pendingMovementType == nil or self.profiles.isType == nil or self.profiles.isType(state.pendingMovementType),
+    "field actor autonomy pending movement type is invalid"
+  )
+  if profile.kind == "pattern" then
+    local sequence = assert(profile.sequence)
+    assert(validIndex(controller.sequenceIndex, #sequence), "field actor autonomy sequence index is invalid")
+    state.sequenceIndex = controller.sequenceIndex
+  elseif profile.kind == "rotate" then
+    local sequence = assert(profile.sequence)
+    assert(validIndex(controller.rotationIndex, #sequence), "field actor autonomy rotation index is invalid")
+    state.rotationIndex = controller.rotationIndex
+  elseif profile.kind == "shuttle" then
+    assert(OPPOSITE[controller.shuttleDirection] ~= nil, "field actor autonomy shuttle direction is invalid")
+    state.shuttleDirection = controller.shuttleDirection
+  elseif profile.kind == "spin" then
     assert(controller.spinMode == "clockwise" or controller.spinMode == "counterclockwise", "spin mode is invalid")
     local sequence = controller.spinMode == "clockwise" and assert(profile.clockwiseSequence)
       or assert(profile.counterclockwiseSequence)
-    assert(
-      type(controller.spinIndex) == "number"
-        and controller.spinIndex % 1 == 0
-        and controller.spinIndex >= 1
-        and controller.spinIndex <= #sequence,
-      "spin index is invalid"
-    )
+    assert(validIndex(controller.spinIndex, #sequence), "spin index is invalid")
     state.spinMode = controller.spinMode
     state.spinIndex = controller.spinIndex
   else
@@ -280,10 +295,8 @@ local function stepPattern(state, capability)
   capability:setFacing(state.actorId, direction)
   if capability:walk(state.actorId, direction) then
     state.sequenceIndex = state.sequenceIndex % #sequence + 1
-    state.blocked = false
     return
   end
-  state.blocked = true
   state.sequenceIndex = state.sequenceIndex % #sequence + 1
   direction = sequence[state.sequenceIndex]
   capability:setFacing(state.actorId, direction)
@@ -296,10 +309,8 @@ local function stepShuttle(state, capability)
   local direction = state.shuttleDirection
   capability:setFacing(state.actorId, direction)
   if capability:walk(state.actorId, direction) then
-    state.blocked = false
     return
   end
-  state.blocked = true
   state.shuttleDirection = OPPOSITE[direction]
   capability:setFacing(state.actorId, state.shuttleDirection)
   capability:walk(state.actorId, state.shuttleDirection)

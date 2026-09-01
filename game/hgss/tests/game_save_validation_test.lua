@@ -61,6 +61,34 @@ local function record(saveId, versionId, playerData)
   }
 end
 
+local function fieldObjectActor(overrides)
+  local result = {
+    actorId = "map:60:object:7",
+    mapId = 60,
+    objectEventId = 7,
+    sourceMovementType = "walk_north_east_west_south",
+    movementType = "walk_north_east_west_south",
+    fieldX = 12,
+    fieldZ = 14,
+    cellKey = "0:0",
+    sourceSurfaceId = 3,
+    facing = "east",
+    controller = { kind = "pattern", timer = 0, sequenceIndex = 1 },
+  }
+  for key, value in pairs(overrides or {}) do
+    rawset(result, key, value)
+  end
+  return result
+end
+
+local function fieldObjectBucket(actor)
+  return {
+    schema = "g4-field-objects-v1",
+    rng = { state = 7, calls = 3 },
+    actors = { [actor.actorId] = actor },
+  }
+end
+
 local validPlayerData = {
   profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
   options = { textFrame = 0, textSpeed = "mid" },
@@ -141,6 +169,34 @@ function T.complete_validation_composes_field_object_validation()
   }
   local valid = assert(service:validate(candidate))
   Assert.equal(valid.world.objects.schema, "g4-field-objects-v1")
+end
+
+function T.complete_validation_rejects_malformed_field_object_actor_state()
+  local service = GameSaveValidation.new({
+    contextLoader = function()
+      return context()
+    end,
+  })
+
+  local validRecord = record("save-00000006", "heartgold", validPlayerData)
+  validRecord.world.objects = fieldObjectBucket(fieldObjectActor())
+  Assert.notNil(service:validate(validRecord), "the valid field-object actor must pass")
+
+  local oversizedPatternIndex = record("save-00000007", "heartgold", validPlayerData)
+  local invalidPatternActor = fieldObjectActor()
+  invalidPatternActor.controller.sequenceIndex = 999
+  oversizedPatternIndex.world.objects = fieldObjectBucket(invalidPatternActor)
+  local invalid, err = service:validate(oversizedPatternIndex)
+  Assert.isNil(invalid)
+  Assert.isTrue(Errors.is(err))
+
+  local removedBlockedState = record("save-00000008", "heartgold", validPlayerData)
+  removedBlockedState.world.objects = fieldObjectBucket(fieldObjectActor({
+    controller = { kind = "pattern", timer = 0, sequenceIndex = 1, blocked = false },
+  }))
+  invalid, err = service:validate(removedBlockedState)
+  Assert.isNil(invalid)
+  Assert.isTrue(Errors.is(err))
 end
 
 return { tests = T }

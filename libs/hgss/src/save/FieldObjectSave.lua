@@ -4,6 +4,7 @@ local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.script.src.errors")
 local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
+local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 
 local FieldObjectSave = {}
 FieldObjectSave.SCHEMA = "g4-field-objects-v1"
@@ -31,8 +32,9 @@ local CONTROLLER_FIELDS = {
   sequenceIndex = true,
   rotationIndex = true,
   shuttleDirection = true,
-  blocked = true,
   pendingMovementType = true,
+  spinMode = true,
+  spinIndex = true,
 }
 local ACTION_FIELDS = {
   owner = true,
@@ -40,10 +42,10 @@ local ACTION_FIELDS = {
   direction = true,
   start = true,
   destination = true,
-  durationTicks = true,
   progressTicks = true,
 }
 local POINT_FIELDS = { fieldX = true, fieldZ = true, cellKey = true, sourceSurfaceId = true }
+local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 
 local function fail(message, context)
   return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, message, context or {})
@@ -96,7 +98,21 @@ local function validatePoint(point, name)
   return copy(point)
 end
 
-local function validateController(controller, movementType)
+local function validateIndex(value, count, name)
+  if not integer(value) or value < 1 or value > count then
+    return fail(name .. " is invalid")
+  end
+  return true
+end
+
+local function rejectField(controller, key, name)
+  if controller[key] ~= nil then
+    return fail(name .. " contains an irrelevant " .. key)
+  end
+  return true
+end
+
+local function validateController(controller, movementType, hasAction)
   local ok, err = fields(controller, CONTROLLER_FIELDS, "controller")
   if not ok then
     return nil, err
@@ -111,19 +127,79 @@ local function validateController(controller, movementType)
   if not integer(controller.timer) or controller.timer < 0 then
     return fail("controller timer is invalid")
   end
-  for _, key in ipairs({ "sequenceIndex", "rotationIndex" }) do
-    if controller[key] ~= nil and (not integer(controller[key]) or controller[key] < 1) then
-      return fail("controller " .. key .. " is invalid")
+  local kind = profile.kind
+  if kind == "pattern" then
+    if controller.sequenceIndex == nil then
+      return fail("controller sequence index is required")
     end
-  end
-  if controller.shuttleDirection ~= nil and not DIRECTIONS[controller.shuttleDirection] then
-    return fail("controller shuttle direction is invalid")
-  end
-  if type(controller.blocked) ~= "boolean" then
-    return fail("controller blocked state is invalid")
+    local indexOk, indexErr =
+      validateIndex(controller.sequenceIndex, #assert(profile.sequence), "controller sequence index")
+    if not indexOk then
+      return nil, indexErr
+    end
+    for _, key in ipairs({ "rotationIndex", "shuttleDirection", "spinMode", "spinIndex" }) do
+      local fieldOk, fieldErr = rejectField(controller, key, "controller")
+      if not fieldOk then
+        return nil, fieldErr
+      end
+    end
+  elseif kind == "rotate" then
+    if controller.rotationIndex == nil then
+      return fail("controller rotation index is required")
+    end
+    local indexOk, indexErr =
+      validateIndex(controller.rotationIndex, #assert(profile.sequence), "controller rotation index")
+    if not indexOk then
+      return nil, indexErr
+    end
+    for _, key in ipairs({ "sequenceIndex", "shuttleDirection", "spinMode", "spinIndex" }) do
+      local fieldOk, fieldErr = rejectField(controller, key, "controller")
+      if not fieldOk then
+        return nil, fieldErr
+      end
+    end
+  elseif kind == "spin" then
+    if controller.spinMode ~= "clockwise" and controller.spinMode ~= "counterclockwise" then
+      return fail("controller spin mode is invalid")
+    end
+    if controller.spinIndex == nil then
+      return fail("controller spin index is required")
+    end
+    local sequence = controller.spinMode == "clockwise" and assert(profile.clockwiseSequence)
+      or assert(profile.counterclockwiseSequence)
+    local indexOk, indexErr = validateIndex(controller.spinIndex, #sequence, "controller spin index")
+    if not indexOk then
+      return nil, indexErr
+    end
+    for _, key in ipairs({ "sequenceIndex", "rotationIndex", "shuttleDirection" }) do
+      local fieldOk, fieldErr = rejectField(controller, key, "controller")
+      if not fieldOk then
+        return nil, fieldErr
+      end
+    end
+  elseif kind == "shuttle" then
+    if not DIRECTIONS[controller.shuttleDirection] then
+      return fail("controller shuttle direction is invalid")
+    end
+    for _, key in ipairs({ "sequenceIndex", "rotationIndex", "spinMode", "spinIndex" }) do
+      local fieldOk, fieldErr = rejectField(controller, key, "controller")
+      if not fieldOk then
+        return nil, fieldErr
+      end
+    end
+  else
+    for _, key in ipairs({ "sequenceIndex", "rotationIndex", "shuttleDirection", "spinMode", "spinIndex" }) do
+      local fieldOk, fieldErr = rejectField(controller, key, "controller")
+      if not fieldOk then
+        return nil, fieldErr
+      end
+    end
   end
   if controller.pendingMovementType ~= nil and not FieldObjectMovement.isType(controller.pendingMovementType) then
     return fail("controller pending movement type is invalid")
+  end
+  if controller.pendingMovementType ~= nil and not hasAction then
+    return fail("controller pending movement type requires an active action")
   end
   return copy(controller)
 end
@@ -150,10 +226,7 @@ local function validateAction(action)
   if not destination then
     return nil, destinationErr
   end
-  if not integer(action.durationTicks) or action.durationTicks <= 0 then
-    return fail("action duration is invalid")
-  end
-  if not integer(action.progressTicks) or action.progressTicks < 0 or action.progressTicks >= action.durationTicks then
+  if not integer(action.progressTicks) or action.progressTicks < 0 or action.progressTicks >= AUTONOMOUS_STEP_TICKS then
     return fail("action progress is invalid")
   end
   return {
@@ -162,7 +235,6 @@ local function validateAction(action)
     direction = action.direction,
     start = start,
     destination = destination,
-    durationTicks = action.durationTicks,
     progressTicks = action.progressTicks,
   }
 end
@@ -189,16 +261,20 @@ local function validateActor(actor, key)
   if not FACINGS[actor.facing] then
     return fail("actor facing is invalid")
   end
-  if actor.cellKey == nil or actor.sourceSurfaceId == nil then
-    return fail("actor source surface identity is required")
+  local hasCell = actor.cellKey ~= nil
+  local hasSurface = actor.sourceSurfaceId ~= nil
+  if hasCell ~= hasSurface then
+    return fail("actor cell key and source surface id must be present together")
   end
-  if type(actor.cellKey) ~= "string" or actor.cellKey == "" then
-    return fail("actor cell key is invalid")
+  if hasCell then
+    if type(actor.cellKey) ~= "string" or actor.cellKey == "" then
+      return fail("actor cell key is invalid")
+    end
+    if not integer(actor.sourceSurfaceId) or actor.sourceSurfaceId < 0 then
+      return fail("actor source surface id is invalid")
+    end
   end
-  if not integer(actor.sourceSurfaceId) or actor.sourceSurfaceId < 0 then
-    return fail("actor source surface id is invalid")
-  end
-  local controller, controllerErr = validateController(actor.controller, actor.movementType)
+  local controller, controllerErr = validateController(actor.controller, actor.movementType, actor.action ~= nil)
   if not controller then
     return nil, controllerErr
   end
@@ -208,6 +284,15 @@ local function validateActor(actor, key)
     action, actionErr = validateAction(actor.action)
     if not action then
       return nil, actionErr
+    end
+    if not hasCell then
+      return fail("active autonomous action requires actor source surface identity")
+    end
+    if action.start.fieldX ~= actor.fieldX or action.start.fieldZ ~= actor.fieldZ then
+      return fail("action start does not match actor position")
+    end
+    if action.start.cellKey ~= actor.cellKey or action.start.sourceSurfaceId ~= actor.sourceSurfaceId then
+      return fail("action start does not match actor source surface identity")
     end
   end
   local result = copy(actor)
