@@ -398,6 +398,32 @@ function T.deferred_movement_type_capture_keeps_effective_profile_and_pending_ty
   mgr:dispose()
 end
 
+function T.preempting_autonomy_applies_deferred_movement_type_before_scripted_action()
+  local actorId = "map:61:object:0"
+  local mgr = manager({ object({ movementType = "wander_north_south", xRange = -1, yRange = -1 }) })
+  for tick = 1, 32 do
+    mgr:step(tick)
+    if not mgr:isPausable(actorId) then
+      break
+    end
+  end
+  Assert.isFalse(mgr:isPausable(actorId))
+
+  mgr:setMovementType(actorId, "look_north")
+  mgr:beginScriptedAction(actorId, { action = "walk", direction = "east", speed = "normal" })
+  mgr:advanceScriptedAction(actorId, 8, 8)
+  mgr:commitScriptedAction(actorId)
+
+  local captured = mgr:captureObjects()
+  local validated, validationErr = FieldObjectSave.validate(captured)
+  Assert.notNil(validated, tostring(validationErr))
+  local record = captured.actors[actorId]
+  Assert.equal(record.movementType, "look_north")
+  Assert.isNil(record.controller.pendingMovementType)
+  Assert.equal(assert(mgr:getById(actorId)).movementType, "look_north")
+  mgr:dispose()
+end
+
 function T.failed_autonomy_attachment_rolls_back_actor_indexes_and_occupancy()
   local assets = fakeAssets({ [99] = true })
   local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })

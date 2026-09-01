@@ -186,9 +186,9 @@ end
 function FieldObjectActor:beginAction(descriptor, owner)
   assert(owner == "script" or owner == "autonomous", "field actor action owner is invalid")
   assert(self._motion == nil, "field actor already has an active action")
-  -- descriptor: { action, direction, distance, speed, start, dest, durationTicks, name, count }
+  -- descriptor: { action, direction, distance, speed, start, dest, durationTicks, name }
   -- `name` is the decoded semantic emote kind (e.g. "exclamation"); present
-  -- only when action == "emote". `count` is the source repetition count.
+  -- only when action == "emote".
   local start = descriptor.start
   local dest = descriptor.dest
   self._motion = {

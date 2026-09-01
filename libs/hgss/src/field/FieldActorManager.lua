@@ -157,7 +157,6 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field new fun(opts: FieldActorManagerOptions): FieldActorManager
 ---@class FieldActorManager.Actor: FieldObjectActor
 ---@field movementType string
----@field scriptMovementType string?
 ---@field animationPaused boolean?
 
 ---@class FieldActorManager.Entry
@@ -883,7 +882,6 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
       local actor, record = plan.actor, plan.record
       actor:setPosition(plan.projection)
       actor:setFacing(record.facing)
-      actor.scriptMovementType = record.movementType
       actor.movementType = record.movementType
       self.autonomy:restore(actorId, record.movementType, record.controller)
       restoredActors[#restoredActors + 1] = actor
@@ -1342,7 +1340,6 @@ function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
   entry.autonomousActions[actor.actorId] = nil
   self.autonomy:applyPendingMovementType(actor.actorId)
   local autonomyState = self.autonomy:state(actor.actorId)
-  actor.scriptMovementType = autonomyState.movementType
   actor.movementType = autonomyState.movementType
   if autonomyState.profile.kind == "pattern" or autonomyState.profile.kind == "shuttle" then
     entry.autonomousPresentationCarry[actor.actorId] = true
@@ -1855,11 +1852,9 @@ function FieldActorManager:setMovementType(actorId, movementType)
   assert(FieldObjectMovement.isType(movementType), "unknown field object movement type " .. tostring(movementType))
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
   if entry.autonomousActions[actorId] ~= nil then
-    actor.scriptMovementType = movementType
     self.autonomy:setMovementType(actorId, movementType, true)
     return
   end
-  actor.scriptMovementType = movementType
   actor.movementType = movementType
   self.autonomy:setMovementType(actorId, movementType)
 end
@@ -1983,6 +1978,8 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     entry.reservations[autonomousAction.reservationKey] = nil
     entry.autonomousActions[actorId] = nil
     actor:cancelAction()
+    self.autonomy:applyPendingMovementType(actorId)
+    actor.movementType = self.autonomy:state(actorId).movementType
   end
   local kind = action.action
   -- Face is instantaneous: apply the facing directly, then still flow
@@ -2056,9 +2053,6 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     -- The decoded semantic emote kind (e.g. "exclamation"); only meaningful
     -- when kind == "emote".
     name = action.name,
-    -- Source repetition count; only meaningful for `face`. Not used by any
-    -- other action kind.
-    count = action.count,
   })
 end
 
