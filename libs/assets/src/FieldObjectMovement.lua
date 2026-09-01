@@ -88,7 +88,12 @@ local PROFILES = {
   look_west_east = randomProfile("look", { "west", "east" }, true),
   null_slot = { kind = "special", special = "null" },
   follow_player = { kind = "special", special = "follower" },
-  vs_seeker_spin = { kind = "spin" },
+  vs_seeker_spin = {
+    kind = "spin",
+    spinInterval = 24,
+    clockwiseSequence = { "north", "east", "south", "west" },
+    counterclockwiseSequence = { "north", "west", "south", "east" },
+  },
   follow_partner = { kind = "special", special = "partner" },
   disguise_snow = { kind = "special", special = "disguise" },
   disguise_sand = { kind = "special", special = "disguise" },
@@ -110,9 +115,9 @@ local VALID_KINDS = {
   special = true,
 }
 
-local function assertArray(name, values, expectedLength)
+local function assertArray(name, values)
   assert(type(values) == "table", name .. " must be an array")
-  assert(#values == expectedLength, name .. " has the wrong length")
+  assert(#values > 0, name .. " must not be empty")
   local seen = {}
   for _, direction in ipairs(values) do
     assert(VALID_DIRECTIONS[direction], name .. " contains an invalid direction")
@@ -134,10 +139,21 @@ for name, profile in pairs(PROFILES) do
   assert(type(name) == "string" and #name > 0, "movement profile names must be non-empty strings")
   assert(VALID_KINDS[profile.kind], "unknown movement profile kind for " .. name)
   if profile.directions ~= nil then
-    assertArray(name .. ".directions", profile.directions, #profile.directions)
+    assertArray(name .. ".directions", profile.directions)
   end
   if profile.sequence ~= nil then
-    assertArray(name .. ".sequence", profile.sequence, #profile.sequence)
+    assertArray(name .. ".sequence", profile.sequence)
+  end
+  if profile.kind == "spin" then
+    assert(type(profile.spinInterval) == "number" and profile.spinInterval % 1 == 0, name .. ".spinInterval is invalid")
+    assertArray(name .. ".clockwiseSequence", profile.clockwiseSequence)
+    assert(#profile.clockwiseSequence == 4, name .. ".clockwiseSequence must contain four directions")
+    assertArray(name .. ".counterclockwiseSequence", profile.counterclockwiseSequence)
+    assert(#profile.counterclockwiseSequence == 4, name .. ".counterclockwiseSequence must contain four directions")
+  else
+    assert(profile.spinInterval == nil, name .. " has an unexpected spin interval")
+    assert(profile.clockwiseSequence == nil, name .. " has an unexpected clockwise sequence")
+    assert(profile.counterclockwiseSequence == nil, name .. " has an unexpected counterclockwise sequence")
   end
   if profile.fixedFacing ~= nil then
     assert(VALID_DIRECTIONS[profile.fixedFacing], name .. ".fixedFacing is invalid")

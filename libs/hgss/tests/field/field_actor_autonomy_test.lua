@@ -39,8 +39,7 @@ local function capability(overrides)
   local result = {
     fieldX = 4,
     fieldZ = 5,
-    surfaceId = 1,
-    worldY = 0,
+    positionYBand = 0,
     setFacing = function(_, actorId, direction)
       calls.facing[#calls.facing + 1] = { actorId = actorId, direction = direction }
     end,
@@ -83,15 +82,14 @@ function T.fixed_rotation_and_spin_profiles_do_not_translate()
 
   autonomy:attach("spin", "vs_seeker_spin", actorEvent("vs_seeker_spin"))
   local spin = capability()
-  autonomy:step("spin", spin)
-  Assert.equal(spin.calls.facing[1].direction, "east")
   Assert.equal(#spin.calls.walks, 0)
-  for _ = 1, 3 do
+  for _ = 1, 23 do
     autonomy:step("spin", spin)
   end
-  Assert.equal(#spin.calls.facing, 1)
+  Assert.equal(#spin.calls.facing, 0)
   autonomy:step("spin", spin)
-  Assert.equal(spin.calls.facing[2].direction, "south")
+  Assert.equal(spin.calls.facing[1].direction, "west")
+  Assert.equal(autonomy:state("spin").timer, 24)
 end
 
 function T.rotation_and_sequence_profiles_preserve_order_and_retry_once()
@@ -136,21 +134,63 @@ function T.rotation_and_sequence_profiles_preserve_order_and_retry_once()
 end
 
 function T.nearby_player_facing_requires_source_gates_and_allowed_direction()
-  local autonomy = FieldActorAutonomy.new({ rng = rng({ 0, 0 }) })
+  local autonomy = FieldActorAutonomy.new({ rng = rng({ 1, 1, 1, 1 }) })
   autonomy:attach("actor", "look_north_south", actorEvent("look_north_south", { type = 1, param0 = 2 }))
-  local near = capability({ player = { fieldX = 4, fieldZ = 4, surfaceId = 1, worldY = 0 } })
+  local near = capability({ player = { fieldX = 4, fieldZ = 4, positionYBand = 0, surfaceId = 2 } })
   autonomy:step("actor", near)
   Assert.equal(near.calls.facing[1].direction, "north")
 
-  local far = capability({ player = { fieldX = 4, fieldZ = 8, surfaceId = 1, worldY = 0 } })
+  local far = capability({ player = { fieldX = 4, fieldZ = 8, positionYBand = 0, surfaceId = 1 } })
   autonomy:setMovementType("actor", "look_north_south")
   autonomy:step("actor", far)
-  Assert.equal(far.calls.facing[1].direction, "north")
+  Assert.equal(far.calls.facing[1].direction, "south")
 
-  local wrongSurface = capability({ player = { fieldX = 4, fieldZ = 4, surfaceId = 2, worldY = 0 } })
+  local wrongBand = capability({ player = { fieldX = 4, fieldZ = 4, positionYBand = 1, surfaceId = 1 } })
   autonomy:setMovementType("actor", "look_north_south")
-  autonomy:step("actor", wrongSurface)
-  Assert.equal(wrongSurface.calls.facing[1].direction, "north")
+  autonomy:step("actor", wrongBand)
+  Assert.equal(wrongBand.calls.facing[1].direction, "south")
+end
+
+function T.vs_seeker_spin_alternates_source_cycles_only_after_each_full_turn()
+  local autonomy = FieldActorAutonomy.new({ rng = rng({ 0 }) })
+  autonomy:attach("spin", "vs_seeker_spin", actorEvent("vs_seeker_spin", { facingDirection = "north" }))
+  local spin = capability()
+
+  for _ = 1, 24 do
+    autonomy:step("spin", spin)
+  end
+  Assert.deepEqual(spin.calls.facing, { { actorId = "spin", direction = "east" } })
+  Assert.equal(autonomy:state("spin").spinMode, "clockwise")
+
+  for _ = 1, 72 do
+    autonomy:step("spin", spin)
+  end
+  Assert.deepEqual(spin.calls.facing, {
+    { actorId = "spin", direction = "east" },
+    { actorId = "spin", direction = "south" },
+    { actorId = "spin", direction = "west" },
+    { actorId = "spin", direction = "north" },
+    { actorId = "spin", direction = "west" },
+  })
+  Assert.equal(autonomy:state("spin").spinMode, "counterclockwise")
+end
+
+function T.vs_seeker_spin_starts_from_a_non_north_initial_facing()
+  local autonomy = FieldActorAutonomy.new({ rng = rng({ 0 }) })
+  autonomy:attach("spin", "vs_seeker_spin", actorEvent("vs_seeker_spin", { facingDirection = "east" }))
+  local spin = capability()
+
+  for _ = 1, 96 do
+    autonomy:step("spin", spin)
+  end
+  Assert.deepEqual(spin.calls.facing, {
+    { actorId = "spin", direction = "south" },
+    { actorId = "spin", direction = "west" },
+    { actorId = "spin", direction = "north" },
+    { actorId = "spin", direction = "east" },
+    { actorId = "spin", direction = "north" },
+  })
+  Assert.equal(autonomy:state("spin").spinMode, "counterclockwise")
 end
 
 function T.special_profiles_suspend_and_type_changes_reset_or_defer_state()

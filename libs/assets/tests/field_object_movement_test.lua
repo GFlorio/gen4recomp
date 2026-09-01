@@ -193,7 +193,12 @@ function T.fixed_rotation_and_pattern_profiles_preserve_ordered_behavior_facts()
     Assert.deepEqual(profile.sequence, sequence, name)
   end
   Assert.equal(FieldObjectMovement.require("walk_back_and_forth").kind, "shuttle")
-  Assert.equal(FieldObjectMovement.require("vs_seeker_spin").kind, "spin")
+  Assert.deepEqual(FieldObjectMovement.require("vs_seeker_spin"), {
+    kind = "spin",
+    spinInterval = 24,
+    clockwiseSequence = { "north", "east", "south", "west" },
+    counterclockwiseSequence = { "north", "west", "south", "east" },
+  })
 end
 
 function T.special_profiles_are_classified_and_lookup_results_are_copy_safe()

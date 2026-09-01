@@ -30,6 +30,8 @@ function T.object_events_and_generated_records_use_catalog_movement_types(romFs)
         record.events.objects[index].movementType,
         require("romdump.src.digest.HgssObjectMovement").semanticType(object.movement)
       )
+      Assert.equal(record.events.objects[index].xRange, object.xRange, "map " .. mapId .. " source/generated x range")
+      Assert.equal(record.events.objects[index].yRange, object.yRange, "map " .. mapId .. " source/generated y range")
     end
   end
 end

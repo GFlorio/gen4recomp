@@ -101,6 +101,15 @@ function T.decodes_every_field_and_preserves_zero_based_indexes()
   })
 end
 
+function T.preserves_the_signed_unbounded_range_sentinel()
+  local source = fixture()
+  source.objectEvents[1].xRange = -1
+  source.objectEvents[1].yRange = -1
+  local result = assert(ZoneEvents.decode(Builder.build(source)))
+  Assert.equal(result.objectEvents[1].xRange, -1)
+  Assert.equal(result.objectEvents[1].yRange, -1)
+end
+
 function T.supports_all_zero_counts()
   local bytes = Builder.build()
   local result = assert(ZoneEvents.decode(bytes))

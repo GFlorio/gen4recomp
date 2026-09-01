@@ -13,8 +13,6 @@ local FieldActorAutonomy = {}
 FieldActorAutonomy.__index = FieldActorAutonomy
 
 local OPPOSITE = { north = "south", south = "north", west = "east", east = "west" }
-local WAIT_CHOICES = { 16, 32, 48, 64 }
-local ROTATION_INTERVAL = 24
 
 local function copy(value)
   if type(value) ~= "table" then
@@ -37,7 +35,7 @@ local function directionIndex(directions, direction)
 end
 
 local function wait(rng, profile)
-  local choices = profile.waitChoices or WAIT_CHOICES
+  local choices = assert(profile.waitChoices, "movement profile wait choices are required")
   return choices[rng:nextInt(#choices) + 1]
 end
 
@@ -54,10 +52,13 @@ local function playerDirection(state, capability)
   if math.abs(player.fieldX - state.fieldX) > radius or math.abs(player.fieldZ - state.fieldZ) > radius then
     return nil
   end
-  if player.surfaceId ~= nil and state.surfaceId ~= nil and player.surfaceId ~= state.surfaceId then
-    return nil
-  end
-  if player.worldY ~= nil and state.worldY ~= nil and math.abs(player.worldY - state.worldY) > 1.25 then
+  if
+    type(player.positionYBand) ~= "number"
+    or player.positionYBand % 1 ~= 0
+    or type(state.positionYBand) ~= "number"
+    or state.positionYBand % 1 ~= 0
+    or player.positionYBand ~= state.positionYBand
+  then
     return nil
   end
 
@@ -88,6 +89,13 @@ local function resetState(state, movementType, profile)
   state.rotationIndex = directionIndex(profile.sequence or {}, state.initialFacing)
   state.shuttleDirection = state.initialFacing
   state.blocked = false
+  state.spinMode = nil
+  state.spinIndex = nil
+  if profile.kind == "spin" then
+    state.spinMode = "clockwise"
+    state.spinIndex = directionIndex(assert(profile.clockwiseSequence), state.initialFacing)
+    state.timer = assert(profile.spinInterval)
+  end
 end
 
 ---@class FieldActorAutonomyOptions
@@ -117,8 +125,6 @@ function FieldActorAutonomy:attach(actorId, movementType, sourceEvent)
     initialFacing = sourceEvent.facingDirection,
     fieldX = sourceEvent.x,
     fieldZ = sourceEvent.z,
-    surfaceId = nil,
-    worldY = sourceEvent.y / 16,
     timer = 0,
     sequenceIndex = 1,
     rotationIndex = 1,
@@ -180,6 +186,8 @@ function FieldActorAutonomy:capture(actorId)
     shuttleDirection = state.shuttleDirection,
     blocked = state.blocked,
     pendingMovementType = state.pendingMovementType,
+    spinMode = state.spinMode,
+    spinIndex = state.spinIndex,
   }
 end
 
@@ -199,6 +207,23 @@ function FieldActorAutonomy:restore(actorId, movementType, controller)
   state.shuttleDirection = controller.shuttleDirection or state.shuttleDirection
   state.blocked = controller.blocked == true
   state.pendingMovementType = controller.pendingMovementType
+  if profile.kind == "spin" then
+    assert(controller.spinMode == "clockwise" or controller.spinMode == "counterclockwise", "spin mode is invalid")
+    local sequence = controller.spinMode == "clockwise" and assert(profile.clockwiseSequence)
+      or assert(profile.counterclockwiseSequence)
+    assert(
+      type(controller.spinIndex) == "number"
+        and controller.spinIndex % 1 == 0
+        and controller.spinIndex >= 1
+        and controller.spinIndex <= #sequence,
+      "spin index is invalid"
+    )
+    state.spinMode = controller.spinMode
+    state.spinIndex = controller.spinIndex
+  else
+    state.spinMode = nil
+    state.spinIndex = nil
+  end
 end
 
 ---@return table
@@ -246,7 +271,7 @@ local function stepRotate(_, state, capability)
   state.rotationIndex = state.rotationIndex % #sequence + 1
   local direction = playerDirection(state, capability) or sequence[state.rotationIndex]
   capability:setFacing(state.actorId, direction)
-  state.timer = state.profile.rotationInterval or ROTATION_INTERVAL
+  state.timer = assert(state.profile.rotationInterval, "rotation interval is required")
 end
 
 local function stepPattern(state, capability)
@@ -281,15 +306,25 @@ local function stepShuttle(state, capability)
 end
 
 local function stepSpin(state, capability)
-  -- The slot-49 controller is a four-facing, non-translating spin. Its
-  -- handler advances one quarter turn every four field updates.
+  local profile = state.profile
+  local interval = assert(profile.spinInterval, "spin interval is required")
   state.timer = state.timer - 1
   if state.timer > 0 then
     return
   end
-  state.timer = 4
-  state.rotationIndex = state.rotationIndex % 4 + 1
-  capability:setFacing(state.actorId, ({ "north", "east", "south", "west" })[state.rotationIndex])
+  state.timer = interval
+  local sequence = state.spinMode == "clockwise" and assert(profile.clockwiseSequence)
+    or assert(profile.counterclockwiseSequence)
+  state.spinIndex = state.spinIndex % #sequence + 1
+  local direction = sequence[state.spinIndex]
+  capability:setFacing(state.actorId, direction)
+  if direction == state.initialFacing then
+    state.spinMode = state.spinMode == "clockwise" and "counterclockwise" or "clockwise"
+    sequence = state.spinMode == "clockwise" and assert(profile.clockwiseSequence)
+      or assert(profile.counterclockwiseSequence)
+    state.spinIndex = directionIndex(sequence, direction) % #sequence + 1
+    capability:setFacing(state.actorId, sequence[state.spinIndex])
+  end
 end
 
 ---@param actorId string
@@ -298,8 +333,7 @@ function FieldActorAutonomy:step(actorId, capability)
   local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
   state.fieldX = assert(capability.fieldX)
   state.fieldZ = assert(capability.fieldZ)
-  state.surfaceId = capability.surfaceId
-  state.worldY = capability.worldY
+  state.positionYBand = capability.positionYBand
   if state.profile.kind == "special" then
     return
   elseif state.profile.kind == "stationary" then

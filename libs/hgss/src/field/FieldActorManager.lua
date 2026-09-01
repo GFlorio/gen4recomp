@@ -55,6 +55,8 @@ local PARTNER_OBJECT_ID = 253
 ---@field x integer
 ---@field z integer
 ---@field y integer
+---@field xRange integer
+---@field yRange integer
 ---@field solid boolean?
 
 ---@class FieldActorEventCollections
@@ -194,6 +196,14 @@ FieldActorManager.__index = FieldActorManager
 
 -- Raw event Y is a 1/16-unit fixed-point hint, matching the field event decoder.
 local EVENT_Y_UNITS = 16
+
+-- MapObject_GetPositionVectorYCoordUInt shifts the source model Y by /8 and
+-- then converts it to FX32 tiles. Runtime world Y is already normalized to
+-- 16 model units per tile, so two source bands fit in one runtime tile.
+local function sourcePositionYBand(worldY)
+  local scaled = worldY * 2
+  return scaled < 0 and math.ceil(scaled) or math.floor(scaled)
+end
 
 -- The terrain-surface failure codes an actor construction can recover from,
 -- mapped to the actor-scoped codes the script world observes. A structured
@@ -1043,6 +1053,12 @@ local AUTONOMOUS_DELTAS = {
   east = { x = 1, z = 0 },
 }
 
+local function withinSourceRange(destination, origin, range)
+  assert(type(range) == "number" and range % 1 == 0, "HGSS movement range must be an integer")
+  assert(range >= -1, "HGSS movement range below -1")
+  return range == -1 or math.abs(destination - origin) <= range
+end
+
 local function movementErrorIsBlocked(err)
   if not Errors.is(err) then
     return false
@@ -1082,8 +1098,11 @@ local function resolveAutonomousDestination(self, entry, actor, direction, conte
   local delta = assert(AUTONOMOUS_DELTAS[direction], "unknown autonomous direction " .. tostring(direction))
   local fieldX, fieldZ = actor.fieldX + delta.x, actor.fieldZ + delta.z
   local event = actor.sourceEvent
-  local xRange, zRange = event.xRange or 0, event.yRange or 0
-  if (xRange ~= 0 and math.abs(fieldX - event.x) > xRange) or (zRange ~= 0 and math.abs(fieldZ - event.z) > zRange) then
+  local xRange = assert(event.xRange, "actor source X range is required")
+  local zRange = assert(event.yRange, "actor source Z range is required")
+  local withinX = withinSourceRange(fieldX, event.x, xRange)
+  local withinZ = withinSourceRange(fieldZ, event.z, zRange)
+  if not withinX or not withinZ then
     return nil
   end
 
@@ -1254,6 +1273,16 @@ function FieldActorManager:step(tick, context)
     self.eventState:setTick(tick)
   end
   self:syncEventStateChanges()
+  local playerFacts
+  if context.player then
+    playerFacts = {}
+    for key, value in pairs(context.player) do
+      playerFacts[key] = value
+    end
+    if context.player.worldY ~= nil then
+      playerFacts.positionYBand = sourcePositionYBand(context.player.worldY)
+    end
+  end
   for _, mapId in ipairs(sortedMapIds(self.maps)) do
     local entry = assert(self.maps[mapId])
     for _, actor in ipairs(entry.order) do
@@ -1292,8 +1321,9 @@ function FieldActorManager:step(tick, context)
             fieldZ = actor.fieldZ,
             surfaceId = actor.surfaceId,
             worldY = actor.worldY,
+            positionYBand = actor.worldY ~= nil and sourcePositionYBand(actor.worldY) or nil,
             facingOverride = actor.interactionFacingOverride ~= nil,
-            player = context.player,
+            player = playerFacts,
             setFacing = setFacing,
             walk = walk,
           }

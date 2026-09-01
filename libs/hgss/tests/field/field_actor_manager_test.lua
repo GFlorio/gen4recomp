@@ -169,6 +169,24 @@ local function isOccupied(mgr, mapId, fieldX, fieldZ, surfaceId, exceptActorId)
   return mgr:isOccupied(mapId, candidate(fieldX, fieldZ, surfaceId), exceptActorId)
 end
 
+local function forceAutonomy(mgr, direction, onStep)
+  mgr.autonomy = {
+    rng = {},
+    profiles = {},
+    states = {},
+    isOrdinary = function()
+      return true
+    end,
+    detach = function() end,
+    step = function(_, actorId, capability)
+      if onStep then
+        onStep(capability)
+      end
+      capability:walk(actorId, direction)
+    end,
+  }
+end
+
 local function stableCandidate(fieldX, fieldZ, surfaceId, cellKey, sourceSurfaceId)
   return {
     fieldX = fieldX,
@@ -228,7 +246,7 @@ end
 
 function T.deferred_movement_type_capture_keeps_effective_profile_and_pending_type_distinct()
   local actorId = "map:61:object:0"
-  local mgr = manager({ object({ movementType = "wander_north_south" }) })
+  local mgr = manager({ object({ movementType = "wander_north_south", xRange = -1, yRange = -1 }) })
   local actor = assert(mgr:getById(actorId))
   mgr:step(1)
   Assert.isFalse(mgr:isPausable(actorId))
@@ -1221,6 +1239,67 @@ function T.pose_clock_advances_only_for_visible_actors()
   -- A restored actor starts a fresh pose clock rather than resuming a hidden one.
   mgr:step(4)
   Assert.equal(mgr:getById("map:61:object:0").poseTick, 1)
+end
+
+function T.autonomous_range_uses_signed_source_origin_bounds()
+  local function attempts(overrides, direction, reposition)
+    local mgr = manager({ object(overrides) })
+    local actor = assert(mgr:getById("map:61:object:0"))
+    if reposition then
+      reposition(mgr)
+    end
+    local count = 0
+    forceAutonomy(mgr, direction, function()
+      count = count + 1
+    end)
+    mgr:step(1)
+    local action = mgr.maps[61].autonomousActions[actor.actorId]
+    mgr:dispose()
+    return count, action ~= nil
+  end
+
+  local _, xZeroAccepted = attempts({ movementType = "wander_around", xRange = 0, yRange = -1 }, "east")
+  Assert.isFalse(xZeroAccepted, "zero X range must keep the actor at its source X")
+
+  local _, zZeroAccepted = attempts({ movementType = "wander_around", xRange = -1, yRange = 0 }, "south")
+  Assert.isFalse(zZeroAccepted, "zero Z range must keep the actor at its source Z")
+
+  local _, boundaryAccepted = attempts({ movementType = "wander_around", xRange = 1, yRange = -1 }, "east")
+  Assert.isTrue(boundaryAccepted, "a positive range includes its exact source-origin boundary")
+
+  local _, pastBoundaryAccepted = attempts(
+    { movementType = "wander_around", xRange = 1, yRange = -1 },
+    "east",
+    function(mgr)
+      mgr:setPosition("map:61:object:0", { fieldX = 3, fieldZ = 3 })
+    end
+  )
+  Assert.isFalse(pastBoundaryAccepted, "a positive range rejects the tile past its boundary")
+
+  Assert.throws(function()
+    attempts({ movementType = "wander_around", xRange = -2, yRange = -1 }, "east")
+  end)
+  Assert.throws(function()
+    attempts({ movementType = "wander_around", xRange = -1, yRange = -2 }, "south")
+  end)
+end
+
+function T.autonomy_capability_uses_truncated_source_y_bands()
+  local mgr = manager({ object({ movementType = "look_north" }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  actor.worldY = 1.25
+  local player = { fieldX = 4, fieldZ = 4, worldY = -0.75, surfaceId = 999 }
+  local observed
+  forceAutonomy(mgr, "north", function(capability)
+    observed = capability
+  end)
+
+  mgr:step(1, { player = player })
+
+  Assert.equal(observed.positionYBand, 2, "positive normalized Y uses truncation toward zero")
+  Assert.equal(observed.player.positionYBand, -1, "negative normalized Y uses truncation toward zero")
+  Assert.isNil(player.positionYBand, "deriving the band must not mutate caller-owned player facts")
+  mgr:dispose()
 end
 
 function T.draw_records_are_presentation_neutral()
