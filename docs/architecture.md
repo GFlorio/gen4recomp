@@ -13,10 +13,11 @@ this positive package graph and rejects unknown first-party targets:
 libs/assets ──► codec, errors, math
 libs/nds ─────► codec, errors, math
 libs/script ──► assets, codec, errors, math, storage
-libs/hgss ────► nds, script, assets, codec, errors, math, storage
+libs/ui ──────► (none)
+libs/hgss ────► ui, nds, script, assets, codec, errors, math, storage
 romdump ──────► nds, script, assets, codec, errors, math, storage
 game ─────────► codec, errors, math, storage
-game/hgss ────► game, hgss, assets, script, codec, errors, math, storage
+game/hgss ────► game, hgss, ui, assets, script, codec, errors, math, storage
 app ──────────► game, game/hgss, errors
 app ── provisioning only ──► romdump
 ```
@@ -33,7 +34,8 @@ the only runtime path that reaches `romdump`, and only for ROM provisioning.
 | Process and provisioning | `app/` | LÖVE callbacks, launcher, version selection, file drops, cache routing, and process exit |
 | Generic game host | `game/src/` | state lifecycle, host adapters, resize, input forwarding, and exit notification |
 | HGSS product | `game/hgss/` | menu, New Game/Oak, field composition, saves, application audio, and developer preview |
-| HGSS mechanisms | `libs/hgss/` | reusable field, script adapters, audio, presentation, UI, and save behavior |
+| HGSS mechanisms | `libs/hgss/` | reusable field, script adapters, audio, presentation, and save behavior |
+| Generic UI mechanisms | `libs/ui/` | game-independent, LÖVE-independent UI mechanisms |
 | Mod scripting | `libs/script/` | the `gen4.script` runtime, composition, scheduling, and persistence |
 | Nintendo formats | `libs/nds/` | reusable DS, Nitro, NNS, graphics, and renderer mechanisms |
 | Asset contracts | `libs/assets/` | generated schemas, cache paths/readiness, validation, and mod-facing text forms |
@@ -63,6 +65,7 @@ libs/errors/  structured errors
 libs/math/    fixed-point and matrix primitives
 libs/nds/     Nintendo DS/Nitro/NNS mechanisms
 libs/script/  mod scripting platform
+libs/ui/      game-independent UI mechanisms
 libs/hgss/    recreated HGSS mechanisms
 data/         game-owned manifests and scripts
 tests/        runner, ROM, acceptance, and graphics suites

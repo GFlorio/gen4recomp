@@ -2,7 +2,7 @@
 -- pointer capture while leaving message resolution, layout, rendering, and
 -- physical input mapping to its callers.
 
-local Selection = require("libs.hgss.src.ui.Selection")
+local Selection = require("libs.ui.src.Selection")
 
 ---@class FieldMenuController
 ---@field _items table<integer, FieldMenuController.Item>

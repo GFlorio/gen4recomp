@@ -5,7 +5,7 @@
 
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakGreetingPolicy = require("game.hgss.src.newgame.OakGreetingPolicy")
-local Selection = require("libs.hgss.src.ui.Selection")
+local Selection = require("libs.ui.src.Selection")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class OakIntroControllerOptions
