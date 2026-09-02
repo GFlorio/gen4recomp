@@ -207,7 +207,8 @@ end
 local function enterGenderSelection(state)
   Assert.equal(state:view().phase, "gender_question")
   finishDialogueBoundary(state)
-  if state:view().phase == "gender_composition_transition" then
+  local phase = state:view().phase
+  if phase == "gender_composition_transition" or phase == "name_composition_return" then
     state:tick(26)
   end
   Assert.equal(state:view().phase, "gender_select")
@@ -835,152 +836,18 @@ function T.tests.name_confirmation_keeps_question_and_vertical_navigation_throug
   end)
 end
 
-function T.tests.name_submission_moves_directly_into_left_composition_without_center_detour()
-  forEachReadyVersion(function(versionId)
-    for _, size in ipairs({ { 640, 480 }, { 390, 844 } }) do
-      withProductionOak(versionId, function(state)
-        advanceUntilMessage(state, "profile.gender_question")
-        enterGenderSelection(state)
-        state:keypressed("return")
-        finishDialogueBoundary(state)
-        state:keypressed("return")
-        finishDialogueBoundary(state)
-        advanceUntilPhase(state, "name_edit")
-        state:resize(size[1], size[2])
-        local genderView = state:view()
-        Assert.equal(
-          genderView.genderCompositionProgress,
-          1,
-          "gender composition must be established before name submit"
-        )
-        local genderSubject = assert(genderView.layout.subject)
-        state:textinput("GOLD")
-        state:keypressed("left")
-        state:keypressed("return")
-        local startView = state:view()
-        -- forward transition must start at gender placement with gender progress still 1
-        Assert.equal(startView.genderCompositionProgress, 1, "submitting name must not reduce gender progress")
-        local startSubject = assert(startView.layout.subject)
-        Assert.near(startSubject.x, genderSubject.x, 1e-4)
-        Assert.near(startSubject.y, genderSubject.y, 1e-4)
-        Assert.near(startSubject.scale, genderSubject.scale, 1e-6)
-        local previousProgress = 0
-        for _ = 1, 25 do
-          state:tick(1)
-          local view = state:view()
-          Assert.isTrue(view.genderCompositionProgress == 1, "gender progress must remain 1 through forward transition")
-          local progress = assert(view.nameCompositionProgress, "name composition progress must be exposed")
-          Assert.isTrue(progress > previousProgress, "name progress must strictly increase")
-          Assert.isTrue(progress > 0 and progress < 1)
-          previousProgress = progress
-          Assert.isTrue(view.phase ~= "name_confirm", "name_confirm must wait for transition")
-        end
-        state:tick(1)
-        local finished = state:view()
-        Assert.equal(finished.nameCompositionProgress, 1)
-        Assert.equal(finished.genderCompositionProgress, 1)
-        Assert.equal(finished.phase, "name_confirm")
-        local finalSubject = assert(finished.layout.subject)
-        -- finish the dialogue to observe the first stable name_confirm rectangle
-        finishDialogueBoundary(state)
-        local stable = state:view()
-        Assert.equal(stable.phase, "name_confirm")
-        local stableSubject = assert(stable.layout.subject)
-        Assert.near(finalSubject.x, stableSubject.x, 1e-4)
-        Assert.near(finalSubject.y, stableSubject.y, 1e-4)
-        Assert.near(finalSubject.scale, stableSubject.scale, 1e-6)
-        Assert.near(finalSubject.width, stableSubject.width, 1e-4)
-        Assert.near(finalSubject.height, stableSubject.height, 1e-4)
-      end)
-    end
-  end)
-end
-
-function T.tests.affirmative_name_answer_keeps_oak_in_left_placement()
-  forEachReadyVersion(function(versionId)
-    withProductionOak(versionId, function(state)
-      reachNameConfirmation(state)
-      local before = state:view()
-      local beforeSubject = assert(before.layout.subject)
-      local beforeOakRegion = assert(before.layout.oakRegion)
-      Assert.isTrue(before.phase == "name_confirm")
-      state:keypressed("return")
-      local after = state:view()
-      Assert.equal(after.phase, "final_dialogue")
-      local afterSubject = assert(after.layout.subject)
-      Assert.near(afterSubject.x, beforeSubject.x, 1e-4, "YES must not move Oak")
-      Assert.near(afterSubject.y, beforeSubject.y, 1e-4)
-      Assert.near(afterSubject.scale, beforeSubject.scale, 1e-6)
-      Assert.near(afterSubject.width, beforeSubject.width, 1e-4)
-      Assert.near(afterSubject.height, beforeSubject.height, 1e-4)
-      Assert.deepEqual(after.layout.oakRegion, beforeOakRegion)
-      Assert.equal(after.messageKey, "profile.final")
-      Assert.isTrue(after.dialoguePresentation ~= nil)
-    end)
-  end)
-end
-
-function T.tests.rejected_name_returns_smoothly_to_gender_composition()
-  forEachReadyVersion(function(versionId)
-    withProductionOak(versionId, function(state)
-      reachNameConfirmation(state)
-      local nameConfirmSubject = assert(state:view().layout.subject)
-      local nameConfirmOakRegion = assert(state:view().layout.oakRegion)
-      state:keypressed("down")
-      state:keypressed("return")
-      local rejected = state:view()
-      Assert.equal(rejected.phase, "gender_question")
-      Assert.equal(rejected.messageKey, "profile.gender_question")
-      local rejectedSubject = assert(rejected.layout.subject)
-      Assert.near(rejectedSubject.x, nameConfirmSubject.x, 1e-4, "rejected question must keep name-left placement")
-      Assert.near(rejectedSubject.y, nameConfirmSubject.y, 1e-4)
-      Assert.deepEqual(rejected.layout.oakRegion, nameConfirmOakRegion)
-      -- closing the repeated gender question must start return transition without consuming a frame
-      finishDialogueBoundary(state)
-      local transitionStart = state:view()
-      -- It should be in the return transition (or gender_composition_transition equivalent) with progress still 1
-      local startProgress = transitionStart.nameCompositionProgress
-      if startProgress ~= nil then
-        Assert.near(startProgress, 1, 1e-6, "return transition must start at 1 before ticking")
-      else
-        Assert.isTrue(transitionStart.genderCompositionProgress == 1, "gender progress must remain 1 at return start")
-      end
-      local startSubject = assert(transitionStart.layout.subject)
-      Assert.near(startSubject.x, nameConfirmSubject.x, 1e-4)
-      state:tick(1)
-      local afterOne = state:view()
-      local afterOneProgress = afterOne.nameCompositionProgress
-      if afterOneProgress ~= nil and startProgress ~= nil then
-        Assert.isTrue(afterOneProgress < startProgress, "return progress must decrease after first tick")
-      end
-      for _ = 1, 24 do
-        state:tick(1)
-      end
-      state:tick(1)
-      local finished = state:view()
-      Assert.equal(finished.phase, "gender_select")
-      if finished.nameCompositionProgress ~= nil then
-        Assert.equal(finished.nameCompositionProgress, 0)
-      end
-      Assert.equal(finished.genderCompositionProgress, 1)
-      local finishedSubject = assert(finished.layout.subject)
-      -- finished subject must equal the gender_select endpoint
-      state:tick(1)
-      local stable = state:view()
-      Assert.equal(stable.phase, "gender_select")
-      local stableSubject = assert(stable.layout.subject)
-      Assert.near(finishedSubject.x, stableSubject.x, 1e-4)
-      Assert.near(finishedSubject.y, stableSubject.y, 1e-4)
-      Assert.near(finishedSubject.scale, stableSubject.scale, 1e-6)
-    end)
-  end)
-end
-
-function T.tests.resize_preserves_transition_continuity()
+function T.tests.affirmative_name_flow_keeps_oak_continuous_from_gender_endpoint_through_final_dialogue()
   forEachReadyVersion(function(versionId)
     withProductionOak(versionId, function(state)
       advanceUntilMessage(state, "profile.gender_question")
       enterGenderSelection(state)
+      state:resize(640, 480)
+      local genderView = state:view()
+      Assert.equal(genderView.phase, "gender_select")
+      Assert.equal(genderView.genderCompositionProgress, 1)
+      local genderSubject = assert(genderView.layout.subject)
+      Assert.isTrue(genderSubject.x >= 0 and genderSubject.y >= 0)
+
       state:keypressed("return")
       finishDialogueBoundary(state)
       state:keypressed("return")
@@ -989,33 +856,138 @@ function T.tests.resize_preserves_transition_continuity()
       state:textinput("GOLD")
       state:keypressed("left")
       state:keypressed("return")
+      local startView = state:view()
+      Assert.equal(startView.phase, "name_composition_transition")
+      Assert.equal(startView.genderCompositionProgress, 1)
+      Assert.equal(startView.nameCompositionProgress, 0)
+      local startSubject = assert(startView.layout.subject)
+      Assert.near(startSubject.x, genderSubject.x, 1e-4)
+      Assert.near(startSubject.y, genderSubject.y, 1e-4)
+      Assert.near(startSubject.scale, genderSubject.scale, 1e-6)
+      Assert.near(startSubject.width, genderSubject.width, 1e-4)
+      Assert.near(startSubject.height, genderSubject.height, 1e-4)
+
       for _ = 1, 13 do
         state:tick(1)
       end
       local midView = state:view()
-      Assert.isTrue(midView.phase ~= "name_confirm", "must be mid forward transition")
-      local progress = assert(midView.nameCompositionProgress, "name progress must be mid-transition")
-      Assert.isTrue(progress > 0 and progress < 1)
-      local subject640 = assert(state:view().layout.subject)
+      Assert.equal(midView.nameCompositionProgress, 0.5)
+      local midSubject = assert(midView.layout.subject)
+      Assert.isTrue(midSubject.width > 0 and midSubject.height > 0)
+
       state:resize(390, 844)
       local resized = state:view()
+      Assert.equal(resized.nameCompositionProgress, 0.5)
+      Assert.equal(resized.genderCompositionProgress, 1)
       local resizedSubject = assert(resized.layout.subject)
       Assert.isTrue(resizedSubject.x >= 0 and resizedSubject.y >= 0)
       Assert.isTrue(resizedSubject.x + resizedSubject.width <= 390 + 1e-6)
       Assert.isTrue(resizedSubject.y + resizedSubject.height <= 844 + 1e-6)
-      -- finishing the transition at the resized viewport must land exactly on name_confirm placement
-      local remaining = 26 - 13
-      for _ = 1, remaining do
+
+      for _ = 1, 13 do
         state:tick(1)
       end
       local finished = state:view()
       Assert.equal(finished.phase, "name_confirm")
+      Assert.equal(finished.nameCompositionProgress, 1)
+      Assert.equal(finished.genderCompositionProgress, 1)
       local finishedSubject = assert(finished.layout.subject)
+
       finishDialogueBoundary(state)
       local stable = state:view()
+      Assert.equal(stable.phase, "name_confirm")
+      Assert.deepEqual(stable.confirmationChoice, { kind = "name", selected = 0 })
       local stableSubject = assert(stable.layout.subject)
-      Assert.near(finishedSubject.x, stableSubject.x, 1e-4)
-      Assert.near(finishedSubject.y, stableSubject.y, 1e-4)
+      Assert.near(stableSubject.x, finishedSubject.x, 1e-4)
+      Assert.near(stableSubject.y, finishedSubject.y, 1e-4)
+      Assert.near(stableSubject.scale, finishedSubject.scale, 1e-6)
+      Assert.near(stableSubject.width, finishedSubject.width, 1e-4)
+      Assert.near(stableSubject.height, finishedSubject.height, 1e-4)
+
+      local stableOakRegion = assert(stable.layout.oakRegion)
+      state:keypressed("return")
+      local finalView = state:view()
+      Assert.equal(finalView.phase, "final_dialogue")
+      Assert.equal(finalView.messageKey, "profile.final")
+      local finalSubject = assert(finalView.layout.subject)
+      Assert.near(finalSubject.x, stableSubject.x, 1e-4)
+      Assert.near(finalSubject.y, stableSubject.y, 1e-4)
+      Assert.near(finalSubject.scale, stableSubject.scale, 1e-6)
+      Assert.near(finalSubject.width, stableSubject.width, 1e-4)
+      Assert.near(finalSubject.height, stableSubject.height, 1e-4)
+      Assert.deepEqual(finalView.layout.oakRegion, stableOakRegion)
+      Assert.isTrue(finalView.layout.selectorRegion.x >= stableOakRegion.x + stableOakRegion.width - 1e-4)
+    end)
+  end)
+end
+
+function T.tests.rejected_name_holds_left_placement_then_returns_through_midpoint_to_gender_selection()
+  forEachReadyVersion(function(versionId)
+    withProductionOak(versionId, function(state)
+      reachNameConfirmation(state)
+      local nameView = state:view()
+      Assert.equal(nameView.phase, "name_confirm")
+      Assert.equal(nameView.genderCompositionProgress, 1)
+      Assert.equal(nameView.nameCompositionProgress, 1)
+      local nameSubject = assert(nameView.layout.subject)
+      local nameOakRegion = assert(nameView.layout.oakRegion)
+
+      state:keypressed("down")
+      state:keypressed("return")
+      local rejected = state:view()
+      Assert.equal(rejected.phase, "gender_question")
+      Assert.equal(rejected.messageKey, "profile.gender_question")
+      Assert.equal(rejected.nameCompositionProgress, 1)
+      Assert.equal(rejected.genderCompositionProgress, 1)
+      local rejectedSubject = assert(rejected.layout.subject)
+      Assert.near(rejectedSubject.x, nameSubject.x, 1e-4)
+      Assert.near(rejectedSubject.y, nameSubject.y, 1e-4)
+      Assert.near(rejectedSubject.scale, nameSubject.scale, 1e-6)
+      Assert.deepEqual(rejected.layout.oakRegion, nameOakRegion)
+
+      finishDialogueBoundary(state)
+      local transitionStart = state:view()
+      Assert.equal(transitionStart.phase, "name_composition_return")
+      Assert.equal(transitionStart.nameCompositionProgress, 1)
+      Assert.equal(transitionStart.genderCompositionProgress, 1)
+      local startSubject = assert(transitionStart.layout.subject)
+      Assert.near(startSubject.x, nameSubject.x, 1e-4)
+      Assert.near(startSubject.y, nameSubject.y, 1e-4)
+      Assert.near(startSubject.scale, nameSubject.scale, 1e-6)
+
+      for _ = 1, 13 do
+        state:tick(1)
+      end
+      local midView = state:view()
+      Assert.equal(midView.nameCompositionProgress, 0.5)
+      local midSubject = assert(midView.layout.subject)
+
+      for _ = 1, 13 do
+        state:tick(1)
+      end
+      local finished = state:view()
+      Assert.equal(finished.phase, "gender_select")
+      Assert.equal(finished.nameCompositionProgress, 0)
+      Assert.equal(finished.genderCompositionProgress, 1)
+      local genderSubject = assert(finished.layout.subject)
+
+      local expectedMidX = (nameSubject.x + genderSubject.x) / 2
+      local expectedMidY = (nameSubject.y + genderSubject.y) / 2
+      local expectedMidScale = (nameSubject.scale + genderSubject.scale) / 2
+      local expectedMidWidth = (nameSubject.width + genderSubject.width) / 2
+      local expectedMidHeight = (nameSubject.height + genderSubject.height) / 2
+      Assert.near(midSubject.x, expectedMidX, 1e-4)
+      Assert.near(midSubject.y, expectedMidY, 1e-4)
+      Assert.near(midSubject.scale, expectedMidScale, 1e-6)
+      Assert.near(midSubject.width, expectedMidWidth, 1e-4)
+      Assert.near(midSubject.height, expectedMidHeight, 1e-4)
+
+      local stable = state:view()
+      Assert.equal(stable.phase, "gender_select")
+      local stableSubject = assert(stable.layout.subject)
+      Assert.near(stableSubject.x, genderSubject.x, 1e-4)
+      Assert.near(stableSubject.y, genderSubject.y, 1e-4)
+      Assert.near(stableSubject.scale, genderSubject.scale, 1e-6)
     end)
   end)
 end

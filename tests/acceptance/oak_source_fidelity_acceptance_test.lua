@@ -374,6 +374,11 @@ function T.tests.gender_confirmation_and_name_confirmation_preserve_source_contr
     end
 
     view.phase = "name_confirm"
+    view.visual = "oak"
+    view.primaryWidget = "oak"
+    view.oakBgScrollX = 0
+    view.genderCompositionProgress = 1
+    view.nameCompositionProgress = 1
     view.confirmationChoice = { kind = "name", selected = 0 }
     local nameLayout = OakIntroLayout.compute(800, 600, view, {}, manifest)
     local buttons = assert(nameLayout.confirmationButtons)

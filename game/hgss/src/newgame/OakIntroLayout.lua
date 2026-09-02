@@ -351,78 +351,126 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   local canvas = sourceCanvas(scene, reference)
   result.sourceCanvas = canvas
   local subjectWidget
+  local ordinarySubject
   if subjectId ~= nil then
     subjectWidget = widget(manifest, subjectId)
     local visibleSourceX = subjectId == "oak" and -(view.oakBgScrollX or 0) or 0
-    result.subject = sourceWidgetRect(subjectWidget, canvas, visibleSourceX)
+    ordinarySubject = sourceWidgetRect(subjectWidget, canvas, visibleSourceX)
   end
-  local startSubject = result.subject
-  local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
   local compositionProgress = view.genderCompositionProgress
   local nameProgress = view.nameCompositionProgress
-  if nameProgress ~= nil then
+  local function assertFiniteProgress(value, message)
     assert(
-      type(nameProgress) == "number"
-        and nameProgress == nameProgress
-        and nameProgress > -math.huge
-        and nameProgress < math.huge
-        and nameProgress >= 0
-        and nameProgress <= 1,
-      "Oak name composition progress is invalid"
+      type(value) == "number"
+        and value == value
+        and value > -math.huge
+        and value < math.huge
+        and value >= 0
+        and value <= 1,
+      message
     )
   end
-  local oakRegion, selectorRegion
+  if nameProgress ~= nil then
+    assertFiniteProgress(nameProgress, "Oak name composition progress is invalid")
+  end
+  local isNameForward = view.phase == "name_composition_transition"
+  local isNameReturn = view.phase == "name_composition_return"
+  local isNameConfirm = view.phase == "name_confirm"
+  local isFinalDialogue = view.phase == "final_dialogue"
+  local isGenderQuestion = view.phase == "gender_question"
+  if isNameForward then
+    assert(nameProgress ~= nil, "Oak name composition progress is invalid")
+    assertFiniteProgress(nameProgress, "Oak name composition progress is invalid")
+    assert(compositionProgress == 1, "Oak gender composition progress is invalid")
+    assert(
+      subjectId == "oak" and ordinarySubject ~= nil and subjectWidget ~= nil,
+      "Oak subject is required for name composition"
+    )
+    assert(dialogue ~= nil, "Oak name composition requires reserved dialogue")
+  elseif isNameReturn then
+    assert(nameProgress ~= nil, "Oak name composition progress is invalid")
+    assertFiniteProgress(nameProgress, "Oak name composition progress is invalid")
+    assert(compositionProgress == 1, "Oak gender composition progress is invalid")
+    assert(
+      subjectId == "oak" and ordinarySubject ~= nil and subjectWidget ~= nil,
+      "Oak subject is required for name composition"
+    )
+    assert(dialogue ~= nil, "Oak name composition requires reserved dialogue")
+  elseif isNameConfirm then
+    assert(compositionProgress == 1, "Oak gender composition progress is invalid")
+    assert(nameProgress == 1, "Oak name composition progress is invalid")
+    assert(
+      subjectId == "oak" and ordinarySubject ~= nil and subjectWidget ~= nil,
+      "Oak subject is required for name composition"
+    )
+    assert(dialogue ~= nil, "Oak name composition requires reserved dialogue")
+  elseif isFinalDialogue then
+    assert(compositionProgress == 1, "Oak gender composition progress is invalid")
+    assert(nameProgress == 1, "Oak name composition progress is invalid")
+    assert(
+      subjectId == "oak" and ordinarySubject ~= nil and subjectWidget ~= nil,
+      "Oak subject is required for name composition"
+    )
+    assert(dialogue ~= nil, "Oak name composition requires reserved dialogue")
+  elseif isGenderQuestion then
+    assert(nameProgress ~= nil, "Oak name composition progress is invalid")
+    assertFiniteProgress(nameProgress, "Oak name composition progress is invalid")
+    assert(nameProgress == 0 or nameProgress == 1, "Oak name composition progress is invalid")
+    if nameProgress == 1 then
+      assert(compositionProgress == 1, "Oak gender composition progress is invalid")
+      assert(
+        subjectId == "oak" and ordinarySubject ~= nil and subjectWidget ~= nil,
+        "Oak subject is required for name composition"
+      )
+      assert(dialogue ~= nil, "Oak name composition requires reserved dialogue")
+    end
+  end
+  local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
   local compositionActive = selectorActive
     or view.phase == "gender_composition_transition"
     or compositionProgress ~= nil and compositionProgress > 0
   if compositionActive then
-    assert(
-      type(compositionProgress) == "number"
-        and compositionProgress == compositionProgress
-        and compositionProgress > -math.huge
-        and compositionProgress < math.huge
-        and compositionProgress >= 0
-        and compositionProgress <= 1,
-      "Oak gender composition progress is invalid"
-    )
+    assertFiniteProgress(compositionProgress, "Oak gender composition progress is invalid")
   end
-  local genderOakRect
-  if compositionActive then
-    oakRegion, selectorRegion = selectorRegions(scene, gap)
-    result.oakRegion, result.selectorRegion = oakRegion, selectorRegion
-    if subjectId == "oak" and startSubject and subjectWidget then
-      genderOakRect = composedOakRect(startSubject, subjectWidget, oakRegion, 1)
-      result.subject = composedOakRect(startSubject, subjectWidget, oakRegion, compositionProgress)
-    end
-  end
+  local oakRegion, selectorRegion
   local nameStage, nameOakRegion, nameChoiceRegion
-  local isNameTransition = view.phase == "name_composition_transition" or view.phase == "name_composition_return"
-  local isStaticName = view.phase == "name_confirm"
-    or (view.phase == "final_dialogue" and nameProgress ~= nil and nameProgress == 1)
-    or (view.phase == "gender_question" and nameProgress ~= nil and nameProgress > 0)
-  if (isNameTransition or isStaticName) and startSubject and subjectWidget and subjectId == "oak" then
-    assert(dialogue, "Oak name composition requires reserved dialogue")
+  local genderOakRect
+  local selectedSubject = ordinarySubject
+  local isNameHold = isGenderQuestion and nameProgress == 1
+  local needsNameEndpoint = isNameForward or isNameReturn or isNameConfirm or isFinalDialogue or isNameHold
+  if needsNameEndpoint then
+    local gOakRegion = selectorRegions(scene, gap)
+    genderOakRect = composedOakRect(assert(ordinarySubject), assert(subjectWidget), gOakRegion, 1)
     nameStage, nameOakRegion, nameChoiceRegion = nameStageAndRegions(sceneContent, assert(dialogue), gap)
-    local nameOakRect = composedOakRect(startSubject, subjectWidget, nameOakRegion, 1)
-    if view.phase == "name_composition_transition" then
-      assert(genderOakRect, "forward transition requires gender endpoint")
-      assert(nameProgress ~= nil)
-      result.oakRegion, result.selectorRegion = nameOakRegion, nameChoiceRegion
-      result.subject = interpolateSubjectRect(genderOakRect, nameOakRect, nameProgress)
-    elseif view.phase == "name_composition_return" then
-      assert(genderOakRect, "return transition requires gender endpoint")
-      assert(nameProgress ~= nil)
-      result.oakRegion, result.selectorRegion = nameOakRegion, nameChoiceRegion
-      result.subject = interpolateSubjectRect(nameOakRect, genderOakRect, 1 - nameProgress)
-    elseif isStaticName then
-      result.oakRegion, result.selectorRegion = nameOakRegion, nameChoiceRegion
-      result.subject = nameOakRect
+    local nameOakRect = composedOakRect(assert(ordinarySubject), assert(subjectWidget), nameOakRegion, 1)
+    if isNameForward then
+      selectedSubject = interpolateSubjectRect(genderOakRect, nameOakRect, assert(nameProgress))
+      oakRegion = nameOakRegion
+      selectorRegion = nameChoiceRegion
+    elseif isNameReturn then
+      selectedSubject = interpolateSubjectRect(nameOakRect, genderOakRect, 1 - assert(nameProgress))
+      oakRegion = nameOakRegion
+      selectorRegion = nameChoiceRegion
+    else
+      selectedSubject = nameOakRect
+      oakRegion = nameOakRegion
+      selectorRegion = nameChoiceRegion
     end
-  elseif isNameTransition or isStaticName then
-    assert(dialogue, "Oak name composition requires reserved dialogue")
-    nameStage, nameOakRegion, nameChoiceRegion = nameStageAndRegions(sceneContent, assert(dialogue), gap)
-    result.oakRegion, result.selectorRegion = nameOakRegion, nameChoiceRegion
+  elseif compositionActive then
+    oakRegion, selectorRegion = selectorRegions(scene, gap)
+    if subjectId == "oak" and ordinarySubject and subjectWidget then
+      selectedSubject = composedOakRect(ordinarySubject, subjectWidget, oakRegion, assert(compositionProgress))
+    else
+      selectedSubject = ordinarySubject
+    end
+  else
+    selectedSubject = ordinarySubject
+    oakRegion = nil
+    selectorRegion = nil
   end
+  result.subject = selectedSubject
+  result.oakRegion = oakRegion
+  result.selectorRegion = selectorRegion
   if view.revealWidget then
     local revealWidget = widget(manifest, view.revealWidget)
     result.revealCanvas = canvas

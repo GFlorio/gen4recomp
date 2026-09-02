@@ -118,6 +118,19 @@ local function disjoint(first, second)
     or second.y + second.height <= first.y
 end
 
+local function assertInterpolated(actual, from, to, progress)
+  local expectedX = from.x + (to.x - from.x) * progress
+  local expectedY = from.y + (to.y - from.y) * progress
+  local expectedScale = from.scale + (to.scale - from.scale) * progress
+  local expectedWidth = from.width + (to.width - from.width) * progress
+  local expectedHeight = from.height + (to.height - from.height) * progress
+  Assert.near(actual.x, expectedX, 1e-4)
+  Assert.near(actual.y, expectedY, 1e-4)
+  Assert.near(actual.scale, expectedScale, 1e-6)
+  Assert.near(actual.width, expectedWidth, 1e-4)
+  Assert.near(actual.height, expectedHeight, 1e-4)
+end
+
 function T.tests.source_points_and_slide_direction_survive_responsive_hosts()
   local data = manifest()
   for _, size in ipairs({ { 1024, 768 }, { 1920, 1080 }, { 390, 844 } }) do
@@ -307,7 +320,8 @@ function T.tests.name_confirmation_layout_is_oak_left_with_vertical_stack()
       primaryWidget = "oak",
       genderFocus = 0,
       confirmationChoice = { kind = "name", selected = 0 },
-      genderCompositionProgress = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
       oakBgScrollX = 0,
     }, {}, data)
     Assert.notNil(layout.dialogue, "name_confirm must reserve dialogue at " .. size[1] .. "x" .. size[2])
@@ -344,7 +358,8 @@ function T.tests.name_confirmation_oak_does_not_jump_when_choices_activate()
       visual = "oak",
       primaryWidget = "oak",
       genderFocus = 1,
-      genderCompositionProgress = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
       oakBgScrollX = 0,
       dialogue = { message = "test", messageKey = "profile.name_confirm.female" },
     }, {}, data)
@@ -354,7 +369,8 @@ function T.tests.name_confirmation_oak_does_not_jump_when_choices_activate()
       primaryWidget = "oak",
       genderFocus = 1,
       confirmationChoice = { kind = "name", selected = 0 },
-      genderCompositionProgress = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
       oakBgScrollX = 0,
       dialogue = { message = "test", messageKey = "profile.name_confirm.female" },
     }, {}, data)
@@ -376,12 +392,93 @@ function T.tests.name_confirmation_dialogue_is_reserved_without_active_message()
     visual = "oak",
     primaryWidget = "oak",
     genderFocus = 0,
-    genderCompositionProgress = 0,
+    genderCompositionProgress = 1,
+    nameCompositionProgress = 1,
     oakBgScrollX = 0,
   }, {}, data)
   Assert.notNil(layout.dialogue)
   Assert.notNil(layout.oakRegion)
   Assert.notNil(layout.selectorRegion)
+end
+
+function T.tests.name_composition_rejects_invalid_progress_state()
+  local data = manifest()
+  local cases = {
+    {
+      label = "missing name progress in name_confirm",
+      view = {
+        phase = "name_confirm",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = 0,
+        genderCompositionProgress = 1,
+        oakBgScrollX = 0,
+      },
+    },
+    {
+      label = "premature progress in name_confirm",
+      view = {
+        phase = "name_confirm",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = 0,
+        genderCompositionProgress = 1,
+        nameCompositionProgress = 0.5,
+        oakBgScrollX = 0,
+      },
+    },
+    {
+      label = "final_dialogue below 1",
+      view = {
+        phase = "final_dialogue",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = 0,
+        genderCompositionProgress = 1,
+        nameCompositionProgress = 0.5,
+        oakBgScrollX = 0,
+      },
+    },
+    {
+      label = "missing progress in forward transition",
+      view = {
+        phase = "name_composition_transition",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = 0,
+        genderCompositionProgress = 1,
+        oakBgScrollX = 0,
+      },
+    },
+    {
+      label = "out of range progress in forward transition",
+      view = {
+        phase = "name_composition_transition",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = 0,
+        genderCompositionProgress = 1,
+        nameCompositionProgress = 1.5,
+        oakBgScrollX = 0,
+      },
+    },
+    {
+      label = "missing progress in return transition",
+      view = {
+        phase = "name_composition_return",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = 0,
+        genderCompositionProgress = 1,
+        oakBgScrollX = 0,
+      },
+    },
+  }
+  for _, case in ipairs(cases) do
+    Assert.throws(function()
+      OakIntroLayout.compute(640, 480, case.view, {}, data)
+    end, case.label .. " must fail")
+  end
 end
 
 function T.tests.gender_composition_interpolates_oak_into_the_contained_region()
@@ -476,7 +573,8 @@ function T.tests.name_confirmation_scale_is_independent_of_gender()
       primaryWidget = "oak",
       genderFocus = 0,
       confirmationChoice = { kind = "name", selected = 0 },
-      genderCompositionProgress = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
       oakBgScrollX = 0,
     }, {}, data)
     local female = OakIntroLayout.compute(size[1], size[2], {
@@ -485,7 +583,8 @@ function T.tests.name_confirmation_scale_is_independent_of_gender()
       primaryWidget = "oak",
       genderFocus = 1,
       confirmationChoice = { kind = "name", selected = 1 },
-      genderCompositionProgress = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
       oakBgScrollX = 0,
     }, {}, data)
     local mYes = assert(male.confirmationButtons[0])
@@ -525,56 +624,9 @@ end
 
 function T.tests.name_forward_transition_interpolates_directly_between_gender_and_name_endpoints()
   local data = manifest()
-  -- name composition must remain at 1 after gender is established; layout must keep Oak left for name phases
-  for _, size in ipairs({ { 640, 480 }, { 390, 844 }, { 800, 600 } }) do
+  for _, size in ipairs({ { 640, 480 }, { 390, 844 } }) do
     local w, h = size[1], size[2]
-    local nameConfirm = OakIntroLayout.compute(w, h, {
-      phase = "name_confirm",
-      visual = "oak",
-      primaryWidget = "oak",
-      genderFocus = 0,
-      confirmationChoice = { kind = "name", selected = 0 },
-      genderCompositionProgress = 1,
-      nameCompositionProgress = 1,
-      oakBgScrollX = 0,
-    }, {}, data)
-    local finalDialogue = OakIntroLayout.compute(w, h, {
-      phase = "final_dialogue",
-      visual = "oak",
-      primaryWidget = "oak",
-      genderFocus = 0,
-      genderCompositionProgress = 1,
-      nameCompositionProgress = 1,
-      oakBgScrollX = 0,
-    }, {}, data)
-    -- final_dialogue must keep the same left placement as name_confirm
-    Assert.near(
-      finalDialogue.subject.x,
-      nameConfirm.subject.x,
-      1e-4,
-      "final_dialogue must keep name-left placement at " .. w .. "x" .. h
-    )
-    Assert.near(finalDialogue.subject.y, nameConfirm.subject.y, 1e-4)
-    Assert.near(finalDialogue.subject.scale, nameConfirm.subject.scale, 1e-6)
-    -- rejected gender_question while name progress is 1 must also keep name placement
-    local rejectedQuestion = OakIntroLayout.compute(w, h, {
-      phase = "gender_question",
-      visual = "oak",
-      primaryWidget = "oak",
-      genderFocus = 0,
-      genderCompositionProgress = 1,
-      nameCompositionProgress = 1,
-      oakBgScrollX = 0,
-    }, {}, data)
-    Assert.near(
-      rejectedQuestion.subject.x,
-      nameConfirm.subject.x,
-      1e-4,
-      "rejected question must stay at name placement at " .. w .. "x" .. h
-    )
-    Assert.near(rejectedQuestion.subject.y, nameConfirm.subject.y, 1e-4)
-    -- forward and return transitions must be distinct from ordinary center; they must interpolate between gender and name
-    local genderSelect = OakIntroLayout.compute(w, h, {
+    local genderEndpoint = OakIntroLayout.compute(w, h, {
       phase = "gender_select",
       visual = "oak",
       primaryWidget = "oak",
@@ -583,20 +635,7 @@ function T.tests.name_forward_transition_interpolates_directly_between_gender_an
       nameCompositionProgress = 0,
       oakBgScrollX = 0,
     }, {}, data)
-    local genderSubject = assert(genderSelect.subject)
-    local nameSubject = assert(nameConfirm.subject)
-    Assert.isTrue(
-      math.abs(genderSubject.x - nameSubject.x) > 1e-2 or math.abs(genderSubject.y - nameSubject.y) > 1e-2,
-      "gender and name placements must be distinct at " .. w .. "x" .. h
-    )
-  end
-end
-
-function T.tests.rejected_name_return_interpolates_back_to_gender_endpoint()
-  local data = manifest()
-  for _, size in ipairs({ { 640, 480 }, { 800, 600 } }) do
-    local w, h = size[1], size[2]
-    local nameConfirm = OakIntroLayout.compute(w, h, {
+    local nameEndpoint = OakIntroLayout.compute(w, h, {
       phase = "name_confirm",
       visual = "oak",
       primaryWidget = "oak",
@@ -606,7 +645,47 @@ function T.tests.rejected_name_return_interpolates_back_to_gender_endpoint()
       nameCompositionProgress = 1,
       oakBgScrollX = 0,
     }, {}, data)
-    local nameSubject = assert(nameConfirm.subject)
+    local forwarded = OakIntroLayout.compute(w, h, {
+      phase = "name_composition_transition",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 0.5,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local genderSubject = assert(genderEndpoint.subject, "gender endpoint must have subject at " .. w .. "x" .. h)
+    local nameSubject = assert(nameEndpoint.subject, "name endpoint must have subject at " .. w .. "x" .. h)
+    local forwardedSubject = assert(forwarded.subject, "forward transition must have subject at " .. w .. "x" .. h)
+    assertInterpolated(forwardedSubject, genderSubject, nameSubject, 0.5)
+    Assert.deepEqual(forwarded.oakRegion, nameEndpoint.oakRegion)
+    Assert.deepEqual(forwarded.selectorRegion, nameEndpoint.selectorRegion)
+  end
+end
+
+function T.tests.rejected_name_return_interpolates_back_to_gender_endpoint()
+  local data = manifest()
+  for _, size in ipairs({ { 640, 480 }, { 390, 844 } }) do
+    local w, h = size[1], size[2]
+    local nameEndpoint = OakIntroLayout.compute(w, h, {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      confirmationChoice = { kind = "name", selected = 0 },
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local genderEndpoint = OakIntroLayout.compute(w, h, {
+      phase = "gender_select",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 0,
+      oakBgScrollX = 0,
+    }, {}, data)
     local returnMid = OakIntroLayout.compute(w, h, {
       phase = "name_composition_return",
       visual = "oak",
@@ -616,7 +695,21 @@ function T.tests.rejected_name_return_interpolates_back_to_gender_endpoint()
       nameCompositionProgress = 0.5,
       oakBgScrollX = 0,
     }, {}, data)
-    local genderSelect = OakIntroLayout.compute(w, h, {
+    local nameSubject = assert(nameEndpoint.subject)
+    local genderSubject = assert(genderEndpoint.subject)
+    local midSubject = assert(returnMid.subject)
+    assertInterpolated(midSubject, nameSubject, genderSubject, 0.5)
+    Assert.deepEqual(returnMid.oakRegion, nameEndpoint.oakRegion)
+    Assert.deepEqual(returnMid.selectorRegion, nameEndpoint.selectorRegion)
+  end
+end
+
+function T.tests.resize_recomputes_transition_endpoints_at_current_progress()
+  local data = manifest()
+  local progress = 0.4
+  for _, viewport in ipairs({ { 640, 480 }, { 390, 844 } }) do
+    local w, h = viewport[1], viewport[2]
+    local genderEndpoint = OakIntroLayout.compute(w, h, {
       phase = "gender_select",
       visual = "oak",
       primaryWidget = "oak",
@@ -625,61 +718,54 @@ function T.tests.rejected_name_return_interpolates_back_to_gender_endpoint()
       nameCompositionProgress = 0,
       oakBgScrollX = 0,
     }, {}, data)
-    local genderSubject = assert(genderSelect.subject)
-    -- mid return must not equal gender endpoint
-    Assert.isTrue(
-      math.abs(returnMid.subject.x - genderSubject.x) > 1e-2 or math.abs(returnMid.subject.y - genderSubject.y) > 1e-2,
-      "return mid must be between name and gender at " .. w .. "x" .. h
+    local nameEndpoint = OakIntroLayout.compute(w, h, {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      confirmationChoice = { kind = "name", selected = 0 },
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local transition = OakIntroLayout.compute(w, h, {
+      phase = "name_composition_transition",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = progress,
+      oakBgScrollX = 0,
+    }, {}, data)
+    assertInterpolated(
+      assert(transition.subject),
+      assert(genderEndpoint.subject),
+      assert(nameEndpoint.subject),
+      progress
     )
-    Assert.isTrue(
-      math.abs(returnMid.subject.x - nameSubject.x) > 1e-2 or math.abs(returnMid.subject.y - nameSubject.y) > 1e-2,
-      "return mid must not be at name endpoint at " .. w .. "x" .. h
-    )
+    Assert.isTrue(inside(assert(transition.subject), assert(transition.viewport)))
   end
-end
-
-function T.tests.resize_recomputes_transition_endpoints_at_current_progress()
-  local data = manifest()
-  -- resizing mid-transition must recompute host coordinates from current viewport
-  local view = {
+  local first = OakIntroLayout.compute(640, 480, {
     phase = "name_composition_transition",
     visual = "oak",
     primaryWidget = "oak",
     genderFocus = 0,
     genderCompositionProgress = 1,
-    nameCompositionProgress = 0.4,
+    nameCompositionProgress = progress,
     oakBgScrollX = 0,
-  }
-  local first = OakIntroLayout.compute(640, 480, view, {}, data)
-  local second = OakIntroLayout.compute(390, 844, view, {}, data)
-  Assert.isTrue(inside(assert(first.subject), first.viewport))
-  Assert.isTrue(inside(assert(second.subject), second.viewport))
+  }, {}, data)
+  local second = OakIntroLayout.compute(390, 844, {
+    phase = "name_composition_transition",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 1,
+    nameCompositionProgress = progress,
+    oakBgScrollX = 0,
+  }, {}, data)
   Assert.isTrue(
     first.subject.x ~= second.subject.x or first.subject.y ~= second.subject.y,
     "resize must recompute host coordinates"
-  )
-  local gender640 = OakIntroLayout.compute(640, 480, {
-    phase = "gender_select",
-    visual = "oak",
-    primaryWidget = "oak",
-    genderFocus = 0,
-    genderCompositionProgress = 1,
-    nameCompositionProgress = 0,
-    oakBgScrollX = 0,
-  }, {}, data)
-  local name640 = OakIntroLayout.compute(640, 480, {
-    phase = "name_confirm",
-    visual = "oak",
-    primaryWidget = "oak",
-    genderFocus = 0,
-    confirmationChoice = { kind = "name", selected = 0 },
-    genderCompositionProgress = 1,
-    nameCompositionProgress = 1,
-    oakBgScrollX = 0,
-  }, {}, data)
-  Assert.isTrue(
-    math.abs(gender640.subject.x - name640.subject.x) > 1e-2 or math.abs(gender640.subject.y - name640.subject.y) > 1e-2,
-    "name and gender must be distinct at 640x480"
   )
 end
 

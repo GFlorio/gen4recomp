@@ -51,6 +51,24 @@ end
 
 local function confirmationView(kind, selected)
   local phase = kind == "gender" and "gender_confirm" or "name_confirm"
+  if kind == "name" then
+    return {
+      phase = phase,
+      visual = "oak",
+      primaryWidget = "oak",
+      visualFrameIndex = 1,
+      sceneBrightness = 0,
+      finalFadeAlpha = 0,
+      revealBrightness = 0,
+      revealOpacity = 1,
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
+      confirmationChoice = { kind = kind, selected = selected },
+      choiceLabels = { [0] = "YES", [1] = "NO" },
+      oakBgScrollX = 0,
+    }
+  end
   return {
     phase = phase,
     visual = "background",

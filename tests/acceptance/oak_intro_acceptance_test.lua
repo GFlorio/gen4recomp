@@ -510,20 +510,25 @@ function T.tests.name_submission_exits_composition_before_confirm_and_rejection_
   startFlow({}, function(context)
     reachNameEditor(context.audio)
     Assert.equal(App.state.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().nameCompositionProgress, 0)
     App.textinput("GOLD")
     submitName()
-    Assert.isFalse(App.state.state:view().phase == "name_confirm", "name_confirm must wait for the composition exit")
+    Assert.equal(App.state.state:view().phase, "name_composition_transition")
+    Assert.equal(App.state.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().nameCompositionProgress, 0)
 
     for _ = 1, 25 do
       advance(1)
       Assert.isFalse(
         App.state.state:view().phase == "name_confirm",
-        "name_confirm must not open before progress reaches 0"
+        "name_confirm must not open before progress reaches 1"
       )
+      Assert.equal(App.state.state:view().genderCompositionProgress, 1)
     end
     advance(1)
     Assert.equal(App.state.state:view().phase, "name_confirm")
-    Assert.equal(App.state.state:view().genderCompositionProgress, 0)
+    Assert.equal(App.state.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().nameCompositionProgress, 1)
     local layout = App.state.state:view().layout
     Assert.notNil(layout.oakRegion, "name-confirm keeps Oak in its dedicated left region")
     Assert.notNil(layout.selectorRegion, "name-confirm keeps choice in its dedicated right region")
@@ -536,14 +541,17 @@ function T.tests.name_submission_exits_composition_before_confirm_and_rejection_
     completeMessage()
     App.keypressed("escape")
     Assert.equal(App.state.state:view().phase, "gender_question")
-    Assert.equal(App.state.state:view().genderCompositionProgress, 0)
+    Assert.equal(App.state.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().nameCompositionProgress, 1)
 
     confirm()
-    Assert.equal(App.state.state:view().phase, "gender_composition_transition")
-    Assert.equal(App.state.state:view().genderCompositionProgress, 0)
+    Assert.equal(App.state.state:view().phase, "name_composition_return")
+    Assert.equal(App.state.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().nameCompositionProgress, 1)
     advance(26)
     Assert.equal(App.state.state:view().phase, "gender_select")
     Assert.equal(App.state.state:view().genderCompositionProgress, 1)
+    Assert.equal(App.state.state:view().nameCompositionProgress, 0)
   end)
 end
 
