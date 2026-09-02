@@ -37,22 +37,14 @@ RUN apt-get update \
         libegl-mesa0 \
         libglx-mesa0 \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /home/agent \
-    && chown "${USER_ID}" /home/agent
+    && mkdir -p /home/dev \
+    && chown "${USER_ID}" /home/dev
 
-RUN curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
-    && tar -xJf "node-v${NODE_VERSION}-linux-x64.tar.xz" \
-        -C /usr/local \
-        --strip-components=1 \
-    && rm "node-v${NODE_VERSION}-linux-x64.tar.xz" \
-    && npm install --global "command-code@${COMMAND_CODE_VERSION}" \
-    && npm cache clean --force
-
-ENV HOME=/home/agent
-ENV XDG_CACHE_HOME=/home/agent/.cache
-ENV XDG_CONFIG_HOME=/home/agent/.config
-ENV XDG_DATA_HOME=/home/agent/.local/share
-ENV XDG_STATE_HOME=/home/agent/.local/state
+ENV HOME=/home/dev
+ENV XDG_CACHE_HOME=/home/dev/.cache
+ENV XDG_CONFIG_HOME=/home/dev/.config
+ENV XDG_DATA_HOME=/home/dev/.local/share
+ENV XDG_STATE_HOME=/home/dev/.local/state
 # The sandbox has no display and no GPU device, so LÖVE renders through SDL's
 # offscreen video driver against Mesa's llvmpipe software rasterizer. libgl1 and
 # libegl1 are the libglvnd dispatch libraries SDL dlopens; the mesa packages are
