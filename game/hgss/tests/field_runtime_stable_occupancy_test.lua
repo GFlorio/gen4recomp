@@ -2,6 +2,7 @@
 -- identity while destination probing remains read-only and presentation-free.
 
 local Assert = require("tests.support.Assert")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
@@ -61,9 +62,9 @@ local function assets()
     knows = function()
       return true
     end,
-    acquire = function(self, _)
+    acquire = function(self, spriteId)
       self.acquired = self.acquired + 1
-      return { spriteId = 99, visual = {}, references = 1 }
+      return { spriteId = spriteId, visual = FieldActorFixture.visual(spriteId), references = 1 }
     end,
     release = function(self, _)
       self.acquired = self.acquired - 1
@@ -282,6 +283,115 @@ function T.resident_but_inactive_neighbor_blocks_and_interacts_through_read_only
     34,
     "interaction identity must carry the variable sprite resolved from the supplied event state"
   )
+  actors:dispose()
+end
+
+function T.autonomous_reservation_blocks_player_movement_but_not_interaction()
+  local source = {
+    mapId = 61,
+    mapSection = "test-section",
+    mapSymbol = "source",
+    coordinateOrigin = { x = 0, z = 0 },
+    collision = {
+      containsLocal = function(_, x, z)
+        return x >= 0 and x < 32 and z >= 0 and z < 32
+      end,
+      isBlockedLocal = function()
+        return false
+      end,
+      getLocal = function()
+        return { blocked = false }
+      end,
+    },
+    terrain = terrain({ plate(0, 0) }),
+    fieldData = {
+      events = {
+        objects = {
+          {
+            index = 0,
+            objectEventId = 0,
+            spriteId = 99,
+            movementType = "walk_back_and_forth",
+            type = 0,
+            eventFlag = 0,
+            scriptId = 1,
+            facingDirection = "west",
+            facingDirectionRaw = 2,
+            param0 = 0,
+            param1 = 0,
+            param2 = 0,
+            xRange = -1,
+            yRange = -1,
+            x = 2,
+            z = 0,
+            y = 0,
+          },
+        },
+      },
+    },
+    scene = {},
+    cameraType = 4,
+    release = function() end,
+    updateAnimated = function() end,
+  } ---@as RuntimeFieldMap
+
+  local eventState = FieldEventState.new()
+  local assetProvider = assets()
+  local actors = FieldActorManager.new({
+    assets = assetProvider,
+    policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } },
+  })
+  actors:enterMap(source, eventState)
+
+  local residency = {}
+  function residency:mapForId()
+    return nil
+  end
+  function residency:mapForPreflight()
+    error("active-map reservation test must not preflight", 0)
+  end
+
+  local runtime = setmetatable({
+    runtimeMap = source,
+    actors = actors,
+    eventState = eventState,
+    residency = residency,
+    zoneController = {},
+  }, FieldRuntime)
+
+  local player = FieldPlayer.new({
+    currentMap = source,
+    fieldX = 0,
+    fieldZ = 0,
+    surfaceId = 0,
+    facing = "east",
+    occupancy = function(candidate)
+      return runtime:_playerOccupantAt(candidate)
+    end,
+  })
+  runtime.player = player
+
+  local actor = assert(actors:getById("map:61:object:0"))
+  Assert.equal(actor.fieldX, 2)
+  Assert.equal(actor.fieldZ, 0)
+
+  actors:step(1, { playerCandidates = player:collisionCandidates() })
+
+  Assert.equal(actor.fieldX, 2, "autonomous actor remains committed at source during reservation")
+  Assert.equal(actor.fieldZ, 0)
+  local reservedCandidate = { fieldX = 1, fieldZ = 0, surfaceId = 0 }
+  Assert.isNil(actors:getAt(61, reservedCandidate))
+  Assert.equal(assert(actors:getCollisionAt(61, reservedCandidate)).actorId, actor.actorId)
+  Assert.isNil(runtime:_actorAt(61, reservedCandidate))
+  Assert.equal(runtime:_playerOccupantAt(reservedCandidate), actor.actorId)
+  local sourceCandidate = { fieldX = 2, fieldZ = 0, surfaceId = 0 }
+  Assert.equal(assert(runtime:_actorAt(61, sourceCandidate)).actorId, actor.actorId)
+
+  local admitted = player:tryStep("east")
+  Assert.isFalse(admitted, "player step into reserved cell must be blocked")
+  Assert.equal(player.fieldX, 0)
+  Assert.equal(player.fieldZ, 0)
+  Assert.equal(player.motion, "idle")
   actors:dispose()
 end
 

@@ -394,7 +394,7 @@ function T.runtime_disposal_discards_an_uncommitted_replacement()
 end
 
 function T.indoor_occupancy_uses_the_current_map_actor_index()
-  local calls = { getAt = 0, preflight = 0 }
+  local calls = { getCollisionAt = 0, preflight = 0 }
   local retainedCoverage = {
     mapHeaderCalls = 0,
   }
@@ -404,8 +404,8 @@ function T.indoor_occupancy_uses_the_current_map_actor_index()
   end
 
   local actors = { currentMapId = "indoor" }
-  function actors:getAt(mapId, candidate)
-    calls.getAt = calls.getAt + 1
+  function actors:getCollisionAt(mapId, candidate)
+    calls.getCollisionAt = calls.getCollisionAt + 1
     Assert.equal(mapId, "indoor")
     Assert.equal(candidate.fieldX, 12)
     Assert.equal(candidate.fieldZ, 8)
@@ -427,7 +427,7 @@ function T.indoor_occupancy_uses_the_current_map_actor_index()
   local occupant = runtime:_playerOccupantAt({ fieldX = 12, fieldZ = 8, surfaceId = 3 })
 
   Assert.equal(occupant, "indoor-blocker")
-  Assert.equal(calls.getAt, 1)
+  Assert.equal(calls.getCollisionAt, 1)
   Assert.equal(calls.preflight, 0)
   Assert.equal(retainedCoverage.mapHeaderCalls, 0)
 end

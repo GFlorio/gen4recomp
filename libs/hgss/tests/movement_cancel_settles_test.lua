@@ -95,9 +95,8 @@ function T.cancelled_movement_must_settle_to_last_committed_anchor()
   Assert.equal(actor.fieldX, committed.fieldX, "cancel must keep committed fieldX")
   Assert.equal(actor.fieldZ, committed.fieldZ, "cancel must keep committed fieldZ")
   Assert.isFalse(actor:isScriptedMoving(), "cancel must clear scripted motion")
-  Assert.equal(
-    mgr:isOccupied(61, { fieldX = committed.fieldX, fieldZ = committed.fieldZ, surfaceId = committed.surfaceId }),
-    true,
+  Assert.notNil(
+    mgr:getAt(61, { fieldX = committed.fieldX, fieldZ = committed.fieldZ, surfaceId = committed.surfaceId }),
     "occupancy stays on committed tile after cancel"
   )
 

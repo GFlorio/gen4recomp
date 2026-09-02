@@ -120,7 +120,6 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field collectSpriteIds fun(self: FieldActorManager, out: table<integer, boolean>)
 ---@field drawRecords fun(self: FieldActorManager): FieldActorManager.DrawRecord[]
 ---@field reconcilePhysicalWorld fun(self: FieldActorManager)
----@field isOccupied fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate, exceptActorId: string?): boolean
 ---@field onEventStateChanged fun(self: FieldActorManager, change: FieldActorStateChange)
 ---@field syncEventStateChanges fun(self: FieldActorManager)
 ---@field _applyFlag fun(self: FieldActorManager, change: FieldActorFlagChange)
@@ -1745,32 +1744,6 @@ function FieldActorManager:probeAt(runtimeMap, eventState, candidate)
     end
   end
   return occupant
-end
-
----@param mapId integer
----@param candidate FieldOccupancyCandidate
----@param exceptActorId string?
----@return boolean
----@param self FieldActorManager
-function FieldActorManager:isOccupied(mapId, candidate, exceptActorId)
-  local entry = self.maps[mapId]
-  if not entry then
-    return false
-  end
-  local key = occupancyKey(entry.runtimeMap, mapId, candidate)
-  local bucket = entry.occupancy[key]
-  if bucket == nil or #bucket == 0 then
-    return false
-  end
-  if exceptActorId == nil then
-    return true
-  end
-  for _, occupant in ipairs(bucket) do
-    if occupant.actorId ~= exceptActorId then
-      return true
-    end
-  end
-  return false
 end
 
 ---@param mapId integer

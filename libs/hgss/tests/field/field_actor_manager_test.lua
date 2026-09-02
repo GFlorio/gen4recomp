@@ -207,10 +207,6 @@ local function getAt(mgr, mapId, fieldX, fieldZ, surfaceId)
   return mgr:getAt(mapId, candidate(fieldX, fieldZ, surfaceId))
 end
 
-local function isOccupied(mgr, mapId, fieldX, fieldZ, surfaceId, exceptActorId)
-  return mgr:isOccupied(mapId, candidate(fieldX, fieldZ, surfaceId), exceptActorId)
-end
-
 local function forceAutonomy(mgr, direction, onStep)
   mgr.autonomy = {
     rng = {},
@@ -787,7 +783,7 @@ function T.destroying_a_non_solid_actor_keeps_the_solid_occupant()
   mgr:step(1)
   Assert.isNil(mgr:getById("map:61:object:1"))
   Assert.equal(assert(getAt(mgr, 61, 2, 3, 0), "the solid occupant survived").actorId, "map:61:object:0")
-  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.notNil(getAt(mgr, 61, 2, 3, 0))
   Assert.equal(assets:total(), 1)
 end
 
@@ -905,11 +901,10 @@ end
 
 function T.occupancy_is_keyed_by_map_cell_and_surface()
   local mgr = manager({ object({ x = 9, z = 3 }) })
-  Assert.isTrue(isOccupied(mgr, 61, 9, 3, 0))
-  Assert.isFalse(isOccupied(mgr, 61, 9, 3, 1))
-  Assert.isFalse(isOccupied(mgr, 61, 8, 3, 0))
-  Assert.isFalse(isOccupied(mgr, 60, 9, 3, 0))
-  Assert.isFalse(isOccupied(mgr, 61, 9, 3, 0, "map:61:object:0"))
+  Assert.notNil(getAt(mgr, 61, 9, 3, 0))
+  Assert.isNil(getAt(mgr, 61, 9, 3, 1))
+  Assert.isNil(getAt(mgr, 61, 8, 3, 0))
+  Assert.isNil(getAt(mgr, 60, 9, 3, 0))
   Assert.equal(assert(getAt(mgr, 61, 9, 3, 0)).actorId, "map:61:object:0")
 end
 
@@ -1125,7 +1120,7 @@ function T.setting_a_flag_removes_draw_and_occupancy_on_one_tick()
   mgr:step(1)
   Assert.isNil(mgr:getById("map:61:object:0"))
   Assert.equal(#mgr:drawRecords(), 0)
-  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.isNil(getAt(mgr, 61, 2, 3, 0))
   Assert.equal(assets:total(), 0)
 end
 
@@ -1138,7 +1133,7 @@ function T.clearing_a_flag_restores_the_actor_at_its_source_state()
   local actor = assert(mgr:getById("map:61:object:0"))
   Assert.notNil(actor)
   Assert.equal(actor.facing, "west")
-  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.notNil(getAt(mgr, 61, 2, 3, 0))
   Assert.equal(assets:total(), 1)
 end
 
@@ -1255,7 +1250,7 @@ function T.leaving_a_map_releases_every_visual()
   mgr:leaveMap(61)
   Assert.equal(assets:total(), 0)
   Assert.isNil(mgr:getById("map:61:object:0"))
-  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0))
+  Assert.isNil(getAt(mgr, 61, 2, 3, 0))
   Assert.equal(mgr:visualRevision(), initialRevision + 1)
 end
 
@@ -1280,9 +1275,9 @@ function T.entering_a_destination_retires_the_previous_active_entry()
   mgr:enterMap(runtimeMap({ object({}) }, 61), eventState)
   mgr:enterMap(runtimeMap({ object({ spriteId = 34 }) }, 60), eventState)
 
-  Assert.isFalse(isOccupied(mgr, 61, 2, 3, 0), "the source entry is retired by the destination activation")
+  Assert.isNil(getAt(mgr, 61, 2, 3, 0), "the source entry is retired by the destination activation")
   Assert.isNil(mgr.maps[61])
-  Assert.isTrue(isOccupied(mgr, 60, 2, 3, 0))
+  Assert.notNil(getAt(mgr, 60, 2, 3, 0))
   Assert.equal(mgr.currentMapId, 60)
   Assert.equal(assets:total(), 1, "only the active entry's visual remains referenced")
   mgr:dispose()
@@ -1521,7 +1516,7 @@ function T.hidden_actors_report_hidden_snapshots_and_stay_solid()
   local world = ScriptActorWorld.new(mgr --[[@as ScriptActorManager]], player)
   mgr:hide("map:61:object:0")
   Assert.isFalse(mgr:getById("map:61:object:0").visible)
-  Assert.isTrue(isOccupied(mgr, 61, 2, 3, 0), "hidden actors remain solid for collision")
+  Assert.notNil(getAt(mgr, 61, 2, 3, 0), "hidden actors remain solid for collision")
   Assert.equal(world:snapshot("map:61:object:0").visible, false, "hide_object reflects in snapshots")
   world:show("map:61:object:0")
   Assert.equal(world:snapshot("map:61:object:0").visible, true, "show_object restores snapshot visibility")
@@ -1786,7 +1781,7 @@ function T.hiding_the_actor_opens_the_cell_for_the_player()
     p:updateFixed({ heldDirection = "south" })
   end
   Assert.equal(p.fieldZ, 3)
-  Assert.isFalse(isOccupied(mgr, 61, 9, 3, 0))
+  Assert.isNil(getAt(mgr, 61, 9, 3, 0))
 end
 
 function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
@@ -1802,7 +1797,7 @@ function T.an_actor_on_the_lower_surface_does_not_block_the_stacked_cell()
   end
   Assert.equal(p.fieldZ, 3)
   Assert.equal(p.surfaceId, 1)
-  Assert.isTrue(isOccupied(mgr, 61, 9, 3, 0))
+  Assert.notNil(getAt(mgr, 61, 9, 3, 0))
 end
 
 function T.idle_pose_clock_stays_stable_for_visible_actors()
@@ -1953,7 +1948,7 @@ function T.scripted_overlap_vacate_reveals_prior_occupant()
   mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 }, { scripted = true })
   Assert.equal(mgr:getAt(61, keyB), actorA, "scripted overlap makes the mover the visible occupant")
   Assert.equal(mgr:getCollisionAt(61, keyB), actorA)
-  Assert.isTrue(isOccupied(mgr, 61, 8, 3, actorB.surfaceId))
+  Assert.notNil(mgr:getAt(61, keyB))
   Assert.equal(actorA.fieldX, 8)
   Assert.equal(actorB.fieldX, 8)
 
@@ -1998,7 +1993,7 @@ function T.revealed_occupant_blocks_autonomous_reservation()
   local actionC = entry.autonomousActions[actorC.actorId]
   Assert.isNil(actionC, "autonomous walk into the revealed occupant must not reserve")
   Assert.equal(mgr:getCollisionAt(61, keyB), actorB, "revealed occupant must remain collidable")
-  Assert.isTrue(isOccupied(mgr, 61, 8, 3, actorB.surfaceId))
+  Assert.notNil(mgr:getAt(61, keyB))
   for actorId, _ in pairs(entry.actors) do
     if actorId ~= actorC.actorId then
       Assert.isNil(entry.autonomousActions[actorId], "no other actor should have been reserved")
@@ -2139,7 +2134,7 @@ function T.reconcile_preserves_stable_overlap_winner()
   assert(reconciledTop ~= nil)
   Assert.notNil(mgr:getById(actorA.actorId))
   Assert.notNil(mgr:getById(actorB.actorId))
-  Assert.isTrue(isOccupied(mgr, 61, 8, 3, actorA.surfaceId))
+  Assert.notNil(getAt(mgr, 61, 8, 3, actorA.surfaceId))
   Assert.equal(reconciledTop.actorId, actorA.actorId, "reconcile must preserve stable earliest-actor winner")
   local collisionTop = mgr:getCollisionAt(61, keyB)
   assert(collisionTop ~= nil)
@@ -2190,44 +2185,8 @@ function T.restore_preserves_stable_overlap_winner()
   local restoredTop = assert(restoredMgr:getAt(61, restoredKey), "restore must retain the overlapping bucket")
   Assert.equal(restoredTop.actorId, restoredA.actorId, "restore must preserve stable earliest-actor winner")
   Assert.equal(restoredMgr:getCollisionAt(61, restoredKey).actorId, restoredA.actorId)
-  Assert.isTrue(isOccupied(restoredMgr, 61, 8, 3, restoredA.surfaceId))
+  Assert.notNil(restoredMgr:getAt(61, restoredKey))
   restoredMgr:dispose()
-end
-
-function T.occupancy_exclusion_considers_all_members_of_shared_bucket()
-  local mgr = manager({
-    object({ objectEventId = 0, x = 2, z = 3 }),
-    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
-  })
-  local actorA = assert(mgr:getById("map:61:object:0"))
-  local actorB = assert(mgr:getById("map:61:object:1"))
-  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
-  local surfaceId = actorA.surfaceId
-  -- Shared bucket contains both actors; every exclusion variant remains occupied.
-  Assert.isTrue(isOccupied(mgr, 61, 8, 3, surfaceId), "shared bucket without exclusion is occupied")
-  Assert.isTrue(
-    isOccupied(mgr, 61, 8, 3, surfaceId, actorA.actorId),
-    "excluding the winner must still report occupied when another occupant remains"
-  )
-  Assert.isTrue(
-    isOccupied(mgr, 61, 8, 3, surfaceId, actorB.actorId),
-    "excluding the non-winner must still report occupied"
-  )
-  Assert.equal(mgr:getAt(61, candidate(8, 3, surfaceId)).actorId, actorA.actorId)
-
-  -- Singleton buckets: excluding the sole occupant is unoccupied, no exclusion is occupied.
-  mgr:setPosition(actorA.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
-  Assert.isTrue(isOccupied(mgr, 61, 8, 3, surfaceId), "singleton B bucket is occupied without exclusion")
-  Assert.isFalse(
-    isOccupied(mgr, 61, 8, 3, surfaceId, actorB.actorId),
-    "singleton bucket excluding its sole occupant is unoccupied"
-  )
-  Assert.isTrue(isOccupied(mgr, 61, 2, 3, surfaceId), "singleton A bucket is occupied without exclusion")
-  Assert.isFalse(
-    isOccupied(mgr, 61, 2, 3, surfaceId, actorA.actorId),
-    "singleton bucket excluding its sole occupant is unoccupied"
-  )
-  mgr:dispose()
 end
 
 return { tests = T }

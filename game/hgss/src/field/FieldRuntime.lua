@@ -307,7 +307,13 @@ function FieldRuntime:_playerOccupantAt(candidate)
   local currentMap = self.runtimeMap
   local coverage = currentMap.coverage
   local destinationMapId = coverage and coverage:mapHeaderAt(candidate.fieldX, candidate.fieldZ) or nil
-  local occupant = self:_actorAt(destinationMapId or currentMap.mapId, candidate)
+  local targetMapId = destinationMapId or currentMap.mapId
+  local occupant
+  if self.actors.currentMapId == targetMapId then
+    occupant = self.actors:getCollisionAt(targetMapId, candidate)
+  else
+    occupant = self:_actorAt(targetMapId, candidate)
+  end
   return occupant and occupant.actorId or nil
 end
 
