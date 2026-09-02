@@ -53,11 +53,61 @@ function FieldActorCache.marker(romSha1, depHash)
   return string.format("%s:%s:%s", FieldActorCache.FORMAT, romSha1, depHash)
 end
 
+local function isFiniteNumber(value)
+  return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
+end
+
+-- Validate the source-independent presentation data needed by every runtime
+-- actor. The frame-offset array is indexed by the generated visual's 1-based
+-- atlas frame indices, so holes and non-numeric display offsets are unsafe.
+function FieldActorCache.isValidVisual(visual, spriteId)
+  if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
+    return false
+  end
+  if spriteId ~= nil and visual.spriteId ~= spriteId then
+    return false
+  end
+  local idlePresentation = visual.idlePresentation
+  if type(idlePresentation) ~= "table" then
+    return false
+  end
+  if idlePresentation.mode ~= "static" and idlePresentation.mode ~= "animated" then
+    return false
+  end
+  if
+    type(idlePresentation.cadence) ~= "number"
+    or idlePresentation.cadence % 1 ~= 0
+    or (idlePresentation.mode == "static" and idlePresentation.cadence ~= 0)
+    or (idlePresentation.mode == "animated" and idlePresentation.cadence ~= 1)
+  then
+    return false
+  end
+  if not Validate.isArray(idlePresentation.frameOffsets) or #idlePresentation.frameOffsets == 0 then
+    return false
+  end
+  local render = visual.render
+  if
+    type(render) ~= "table"
+    or render.image ~= FieldActorCache.atlasPath(visual.spriteId)
+    or not Validate.isNonNegativeInteger(render.frameCount)
+    or render.frameCount == 0
+    or #idlePresentation.frameOffsets ~= render.frameCount
+  then
+    return false
+  end
+  for _, offset in ipairs(idlePresentation.frameOffsets) do
+    if not isFiniteNumber(offset) then
+      return false
+    end
+  end
+  return true
+end
+
 -- True only if the marker is exact, the index loads with the expected schema,
 -- spriteIds is the required array of sprite ids, the runtime configuration
 -- block (avatars + variable-sprite policy) is present, and every indexed
--- sprite's visual definition (with the expected schema and matching identity)
--- and atlas is present.
+-- sprite's visual definition (with the expected schema, matching identity, and
+-- required normalized idle profile) and atlas is present.
 function FieldActorCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldActorCache.markerPath()) ~= expectedMarker then
     return false
@@ -93,7 +143,7 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
       return false
     end
     local visual = cacheFs:loadLua(FieldActorCache.visualPath(spriteId)) ---@type table?
-    if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA or visual.spriteId ~= spriteId then
+    if not FieldActorCache.isValidVisual(visual, spriteId) then
       return false
     end
     if not cacheFs:exists(FieldActorCache.atlasPath(spriteId), "file") then

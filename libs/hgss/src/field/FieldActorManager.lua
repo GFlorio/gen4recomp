@@ -496,15 +496,19 @@ function FieldActorManager:_instantiate(entry, event, eventState)
     plateCellKey, plateSourceSurfaceId = sourceIdentityFromPlate(plate)
   end
   local spriteId = self:_resolveSpriteId(event, eventState)
-  self:_acquireVisual(spriteId, actorId)
+  local asset = self:_acquireVisual(spriteId, actorId)
 
   -- Local ownership: the visual is acquired for this construction only, so any
   -- failure between acquisition and completed insertion releases it before the
   -- error propagates. Solid actors (the default; an event may opt out) take the
   -- occupancy cell, and two solid actors on one cell are a conflict.
   local actor ---@type FieldActorManager.Actor
+  local visual
+  local idlePresentation
   local autonomyAttached = false
   local ok, err = pcall(function()
+    visual = assert(asset.visual, "field actor visual is required")
+    idlePresentation = assert(visual.idlePresentation, "field actor idle presentation is required")
     actor = FieldObjectActor.new({
       mapId = runtimeMap.mapId,
       sourceEvent = event,
@@ -519,6 +523,8 @@ function FieldActorManager:_instantiate(entry, event, eventState)
       worldY = world and world.y or nil,
       worldZ = world and world.z or nil,
       resident = resident,
+      visual = visual,
+      idlePresentation = idlePresentation,
     }) --[[@as FieldActorManager.Actor]]
 
     if actor.resident then

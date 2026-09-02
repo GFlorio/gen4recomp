@@ -21,6 +21,10 @@
 -- classification); the vocabulary a stale v1 cache could have baked in is
 -- no longer trustworthy.
 --
+-- fieldActors schema 3/cache v2: generated visuals carry the required
+-- source-independent idle presentation profile. A stale visual cannot supply
+-- the actor's idle cadence and frame display offsets safely.
+--
 -- fieldUi schema 6: wayfinding rects become final 48x32 surfaces. Each
 -- (type, map) rect is a 6x4 arrangement (48px wide, 32px tall) composed at
 -- build time from the original 24 8x8 tiles, instead of a raw 192x8 strip.
@@ -81,8 +85,8 @@ DerivedAssetContract.fieldCells = {
 }
 
 DerivedAssetContract.fieldActors = {
-  cacheFormat = "field-actor-cache-v1",
-  schema = "g4-field-actor-v2",
+  cacheFormat = "field-actor-cache-v2",
+  schema = "g4-field-actor-v3",
   indexSchema = "g4-field-actor-index-v2",
 }
 

@@ -43,8 +43,8 @@ function T.contract_pins_the_current_asset_identities()
       cellSchema = "g4-field-cell-v2",
     },
     fieldActors = {
-      cacheFormat = "field-actor-cache-v1",
-      schema = "g4-field-actor-v2",
+      cacheFormat = "field-actor-cache-v2",
+      schema = "g4-field-actor-v3",
       indexSchema = "g4-field-actor-index-v2",
     },
     fieldCamera = {

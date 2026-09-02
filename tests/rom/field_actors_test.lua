@@ -138,6 +138,37 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
   )
 end
 
+function T.compiled_visuals_normalize_source_actor_families(romFs)
+  local bundle = assert(FieldActorCompiler.compile(romFs))
+  local ordinary = bundle.visuals[29]
+  local familyModes = {
+    [84] = "static", -- family 1
+    [335] = "static", -- family 12
+    [425] = "static", -- family 13
+    [183] = "static", -- family 15
+    [1043] = "animated", -- family 16
+    [1032] = "animated", -- family 17
+    [262] = "static", -- family 18
+  }
+  local follower = bundle.visuals[1032]
+
+  Assert.deepEqual(ordinary.idlePresentation, {
+    mode = "static",
+    cadence = 0,
+    frameOffsets = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  })
+  for spriteId, mode in pairs(familyModes) do
+    Assert.equal(bundle.visuals[spriteId].idlePresentation.mode, mode)
+  end
+  Assert.equal(follower.idlePresentation.cadence, 1)
+  Assert.equal(follower.directions.south.idle.durationTicks, follower.directions.south.walk.durationTicks)
+  Assert.equal(follower.idlePresentation.frameOffsets[1], 0)
+  Assert.equal(follower.idlePresentation.frameOffsets[2], -2 / 16)
+  for _, visual in pairs(bundle.visuals) do
+    Assert.isNil(visual.actorFamily, "raw actor family must not cross the generated asset boundary")
+  end
+end
+
 -- The render facts every target class must inherit from the shared model member:
 -- one bottom-centered quad two tiles on a side, drawn single-sided in modulation
 -- mode at full polygon alpha under polygon id 0, lit from the field profile

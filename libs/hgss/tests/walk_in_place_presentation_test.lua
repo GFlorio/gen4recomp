@@ -1,5 +1,6 @@
 local Assert = require("tests.support.Assert")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -9,7 +10,7 @@ function T.walk_in_place_must_animate_without_translating()
       return true
     end,
     acquire = function(_, id)
-      return { spriteId = id }
+      return { spriteId = id, visual = FieldActorFixture.visual(id) }
     end,
     release = function() end,
   }

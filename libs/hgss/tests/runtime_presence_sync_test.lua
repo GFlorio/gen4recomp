@@ -11,6 +11,7 @@ local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -83,7 +84,7 @@ local function fakeAssets(known)
     end,
     acquire = function(self, spriteId)
       self.references[spriteId] = (self.references[spriteId] or 0) + 1
-      return { spriteId = spriteId }
+      return { spriteId = spriteId, visual = FieldActorFixture.visual(spriteId) }
     end,
     release = function(self, spriteId)
       local c = self.references[spriteId] or 0

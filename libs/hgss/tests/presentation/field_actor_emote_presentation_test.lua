@@ -13,6 +13,7 @@ local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -82,7 +83,7 @@ local fakeAssets = {
     return true
   end,
   acquire = function(_, id)
-    return { spriteId = id }
+    return { spriteId = id, visual = FieldActorFixture.visual(id) }
   end,
   release = function() end,
 }

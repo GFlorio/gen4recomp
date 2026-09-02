@@ -37,7 +37,12 @@ local function writeActorVisual(c, spriteId)
   c:writeLua(FieldActorCache.visualPath(spriteId), {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId) },
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId), frameCount = 1 },
+    idlePresentation = {
+      mode = "static",
+      cadence = 0,
+      frameOffsets = { 0 },
+    },
   })
   c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
 end
@@ -90,6 +95,73 @@ function T.actor_visual_with_wrong_identity_is_not_ready()
   c:writeLua(FieldActorCache.visualPath(0), { schema = FieldActorCache.SCHEMA, spriteId = 7 })
   c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "visual file identity must match its index entry")
+end
+
+function T.actor_visual_without_idle_presentation_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  c:writeLua(FieldActorCache.visualPath(0), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0) },
+  })
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "idle presentation is required by the current actor schema")
+end
+
+function T.actor_visual_without_frame_count_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  c:writeLua(FieldActorCache.visualPath(0), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0) },
+    idlePresentation = {
+      mode = "static",
+      cadence = 0,
+      frameOffsets = { 0 },
+    },
+  })
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "runtime frame count is required by the actor visual contract")
+end
+
+function T.actor_visual_with_malformed_idle_presentation_is_not_ready()
+  local cases = {
+    { mode = "unknown", cadence = 0, frameOffsets = { 0 } },
+    { mode = "static", cadence = 1, frameOffsets = { 0 } },
+    { mode = "animated", cadence = 1, frameOffsets = { [1] = 0, [3] = 0 } },
+    { mode = "animated", cadence = 1, frameOffsets = { "0" } },
+  }
+  for _, idlePresentation in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    c:writeLua(FieldActorCache.visualPath(0), {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = { kind = "atlas", image = FieldActorCache.atlasPath(0) },
+      idlePresentation = idlePresentation,
+    })
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "malformed idle presentation must fail readiness")
+  end
+end
+
+function T.actor_visual_with_incomplete_idle_frame_offsets_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  c:writeLua(FieldActorCache.visualPath(0), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 2 },
+    idlePresentation = {
+      mode = "static",
+      cadence = 0,
+      frameOffsets = { 0 },
+    },
+  })
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "every generated atlas frame requires an idle display offset")
 end
 
 function T.actor_valid_artifact_is_ready()

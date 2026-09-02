@@ -11,6 +11,7 @@ local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldRegion = require("libs.hgss.src.field.FieldRegion")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -157,7 +158,7 @@ local function fakeAssets(known)
     end,
     acquire = function(self, spriteId)
       self.references[spriteId] = (self.references[spriteId] or 0) + 1
-      return { spriteId = spriteId, visual = { spriteId = spriteId } }
+      return { spriteId = spriteId, visual = FieldActorFixture.visual(spriteId) }
     end,
     release = function(self, spriteId)
       local count = self.references[spriteId] or 0
@@ -806,6 +807,8 @@ function T.stale_occupancy_cannot_be_removed_by_the_wrong_actor()
     worldX = 0,
     worldY = 0,
     worldZ = 0,
+    visual = FieldActorFixture.visual(99),
+    idlePresentation = FieldActorFixture.visual(99).idlePresentation,
   })
   ---@cast imposter FieldActorManager.Actor
   assets:acquire(99)
@@ -1677,11 +1680,11 @@ function T.autonomous_pattern_continues_without_an_idle_boundary()
   mgr:step(9)
   Assert.equal(actor.fieldX, 2)
   Assert.equal(actor.fieldZ, 2)
-  Assert.equal(actor.pose, "walk", "a continuous step keeps its walking presentation at commit")
+  Assert.equal(actor.pose, "idle", "a continuous step settles to the visual idle presentation at commit")
   Assert.isNil(entry.autonomousActions[actorId])
 
   mgr:step(10)
-  Assert.equal(actor.pose, "walk", "a successful successor has no idle presentation boundary")
+  Assert.equal(actor.pose, "walk", "a successful successor starts a new active presentation")
   local successor = assert(entry.autonomousActions[actorId])
   Assert.equal(successor.destination.fieldX, 3)
   Assert.equal(successor.destination.fieldZ, 2)
@@ -1711,7 +1714,7 @@ function T.autonomous_pattern_settles_when_continuation_is_blocked()
   mgr:step(9)
   Assert.equal(actor.fieldX, 2)
   Assert.equal(actor.fieldZ, 2)
-  Assert.equal(actor.pose, "walk")
+  Assert.equal(actor.pose, "idle")
   Assert.isNil(entry.autonomousActions[actorId])
 
   mgr:step(10)
@@ -1720,7 +1723,7 @@ function T.autonomous_pattern_settles_when_continuation_is_blocked()
   Assert.isNil(entry.autonomousActions[actorId])
   Assert.isNil(next(entry.reservations))
   Assert.equal(actor.pose, "idle", "a failed continuous successor settles the actor")
-  Assert.equal(actor.poseTick, 0, "settling clears the carried walking phase")
+  Assert.equal(actor.poseTick, 0, "settling clears the static idle phase")
   mgr:dispose()
 end
 
@@ -1747,7 +1750,7 @@ function T.destroying_a_carried_actor_clears_only_its_presentation_state()
   for tick = 2, 9 do
     mgr:step(tick)
   end
-  Assert.equal(carriedActor.pose, "walk")
+  Assert.equal(carriedActor.pose, "idle")
   Assert.isNil(entry.autonomousActions[carriedActorId])
   Assert.isTrue(entry.autonomousPresentationCarry[carriedActorId])
 

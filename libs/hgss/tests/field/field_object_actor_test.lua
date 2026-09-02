@@ -4,6 +4,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -41,6 +42,7 @@ local function sourceEvent(overrides)
 end
 
 local function actor(overrides, optsOverrides)
+  local visual = FieldActorFixture.visual(99)
   local opts = {
     mapId = 61,
     sourceEvent = sourceEvent(overrides),
@@ -50,6 +52,8 @@ local function actor(overrides, optsOverrides)
     worldX = 6.5,
     worldY = 0,
     worldZ = 5.5,
+    visual = visual,
+    idlePresentation = visual.idlePresentation,
   }
   for key, value in pairs(optsOverrides or {}) do
     rawset(opts, key, value)

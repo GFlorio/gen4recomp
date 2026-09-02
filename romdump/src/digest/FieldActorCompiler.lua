@@ -1,5 +1,5 @@
 -- Compiles every field-actor sprite referenced by the map catalog into normalized
--- `g4-field-actor-v2`
+-- `g4-field-actor-v3`
 -- visual definitions plus one private RGBA atlas each.
 --
 -- Ordinary actors use a shared camera-facing billboard and timeline. Static
@@ -35,6 +35,24 @@ local FieldActorCompiler = {}
 
 local MODEL_MAGIC = "BMD0"
 local TEXTURE_MAGIC = "BTX0"
+local FX32_ONE = 4096
+local SOURCE_MODEL_UNITS_PER_TILE = 16
+local FOLLOWER_DISPLAY_OFFSET = -(2 * FX32_ONE) / (SOURCE_MODEL_UNITS_PER_TILE * FX32_ONE)
+
+-- Source: pret/pokeheartgold 0985, ov01_02209A38. Families 16 and 17 reach
+-- ov01_021F8D80's taskless path and ov01_021F8FC0 bob; the other encountered
+-- families use callbacks without that follower idle behavior.
+local IDLE_MODE_BY_ACTOR_FAMILY = {
+  [0] = "static",
+  [1] = "static",
+  [3] = "static",
+  [12] = "static",
+  [13] = "static",
+  [15] = "static",
+  [16] = "animated",
+  [17] = "animated",
+  [18] = "static",
+}
 
 ---@generic T
 ---@param value T?
@@ -184,11 +202,36 @@ local function decodeAtlas(pack, frames, context)
   }
 end
 
+local function idlePresentation(mode, directions, frameCount)
+  local frameOffsets = {}
+  for frameIndex = 1, frameCount do
+    frameOffsets[frameIndex] = 0
+  end
+  if mode == "animated" then
+    -- ov01_021F8FC0 applies -2 source FX32 units during the middle displayed
+    -- band of the follower loop. The timeline has already collapsed source
+    -- frames into displayed frames, so the second displayed frame in each
+    -- directional loop is the normalized frame-level condition.
+    for _, direction in ipairs(manifest.directionOrder) do
+      local frames = directions[direction].walk.frames
+      local middle = frames[2]
+      if middle then
+        frameOffsets[middle.frameIndex] = FOLLOWER_DISPLAY_OFFSET
+      end
+    end
+  end
+  return {
+    mode = mode,
+    cadence = mode == "animated" and 1 or 0,
+    frameOffsets = frameOffsets,
+  }
+end
+
 -- Turn per-range displayed frames into the direction-keyed pose sets. Ranges
 -- 1-4 are the base directional set in global_fieldmap.h order; a descriptor with
 -- eight ranges carries a second set whose gameplay trigger is not yet traced, so
 -- it is preserved under a neutral name.
-local function buildPoses(perRange, ranges)
+local function buildPoses(perRange, ranges, idleMode, frameCount)
   local order = manifest.directionOrder
 
   local function poseFor(index)
@@ -213,20 +256,31 @@ local function buildPoses(perRange, ranges)
       animations[index] = poseFor(index)
     end
     for _, direction in ipairs(order) do
-      directions[direction] = { idle = animations[1], walk = animations[1] }
+      local idle = idleMode == "animated" and animations[1]
+        or {
+          frames = { { frameIndex = animations[1].frames[1].frameIndex, ticks = 1 } },
+          loop = true,
+          durationTicks = 1,
+        }
+      directions[direction] = { idle = idle, walk = animations[1] }
     end
-    return directions, nil, animations
+    return directions, nil, animations, idlePresentation(idleMode, directions, frameCount)
   end
   for i, direction in ipairs(order) do
     local walk = poseFor(i)
-    -- An idle actor never advances its animation clock, so it holds the first
-    -- displayed frame of its facing range.
-    directions[direction] = {
+    local idle
+    if idleMode == "animated" then
+      idle = walk
+    else
+      -- Ordinary actors hold the first displayed frame of their facing range.
       idle = {
         frames = { { frameIndex = walk.frames[1].frameIndex, ticks = 1 } },
         loop = true,
         durationTicks = 1,
-      },
+      }
+    end
+    directions[direction] = {
+      idle = idle,
       walk = walk,
     }
   end
@@ -236,7 +290,7 @@ local function buildPoses(perRange, ranges)
       alternate[direction] = poseFor(#order + i)
     end
   end
-  return directions, alternate, nil
+  return directions, alternate, nil, idlePresentation(idleMode, directions, frameCount)
 end
 
 local function staticDirections()
@@ -259,6 +313,7 @@ local function finishStaticModel(spriteId, compiled)
     pivot = { x = 0.5, y = 1 },
     frames = { { textureSlot = 0, paletteSlot = 0 } },
     directions = staticDirections(),
+    idlePresentation = { mode = "static", cadence = 0, frameOffsets = { 0 } },
   }
   return visual, atlas
 end
@@ -295,6 +350,14 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
     return compileStaticModel(spriteId, resolved.staticModelMemberId, staticArchive, context)
   end
   local descriptor = resolved.descriptor
+  local idleMode = IDLE_MODE_BY_ACTOR_FAMILY[record.actorFamily]
+  if not idleMode then
+    Errors.raise(
+      "FIELD_ACTOR_ACTOR_FAMILY_UNSUPPORTED",
+      "actor family " .. record.actorFamily .. " has no normalized idle behavior",
+      { actorFamily = record.actorFamily, context = context }
+    )
+  end
 
   local modelBytes = archive:readMember(descriptor.modelMemberId)
   if not modelBytes or modelBytes:sub(1, 4) ~= MODEL_MAGIC then
@@ -339,7 +402,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local frameSet = FieldActorFrames.collect(timeline, descriptor.ranges, #pack.textures, #pack.palettes, context)
   local frames, perRange = frameSet.frames, frameSet.perRange
   local atlas = decodeAtlas(pack, frames, context)
-  local directions, alternate, animations = buildPoses(perRange, descriptor.ranges)
+  local directions, alternate, animations, idleProfile = buildPoses(perRange, descriptor.ranges, idleMode, #frames)
 
   local placement = {
     sourceSize = { width = atlas.frameWidth, height = atlas.frameHeight },
@@ -388,6 +451,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
     pivot = { x = placement.pivot.x, y = placement.pivot.y },
     frames = frames,
     directions = directions,
+    idlePresentation = idleProfile,
     directionalSet2 = alternate,
     nonDirectionalAnimations = animations,
   }

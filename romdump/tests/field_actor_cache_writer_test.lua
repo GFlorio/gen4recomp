@@ -26,6 +26,7 @@ local function visual(spriteId)
     },
     frames = { { textureSlot = 0, paletteSlot = 0 }, { textureSlot = 1, paletteSlot = 0 } },
     directions = {},
+    idlePresentation = { mode = "static", cadence = 0, frameOffsets = { 0, 0 } },
   }
 end
 
@@ -68,7 +69,7 @@ function T.is_not_ready_for_a_different_marker()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   local b = bundle({ 0 })
   FieldActorCacheWriter.write(cache, b)
-  Assert.isFalse(FieldActorCache.isReady(cache, "field-actor-cache-v1:abc:other"))
+  Assert.isFalse(FieldActorCache.isReady(cache, FieldActorCache.marker("abc", "other")))
 end
 
 function T.is_not_ready_when_an_atlas_is_missing()

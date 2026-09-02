@@ -15,6 +15,7 @@ local Scheduler = require("libs.script.src.Scheduler")
 local TaskRegistry = require("libs.script.src.TaskRegistry")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
 
@@ -311,7 +312,7 @@ local function realActorStepSession()
         return spriteId == 99
       end,
       acquire = function(_, spriteId)
-        return { spriteId = spriteId, visual = {}, references = 1 }
+        return { spriteId = spriteId, visual = FieldActorFixture.visual(spriteId), references = 1 }
       end,
       release = function() end,
     },

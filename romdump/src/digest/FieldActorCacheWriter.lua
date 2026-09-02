@@ -46,7 +46,7 @@ local function persist(tx, bundle)
   end
   for _, spriteId in ipairs(index.spriteIds) do
     local visual = stage:loadLua(FieldActorCache.visualPath(spriteId))
-    if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
+    if not FieldActorCache.isValidVisual(visual, spriteId) then
       Errors.raise(
         "FIELD_ACTOR_CACHE_READBACK_FAILED",
         "visual definition for spriteId " .. spriteId .. " did not read back",

@@ -144,7 +144,7 @@ end
 
 local function load(self, spriteId)
   local visual = self._cacheFs:loadLua(FieldActorCache.visualPath(spriteId))
-  if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
+  if not FieldActorCache.isValidVisual(visual, spriteId) then
     Errors.raise(
       FieldErrors.FIELD_ACTOR_VISUAL_UNAVAILABLE,
       "no " .. FieldActorCache.SCHEMA .. " definition for spriteId " .. spriteId,

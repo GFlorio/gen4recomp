@@ -203,7 +203,7 @@ local function actorDefinitionAssets()
   end
   function assets:acquire(spriteId)
     self.references[spriteId] = (self.references[spriteId] or 0) + 1
-    return { spriteId = spriteId, visual = {} }
+    return { spriteId = spriteId, visual = FieldActorFixture.visual(spriteId) }
   end
   function assets:release(spriteId)
     local count = assert(self.references[spriteId])

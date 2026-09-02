@@ -7,6 +7,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
+local FieldActorPose = require("libs.hgss.src.presentation.FieldActorPose")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 
 ---@class FieldObjectActor
@@ -28,10 +29,10 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field facing FieldDirection
 ---@field pose string
 ---@field poseTick integer
----@field private _retainedDriver { action: string, speed: string?, distance: string? }?
----@field private _retainedProgressTicks integer
+---@field private _visual table
+---@field private _idlePresentation { mode: "static"|"animated", cadence: integer, frameOffsets: table<integer, number> }
 ---@field private _scriptedPresentationAdvanced boolean
----@field presentationOffset { x: number, y: number } render-only locomotion offset; zero outside its owning action
+---@field presentationOffset { x: number, y: number } render-only action or idle display offset
 ---@field activeEmoteKind string? the active semantic emote (e.g. "exclamation") while an emote action is live, else nil
 ---@field visible boolean
 ---@field solid boolean
@@ -84,23 +85,33 @@ local function walkInPlaceBobOffset(progressTicks, durationTicks)
   return (WALK_IN_PLACE_BOB_AMPLITUDE / 2) * (1 - math.cos(4 * math.pi * t))
 end
 
-local function clearRetainedPresentation(actor)
-  actor._retainedDriver = nil
-  actor._retainedProgressTicks = 0
+local function requireIdlePresentation(visual, idlePresentation)
+  assert(type(visual) == "table", "field actor visual is required")
+  assert(type(idlePresentation) == "table", "field actor idle presentation is required")
+  assert(idlePresentation.mode == "static" or idlePresentation.mode == "animated", "field actor idle mode is invalid")
+  assert(
+    type(idlePresentation.cadence) == "number" and idlePresentation.cadence % 1 == 0,
+    "field actor idle cadence is invalid"
+  )
+  assert(
+    (idlePresentation.mode == "static" and idlePresentation.cadence == 0)
+      or (idlePresentation.mode == "animated" and idlePresentation.cadence == 1),
+    "field actor idle cadence does not match its mode"
+  )
+  assert(type(idlePresentation.frameOffsets) == "table", "field actor idle frame offsets are required")
 end
 
-local function advanceRetainedPresentation(actor)
-  local driver = actor._retainedDriver
-  if not driver then
-    return
+local function applyIdlePresentation(actor, advance)
+  local idlePresentation = actor._idlePresentation
+  if advance and idlePresentation.mode == "animated" and not actor.animationPaused then
+    actor.poseTick = actor.poseTick + idlePresentation.cadence
   end
-  local oldProgressTicks = actor._retainedProgressTicks
-  local newProgressTicks = oldProgressTicks + 1
-  local oldPoseProgress = MovementCalibration.poseProgressTicks(driver, oldProgressTicks)
-  local newPoseProgress = MovementCalibration.poseProgressTicks(driver, newProgressTicks)
-  actor._retainedProgressTicks = newProgressTicks
-  actor.pose = "walk"
-  actor.poseTick = actor.poseTick + newPoseProgress - oldPoseProgress
+  actor.pose = "idle"
+  local frameIndex = FieldActorPose.frameIndex(actor._visual, actor.facing, "idle", actor.poseTick)
+  actor.presentationOffset.y = assert(
+    idlePresentation.frameOffsets[frameIndex],
+    "field actor idle frame " .. frameIndex .. " has no display offset"
+  )
 end
 
 -- Identity is derived only from map and object-event identity, so it survives
@@ -118,6 +129,7 @@ end
 
 function FieldObjectActor.new(opts)
   assert(type(opts) == "table" and type(opts.sourceEvent) == "table", "FieldObjectActor requires a source event")
+  requireIdlePresentation(opts.visual, opts.idlePresentation)
   local event = opts.sourceEvent
   local actorId = FieldObjectActor.actorId(opts.mapId, event.objectEventId)
   local facing =
@@ -144,8 +156,8 @@ function FieldObjectActor.new(opts)
     facing = facing,
     pose = "idle",
     poseTick = 0,
-    _retainedDriver = nil,
-    _retainedProgressTicks = 0,
+    _visual = opts.visual,
+    _idlePresentation = opts.idlePresentation,
     _scriptedPresentationAdvanced = false,
     -- Render-only locomotion presentation offset (walk-in-place bob); never
     -- mutates worldX/worldY/worldZ, which stay the logical/committed anchor.
@@ -258,15 +270,14 @@ function FieldObjectActor:beginAction(descriptor, owner)
   -- it; every other action (including a later emote with a different kind)
   -- starts from a clean slate.
   self.activeEmoteKind = descriptor.action == "emote" and descriptor.name or nil
-  -- Locomotion pose is true while a locomotion action is active. Delay and
-  -- emote preserve the source-selected presentation; face and gesture are
-  -- explicit static presentation transitions.
+  -- Locomotion pose is true while a locomotion action is active. Face and
+  -- gesture are explicit static presentation transitions; delays and emotes
+  -- leave the current idle presentation unchanged.
   if isLocomotionAction(descriptor.action) then
     if not self.animationPaused then
       self.pose = "walk"
     end
   elseif descriptor.action == "face" or descriptor.action == "gesture" then
-    clearRetainedPresentation(self)
     self.pose = "idle"
     self.poseTick = 0
   end
@@ -314,18 +325,18 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldZ = m.startWorldZ
     self.worldY = m.startWorldY
   end
-  -- Advance pose clock once per eligible tick for locomotion and retained
-  -- delay/emote presentation. Presentation progress is calibrated
-  -- independently from the fixed simulation progress used by geometry and
-  -- completion.
+  -- Advance pose clock once per eligible tick for active locomotion. A delay
+  -- or emote owns its tick without inheriting a prior action: its presentation
+  -- comes from the visual idle profile instead.
   if not self.animationPaused then
     if isLocomotionAction(m.action) then
       local poseProgress = MovementCalibration.poseProgressTicks(m, progressTicks)
       self.pose = "walk"
       self.poseTick = m.startPoseTick + poseProgress
-    elseif m.action == "delay" or m.action == "emote" then
-      advanceRetainedPresentation(self)
     end
+  end
+  if m.action == "delay" or m.action == "emote" then
+    applyIdlePresentation(self, not self.animationPaused)
   end
   if progressTicks == durationTicks then
     if m.action == "walk" or m.action == "jump" then
@@ -356,20 +367,13 @@ function FieldObjectActor:commitAction()
     worldZ = m.destWorldZ,
     resident = m.destResident,
   }
-  -- The transaction settles: a completed action never leaves a residual
-  -- render-only offset for the next action (or idle) to inherit.
+  -- The transaction settles into the visual's idle semantics; action-owned
+  -- render-only state never survives the action boundary.
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
-  if isLocomotionAction(m.action) then
-    self._retainedDriver = {
-      action = m.action,
-      speed = m.speed,
-      distance = m.distance,
-    }
-    self._retainedProgressTicks = m.progressTicks
-  end
   self._motion = nil
+  applyIdlePresentation(self, false)
   return result
 end
 
@@ -386,7 +390,7 @@ function FieldObjectActor:cancelAction()
   self.worldX = m.startWorldX
   self.worldY = m.startWorldY
   self.worldZ = m.startWorldZ
-  if m.action == "walk" or m.action == "walk_in_place" or m.action == "jump" then
+  if isLocomotionAction(m.action) then
     self.pose = m.startPose
     self.poseTick = m.startPoseTick
   end
@@ -394,6 +398,7 @@ function FieldObjectActor:cancelAction()
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
   self._motion = nil
+  applyIdlePresentation(self, false)
 end
 
 function FieldObjectActor:cancelScriptedAction()
@@ -412,12 +417,10 @@ function FieldObjectActor:advancePresentationTick()
   if self._motion ~= nil or self.animationPaused then
     return
   end
-  if self._retainedDriver then
-    advanceRetainedPresentation(self)
-  end
+  applyIdlePresentation(self, true)
 end
 
--- Force a stable idle baseline with no residual presentation offset.
+-- Force a stable idle baseline with no residual action presentation offset.
 function FieldObjectActor:settlePresentation()
   assert(self._motion == nil, "cannot settle presentation while an action is active")
   self.pose = "idle"
@@ -425,7 +428,7 @@ function FieldObjectActor:settlePresentation()
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
-  clearRetainedPresentation(self)
+  applyIdlePresentation(self, false)
   self._scriptedPresentationAdvanced = false
 end
 
