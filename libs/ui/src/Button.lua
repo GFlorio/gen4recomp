@@ -1,4 +1,4 @@
--- Generic layered button geometry, cut-corner painter, and hit-test primitive.
+-- Generic layered button geometry, rounded-rectangle painter, and hit-test primitive.
 
 local Button = {}
 
@@ -40,16 +40,10 @@ local function insetRect(rectValue, amount)
   }
 end
 
-local function shape(rectValue, cornerCut, name)
-  assertFiniteRectangle(rectValue, name .. " rectangle")
-  assertPositiveRectangle(rectValue, name .. " rectangle")
-  return { rect = rectValue, cornerCut = cornerCut }
-end
-
 local function shapeRounded(rectValue, cornerRadius, name)
   assertFiniteRectangle(rectValue, name .. " rectangle")
   assertPositiveRectangle(rectValue, name .. " rectangle")
-  return { rect = rectValue, cornerRadius = cornerRadius, cornerCut = cornerRadius }
+  return { rect = rectValue, cornerRadius = cornerRadius }
 end
 
 ---@param spec table
@@ -60,24 +54,9 @@ function Button.resolve(spec)
   local borderWidth = metric(spec.borderWidth, "button border width")
   local rimWidth = metric(spec.rimWidth, "button rim width")
   local innerBorderWidth = metric(spec.innerBorderWidth, "button inner border width")
-  local hasRadius = spec.cornerRadius ~= nil
-  local hasCut = spec.cornerCut ~= nil
-  assert(hasRadius or hasCut, "button corner radius or cut is required")
-  local cornerCut
-  local cornerRadius
-  if hasRadius then
-    cornerRadius = metric(spec.cornerRadius, "button corner radius")
-    assert(cornerRadius <= math.min(rectValue.width, rectValue.height) / 2, "button corner radius is too large")
-    if hasCut then
-      cornerCut = metric(spec.cornerCut, "button corner cut")
-      assert(cornerCut <= math.min(rectValue.width, rectValue.height) / 2, "button corner cut is too large")
-    else
-      cornerCut = cornerRadius
-    end
-  else
-    cornerCut = metric(spec.cornerCut, "button corner cut")
-    assert(cornerCut <= math.min(rectValue.width, rectValue.height) / 2, "button corner cut is too large")
-  end
+  assert(spec.cornerRadius ~= nil, "button corner radius is required")
+  local cornerRadius = metric(spec.cornerRadius, "button corner radius")
+  assert(cornerRadius <= math.min(rectValue.width, rectValue.height) / 2, "button corner radius is too large")
   assert(
     finite(spec.faceSplit) and spec.faceSplit > 0 and spec.faceSplit < 1,
     "button face split must be between 0 and 1"
@@ -85,30 +64,16 @@ function Button.resolve(spec)
   local contentInsetX = metric(spec.contentInsetX, "button horizontal content inset")
   local contentInsetY = metric(spec.contentInsetY, "button vertical content inset")
 
-  local border
   local rimRect = insetRect(rectValue, borderWidth)
-  local rim
   local innerBorderRect = insetRect(rimRect, rimWidth)
-  local innerBorder
   local faceRect = insetRect(innerBorderRect, innerBorderWidth)
-  local face
-  if hasRadius then
-    border = shapeRounded(rectValue, cornerRadius, "button border")
-    rim = shapeRounded(rimRect, math.max(0, cornerRadius - borderWidth), "button rim")
-    innerBorder =
-      shapeRounded(innerBorderRect, math.max(0, cornerRadius - borderWidth - rimWidth), "button inner border")
-    face = shapeRounded(faceRect, math.max(0, cornerRadius - borderWidth - rimWidth - innerBorderWidth), "button face")
-    -- Preserve legacy cornerCut for callers that inspect it, while storing radius for rounded drawing.
-    border.cornerCut = cornerCut
-    rim.cornerCut = math.max(0, cornerCut - borderWidth)
-    innerBorder.cornerCut = math.max(0, cornerCut - borderWidth - rimWidth)
-    face.cornerCut = math.max(0, cornerCut - borderWidth - rimWidth - innerBorderWidth)
-  else
-    border = shape(rectValue, cornerCut, "button border")
-    rim = shape(rimRect, math.max(0, cornerCut - borderWidth), "button rim")
-    innerBorder = shape(innerBorderRect, math.max(0, cornerCut - borderWidth - rimWidth), "button inner border")
-    face = shape(faceRect, math.max(0, cornerCut - borderWidth - rimWidth - innerBorderWidth), "button face")
-  end
+
+  local border = shapeRounded(rectValue, cornerRadius, "button border")
+  local rim = shapeRounded(rimRect, math.max(0, cornerRadius - borderWidth), "button rim")
+  local innerBorder =
+    shapeRounded(innerBorderRect, math.max(0, cornerRadius - borderWidth - rimWidth), "button inner border")
+  local face =
+    shapeRounded(faceRect, math.max(0, cornerRadius - borderWidth - rimWidth - innerBorderWidth), "button face")
 
   local contentRect = {
     x = faceRect.x + contentInsetX,
@@ -141,40 +106,10 @@ local function color(palette, name)
   return value[1], value[2], value[3], value[4] or 1
 end
 
-local function drawCutShape(graphics, descriptor)
-  local rectValue = descriptor.rect
-  local cut = descriptor.cornerCut
-  if cut == 0 then
-    graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, rectValue.height)
-    return
-  end
-  graphics.polygon(
-    "fill",
-    rectValue.x + cut,
-    rectValue.y,
-    rectValue.x + rectValue.width - cut,
-    rectValue.y,
-    rectValue.x + rectValue.width,
-    rectValue.y + cut,
-    rectValue.x + rectValue.width,
-    rectValue.y + rectValue.height - cut,
-    rectValue.x + rectValue.width - cut,
-    rectValue.y + rectValue.height,
-    rectValue.x + cut,
-    rectValue.y + rectValue.height,
-    rectValue.x,
-    rectValue.y + rectValue.height - cut,
-    rectValue.x,
-    rectValue.y + cut
-  )
-end
-
 local function drawRoundedShape(graphics, descriptor)
   local rectValue = descriptor.rect
   local radius = descriptor.cornerRadius
-  if radius == nil then
-    radius = 0
-  end
+  assert(radius ~= nil, "button corner radius is required")
   if radius == 0 then
     graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, rectValue.height)
     return
@@ -182,37 +117,11 @@ local function drawRoundedShape(graphics, descriptor)
   graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, rectValue.height, radius, radius)
 end
 
-local function drawFaceTop(graphics, face)
-  local rectValue = face.rect
-  local splitY = face.splitY
-  local cut = face.cornerCut
-  if cut == 0 then
-    graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, splitY - rectValue.y)
-    return
-  end
-  local splitOffset = splitY - rectValue.y
-  local leftAtSplit = rectValue.x + math.max(0, cut - splitOffset)
-  local rightAtSplit = rectValue.x + rectValue.width - math.max(0, cut - splitOffset)
-  graphics.polygon(
-    "fill",
-    rectValue.x + cut,
-    rectValue.y,
-    rectValue.x + rectValue.width - cut,
-    rectValue.y,
-    rightAtSplit,
-    splitY,
-    leftAtSplit,
-    splitY
-  )
-end
-
 local function drawRoundedFaceTop(graphics, face)
   local rectValue = face.rect
   local splitY = face.splitY
   local radius = face.cornerRadius
-  if radius == nil then
-    radius = 0
-  end
+  assert(radius ~= nil, "button face corner radius is required")
   if radius == 0 then
     graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, splitY - rectValue.y)
     return
@@ -221,28 +130,9 @@ local function drawRoundedFaceTop(graphics, face)
   if topHeight <= 0 then
     return
   end
-  -- Draw top slice with rounded top corners and square bottom edge at splitY.
-  -- First draw a rounded rectangle for the top slice, then square off the bottom corners.
   graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, topHeight, radius, radius)
   if topHeight > radius then
-    -- Overlay square strip over the bottom `radius` pixels to flatten bottom corners.
     graphics.rectangle("fill", rectValue.x, splitY - radius, rectValue.width, radius)
-  end
-end
-
-local function drawShape(graphics, descriptor)
-  if descriptor.cornerRadius ~= nil then
-    drawRoundedShape(graphics, descriptor)
-  else
-    drawCutShape(graphics, descriptor)
-  end
-end
-
-local function drawFaceTopDispatch(graphics, face)
-  if face.cornerRadius ~= nil then
-    drawRoundedFaceTop(graphics, face)
-  else
-    drawFaceTop(graphics, face)
   end
 end
 
@@ -253,7 +143,6 @@ function Button.draw(graphics, button, palette)
   assert(type(graphics) == "table", "button graphics is required")
   assert(type(graphics.setColor) == "function", "button graphics setColor is required")
   assert(type(graphics.rectangle) == "function", "button graphics rectangle is required")
-  assert(type(graphics.polygon) == "function", "button graphics polygon is required")
   assert(type(button) == "table", "resolved button is required")
   assert(type(palette) == "table", "button palette is required")
 
@@ -264,15 +153,15 @@ function Button.draw(graphics, button, palette)
   local faceBottom = { color(palette, "faceBottom") }
 
   graphics.setColor(border[1], border[2], border[3], border[4])
-  drawShape(graphics, button.border)
+  drawRoundedShape(graphics, button.border)
   graphics.setColor(rim[1], rim[2], rim[3], rim[4])
-  drawShape(graphics, button.rim)
+  drawRoundedShape(graphics, button.rim)
   graphics.setColor(innerBorder[1], innerBorder[2], innerBorder[3], innerBorder[4])
-  drawShape(graphics, button.innerBorder)
+  drawRoundedShape(graphics, button.innerBorder)
   graphics.setColor(faceBottom[1], faceBottom[2], faceBottom[3], faceBottom[4])
-  drawShape(graphics, button.face)
+  drawRoundedShape(graphics, button.face)
   graphics.setColor(faceTop[1], faceTop[2], faceTop[3], faceTop[4])
-  drawFaceTopDispatch(graphics, button.face)
+  drawRoundedFaceTop(graphics, button.face)
 end
 
 ---@param button table

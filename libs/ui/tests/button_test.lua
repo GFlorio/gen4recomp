@@ -18,7 +18,7 @@ local function spec(overrides)
     borderWidth = 2,
     rimWidth = 3,
     innerBorderWidth = 1,
-    cornerCut = 6,
+    cornerRadius = 6,
     faceSplit = 0.4,
     contentInsetX = 4,
     contentInsetY = 3,
@@ -45,10 +45,10 @@ end
 local function snapshot(b)
   return {
     rect = copyRect(b.rect),
-    border = { rect = copyRect(b.border.rect), cornerCut = b.border.cornerCut },
-    rim = { rect = copyRect(b.rim.rect), cornerCut = b.rim.cornerCut },
-    innerBorder = { rect = copyRect(b.innerBorder.rect), cornerCut = b.innerBorder.cornerCut },
-    face = { rect = copyRect(b.face.rect), cornerCut = b.face.cornerCut, splitY = b.face.splitY },
+    border = { rect = copyRect(b.border.rect), cornerRadius = b.border.cornerRadius },
+    rim = { rect = copyRect(b.rim.rect), cornerRadius = b.rim.cornerRadius },
+    innerBorder = { rect = copyRect(b.innerBorder.rect), cornerRadius = b.innerBorder.cornerRadius },
+    face = { rect = copyRect(b.face.rect), cornerRadius = b.face.cornerRadius, splitY = b.face.splitY },
     contentRect = copyRect(b.contentRect),
   }
 end
@@ -60,11 +60,12 @@ local function assertLayered(b)
   local prev = math.huge
   for _, name in ipairs(layers) do
     local layer = b[name]
-    Assert.keySet(layer, name == "face" and "cornerCut,rect,splitY" or "cornerCut,rect", name)
+    Assert.keySet(layer, name == "face" and "cornerRadius,rect,splitY" or "cornerRadius,rect", name)
     assertContained(layer.rect, parent, name)
-    Assert.isTrue(layer.cornerCut >= 0, name .. " cut non-negative")
-    Assert.isTrue(layer.cornerCut <= prev, name .. " cut not grow inward")
-    prev = layer.cornerCut
+    Assert.isTrue(layer.cornerRadius >= 0, name .. " radius non-negative")
+    Assert.isTrue(layer.cornerRadius <= prev, name .. " radius not grow inward")
+    Assert.isTrue(layer.cornerCut == nil, name .. " has no cornerCut")
+    prev = layer.cornerRadius
     parent = layer.rect
   end
   Assert.isTrue(b.face.splitY > b.face.rect.y, "split below top")
@@ -83,10 +84,10 @@ function T.valid_specs_resolve_nested_geometry_without_mutating_inputs()
   Assert.equal(resolved.face.rect.x, input.rect.x + input.borderWidth + input.rimWidth + input.innerBorderWidth)
   Assert.equal(resolved.contentRect.x, resolved.face.rect.x + input.contentInsetX)
   Assert.equal(resolved.contentRect.y, resolved.face.rect.y + input.contentInsetY)
-  Assert.equal(resolved.border.cornerCut, 6)
-  Assert.equal(resolved.rim.cornerCut, 4)
-  Assert.equal(resolved.innerBorder.cornerCut, 1)
-  Assert.equal(resolved.face.cornerCut, 0)
+  Assert.equal(resolved.border.cornerRadius, 6)
+  Assert.equal(resolved.rim.cornerRadius, 4)
+  Assert.equal(resolved.innerBorder.cornerRadius, 1)
+  Assert.equal(resolved.face.cornerRadius, 0)
   Assert.near(resolved.face.splitY, resolved.face.rect.y + resolved.face.rect.height * input.faceSplit)
   assertLayered(resolved)
   input.rect.x = 900
@@ -97,18 +98,18 @@ end
 function T.zero_width_layers_and_zero_corner_use_positive_rectangles()
   local Button = buttonModule()
   local resolved = Button.resolve(
-    spec({ borderWidth = 0, rimWidth = 0, innerBorderWidth = 0, cornerCut = 0, contentInsetX = 2, contentInsetY = 2 })
+    spec({ borderWidth = 0, rimWidth = 0, innerBorderWidth = 0, cornerRadius = 0, contentInsetX = 2, contentInsetY = 2 })
   )
   assertLayered(resolved)
   Assert.deepEqual(resolved.border.rect, resolved.rect)
   Assert.deepEqual(resolved.rim.rect, resolved.rect)
   Assert.deepEqual(resolved.innerBorder.rect, resolved.rect)
-  Assert.equal(resolved.face.cornerCut, 0)
+  Assert.equal(resolved.face.cornerRadius, 0)
 end
 
-function T.containment_is_half_open_and_cut_corners_remain_hittable()
+function T.containment_is_half_open()
   local Button = buttonModule()
-  local resolved = Button.resolve(spec({ rect = rect(10, 20, 30, 40), cornerCut = 4 }))
+  local resolved = Button.resolve(spec({ rect = rect(10, 20, 30, 40), cornerRadius = 4 }))
   Assert.isTrue(Button.contains(resolved, 10, 20))
   Assert.isTrue(Button.contains(resolved, 10.5, 20.5))
   Assert.isTrue(Button.contains(resolved, 39.999, 59.999))
@@ -126,29 +127,38 @@ function T.invalid_metrics_are_rejected()
   for _, r in ipairs({ { x = "10", y = 20, width = 30, height = 40 }, { x = 10, y = 20, width = 0, height = 40 } }) do
     rejects(spec({ rect = r }))
   end
-  for _, name in ipairs({ "borderWidth", "rimWidth", "innerBorderWidth", "cornerCut", "contentInsetX", "contentInsetY" }) do
+  for _, name in ipairs({
+    "borderWidth",
+    "rimWidth",
+    "innerBorderWidth",
+    "cornerRadius",
+    "contentInsetX",
+    "contentInsetY",
+  }) do
     rejects(spec({ [name] = -1 }))
     rejects(spec({ [name] = math.huge }))
   end
   rejects(spec({ faceSplit = 0 }))
   rejects(spec({ faceSplit = 1 }))
-  rejects(spec({ rect = rect(10, 20, 20, 10), cornerCut = 6 }))
+  rejects(spec({ rect = rect(10, 20, 20, 10), cornerRadius = 6 }))
   rejects(spec({ rect = rect(10, 20, 10, 10), borderWidth = 2, rimWidth = 2, innerBorderWidth = 2 }))
+  rejects(spec({ rect = rect(10, 20, 20, 20), cornerRadius = 20 }))
+  -- Missing cornerRadius
+  local s = spec()
+  s.cornerRadius = nil
+  rejects(s)
 end
 
-function T.draw_uses_cut_polygons_and_face_split()
+function T.draw_uses_rounded_rectangles_and_face_split()
   local Button = buttonModule()
-  local resolved = Button.resolve(spec({ rect = rect(0, 0, 100, 60), cornerCut = 4 }))
+  local resolved = Button.resolve(spec({ rect = rect(0, 0, 100, 60), cornerRadius = 4 }))
   local calls = {}
   local graphics = {
     setColor = function(r, g, b, a)
       calls[#calls + 1] = { kind = "setColor", color = { r, g, b, a } }
     end,
-    rectangle = function(mode, x, y, w, h)
-      calls[#calls + 1] = { kind = "rectangle", mode = mode, x = x, y = y, w = w, h = h }
-    end,
-    polygon = function(mode, ...)
-      calls[#calls + 1] = { kind = "polygon", mode = mode, points = { ... } }
+    rectangle = function(mode, x, y, w, h, rx, ry)
+      calls[#calls + 1] = { kind = "rectangle", mode = mode, x = x, y = y, w = w, h = h, rx = rx, ry = ry }
     end,
   }
   local palette = {
@@ -159,29 +169,35 @@ function T.draw_uses_cut_polygons_and_face_split()
     faceBottom = { 0.2, 0.2, 0.2, 1 },
   }
   Button.draw(graphics, resolved, palette)
-  -- Should have 5 draw calls: border, rim, innerBorder, face bottom, face top polygon.
   Assert.equal(calls[1].kind, "setColor")
-  -- Check that at least one polygon was used for cut corners.
-  local hasPolygon = false
+  local rectCount = 0
   for _, c in ipairs(calls) do
-    if c.kind == "polygon" then
-      hasPolygon = true
+    if c.kind == "rectangle" then
+      rectCount = rectCount + 1
     end
   end
-  Assert.isTrue(hasPolygon, "cut corners use polygon")
+  Assert.isTrue(rectCount >= 5, "rounded rectangles for layers and face split")
+  -- No cornerCut field should exist
+  Assert.isTrue(resolved.border.cornerCut == nil, "no cornerCut")
+  -- Rounded radii should be present
+  for _, c in ipairs(calls) do
+    if c.kind == "rectangle" and c.mode == "fill" then
+      -- At least one fill with radius
+      if c.rx ~= nil then
+        Assert.isTrue(c.rx >= 0, "radius non-negative")
+      end
+    end
+  end
 end
 
-function T.draw_with_zero_corner_uses_rectangles()
+function T.draw_with_zero_corner_uses_rectangles_without_radius()
   local Button = buttonModule()
-  local resolved = Button.resolve(spec({ cornerCut = 0 }))
+  local resolved = Button.resolve(spec({ cornerRadius = 0 }))
   local primitives = {}
   local graphics = {
     setColor = function() end,
-    rectangle = function(mode)
-      primitives[#primitives + 1] = mode
-    end,
-    polygon = function(mode)
-      primitives[#primitives + 1] = "polygon:" .. mode
+    rectangle = function(mode, _, _, _, _, rx, ry)
+      primitives[#primitives + 1] = { mode = mode, rx = rx, ry = ry }
     end,
   }
   local palette = {
@@ -193,8 +209,35 @@ function T.draw_with_zero_corner_uses_rectangles()
   }
   Button.draw(graphics, resolved, palette)
   for _, p in ipairs(primitives) do
-    Assert.isTrue(p ~= "polygon:fill", "zero cut should use rectangles")
+    Assert.equal(p.mode, "fill")
+    -- zero corner should not pass radius or passes nil/0
+    Assert.isTrue(p.rx == nil or p.rx == 0, "zero corner uses plain rectangle")
   end
+end
+
+function T.resolved_geometry_has_only_rounded_descriptor()
+  local Button = buttonModule()
+  local resolved = Button.resolve(spec({ cornerRadius = 5 }))
+  Assert.isTrue(resolved.border.cornerRadius == 5, "border radius preserved")
+  Assert.isTrue(resolved.border.cornerCut == nil, "no cut field")
+  Assert.isTrue(resolved.face.cornerCut == nil, "face no cut field")
+  -- polygon not required
+  local calls = {}
+  local graphics = {
+    setColor = function() end,
+    rectangle = function(_, _, _, _, _, rx, ry)
+      calls[#calls + 1] = { rx = rx, ry = ry }
+    end,
+  }
+  local palette = {
+    border = { 1, 0, 0, 1 },
+    rim = { 0, 1, 0, 1 },
+    innerBorder = { 0, 0, 1, 1 },
+    faceTop = { 0.5, 0.5, 0.5, 1 },
+    faceBottom = { 0.2, 0.2, 0.2, 1 },
+  }
+  Button.draw(graphics, resolved, palette)
+  Assert.isTrue(#calls >= 5, "draw uses rectangles only")
 end
 
 return { tests = T }

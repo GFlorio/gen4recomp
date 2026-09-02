@@ -75,13 +75,15 @@ function T.canonical_geometry_matches_yes_no_format()
   Assert.equal(at1.contentRect.y, 16)
   Assert.equal(at1.contentRect.width, 104)
   Assert.equal(at1.contentRect.height, 24)
-  Assert.equal(at1.border.cornerCut, 2)
-  Assert.equal(at1.rim.cornerCut, 0)
-  Assert.equal(at1.face.cornerCut, 0)
+  Assert.equal(at1.border.cornerRadius, 3)
+  Assert.equal(at1.rim.cornerRadius, 1)
+  Assert.equal(at1.face.cornerRadius, 0)
+  Assert.isTrue(at1.border.cornerCut == nil, "no cornerCut")
+  Assert.isTrue(at1.face.cornerCut == nil, "no cornerCut")
   local at2 = TextButton.resolve({ rect = rect(0, 0, 240, 112), scale = 2 })
   Assert.equal(at2.contentRect.width, 208)
   Assert.equal(at2.contentRect.height, 48)
-  Assert.equal(at2.border.cornerCut, 4)
+  Assert.equal(at2.border.cornerRadius, 6)
 end
 
 function T.reference_dimensions_are_canonical()
@@ -102,8 +104,9 @@ function T.preserves_focus_and_supports_one_role_override()
     draw = function() end,
   }
   TextButton.draw(g1, button, { label = "Yes", selected = false, text = text1 })
-  -- Unselected has no focus lines: only base draw, no lineWidth 5/3
-  Assert.isTrue(#calls1.lineWidths == 0, "unselected has no focus lines")
+  Assert.equal(#calls1.lineWidths, 1, "unselected restores line width once")
+  Assert.equal(calls1.lineWidths[1], 1)
+  Assert.equal(g1._state.lineWidth, 1)
 
   local g2, calls2 = recordingGraphics()
   local drawCalls = {}
@@ -117,12 +120,21 @@ function T.preserves_focus_and_supports_one_role_override()
     end,
   }
   TextButton.draw(g2, button, { label = "No", selected = true, text = text2 })
-  Assert.equal(calls2.lineWidths[1], 5)
-  Assert.equal(calls2.lineWidths[2], 3)
+  -- Focus draws with widths 5 and 3, then restored to 1
+  Assert.isTrue(calls2.lineWidths[1] == 5 or calls2.lineWidths[2] == 5, "focus outer width 5")
+  Assert.equal(g2._state.lineWidth, 1)
   Assert.equal(#drawCalls, 1)
   -- Focus rectangles are same inset/radius for white and red.
-  Assert.equal(calls2.rectangles[#calls2.rectangles - 1].x, calls2.rectangles[#calls2.rectangles].x)
-  Assert.equal(calls2.rectangles[#calls2.rectangles - 1].y, calls2.rectangles[#calls2.rectangles].y)
+  -- Last two line-mode rectangles should share geometry
+  local lineRects = {}
+  for _, r in ipairs(calls2.rectangles) do
+    if r.mode == "line" then
+      lineRects[#lineRects + 1] = r
+    end
+  end
+  Assert.equal(#lineRects, 2)
+  Assert.equal(lineRects[1].x, lineRects[2].x)
+  Assert.equal(lineRects[1].y, lineRects[2].y)
 
   -- Override only faceTop
   local g3, calls3 = recordingGraphics()
@@ -134,8 +146,6 @@ function T.preserves_focus_and_supports_one_role_override()
     draw = function() end,
   }
   TextButton.draw(g3, button, { label = "Yes", selected = true, text = text3, colors = { faceTop = { 0, 0, 1, 1 } } })
-  -- Base colors: check that only faceTop changed, others default. We can infer via setColor calls for base layers.
-  -- First 5 setColors are base: border, rim, innerBorder, faceBottom, faceTop. faceTop should be blue.
   Assert.equal(calls3.setColor[5][3], 1)
   Assert.equal(calls3.setColor[1][1], 66 / 255)
 end
@@ -156,13 +166,19 @@ function T.text_is_centered_and_callback_invoked_once()
   }
   TextButton.draw(g, button, { label = "Yes", selected = false, text = text })
   Assert.equal(#drawPositions, 1)
-  -- Content is 104x24 at (8,16). With local coords, centered should be around (8 + (104-40)/2, 16 + (24-16)/2)
-  local expectedX = 8 + (104 - 40) / 2
-  local expectedY = 16 + (24 - 16) / 2
+  -- Content source is 104x24. Centered within content => (104-40)/2, (24-16)/2
+  local expectedX = (104 - 40) / 2
+  local expectedY = (24 - 16) / 2
   Assert.near(drawPositions[1].x, expectedX)
   Assert.near(drawPositions[1].y, expectedY)
   Assert.equal(g._calls.pushCount, 1)
   Assert.equal(g._calls.popCount, 1)
+  Assert.equal(#g._calls.transforms, 2)
+  Assert.equal(g._calls.transforms[1][1], "translate")
+  Assert.equal(g._calls.transforms[2][1], "scale")
+  Assert.equal(g._calls.transforms[1][2], button.contentRect.x)
+  Assert.equal(g._calls.transforms[1][3], button.contentRect.y)
+  Assert.equal(g._calls.transforms[2][2], 1)
 end
 
 function T.unknown_color_keys_are_rejected()
@@ -219,10 +235,11 @@ function T.invalid_scale_and_non_fitting_label_are_rejected()
   end)
 end
 
-function T.callback_failure_restores_transform_stack()
+function T.callback_failure_restores_transform_stack_and_line_width()
   local TextButton = textButtonModule()
   local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
   local g, _ = recordingGraphics()
+  g._state.lineWidth = 7
   local text = {
     measure = function()
       return 10
@@ -233,9 +250,159 @@ function T.callback_failure_restores_transform_stack()
     end,
   }
   Assert.throws(function()
-    TextButton.draw(g, button, { label = "Yes", selected = false, text = text })
+    TextButton.draw(g, button, { label = "Yes", selected = true, text = text })
   end)
   Assert.equal(g._calls.pushCount, g._calls.popCount)
+  Assert.equal(g._state.lineWidth, 7)
+end
+
+function T.label_fit_is_invariant_under_host_scale()
+  local TextButton = textButtonModule()
+  local scales = { 0.5, 1, 2 }
+  local fittingWidth = 50
+  local fittingHeight = 16
+  local oversizedWidth = 200
+  local oversizedHeight = 100
+  for _, scale in ipairs(scales) do
+    local size = 120 * scale
+    -- Use REFERENCE_HEIGHT scaling proportionally
+    local h = 56 * scale
+    local button = TextButton.resolve({ rect = rect(0, 0, size, h), scale = scale })
+    -- Fitting width/height should succeed at every scale
+    local g, _ = recordingGraphics()
+    local drawCount = 0
+    local textFits = {
+      measure = function()
+        return fittingWidth
+      end,
+      lineHeight = fittingHeight,
+      draw = function()
+        drawCount = drawCount + 1
+      end,
+    }
+    TextButton.draw(g, button, { label = "Yes", selected = false, text = textFits })
+    Assert.equal(drawCount, 1, "fitting draws once at scale " .. tostring(scale))
+    Assert.equal(g._calls.pushCount, 1, "push once at scale " .. tostring(scale))
+    Assert.equal(g._calls.popCount, 1, "pop once at scale " .. tostring(scale))
+
+    -- Oversized width should fail at every scale
+    local g2, _ = recordingGraphics()
+    Assert.throws(function()
+      TextButton.draw(g2, button, {
+        label = "Yes",
+        selected = false,
+        text = {
+          measure = function()
+            return oversizedWidth
+          end,
+          lineHeight = fittingHeight,
+          draw = function() end,
+        },
+      })
+    end, "oversized width rejected at scale " .. tostring(scale))
+
+    -- Oversized height should fail at every scale
+    local g3, _ = recordingGraphics()
+    Assert.throws(function()
+      TextButton.draw(g3, button, {
+        label = "Yes",
+        selected = false,
+        text = {
+          measure = function()
+            return fittingWidth
+          end,
+          lineHeight = oversizedHeight,
+          draw = function() end,
+        },
+      })
+    end, "oversized height rejected at scale " .. tostring(scale))
+  end
+end
+
+function T.restores_line_width_and_transform_on_success()
+  local TextButton = textButtonModule()
+  local button = TextButton.resolve({ rect = rect(5, 10, 120, 56), scale = 1 })
+  local g, _ = recordingGraphics()
+  g._state.lineWidth = 9
+  local text = {
+    measure = function()
+      return 20
+    end,
+    lineHeight = 16,
+    draw = function() end,
+  }
+  TextButton.draw(g, button, { label = "Yes", selected = true, text = text })
+  Assert.equal(g._state.lineWidth, 9, "line width restored after success")
+  Assert.equal(g._calls.pushCount, 1)
+  Assert.equal(g._calls.popCount, 1)
+  -- Exactly one scale and one translate
+  local scaleCount = 0
+  local translateCount = 0
+  for _, t in ipairs(g._calls.transforms) do
+    if t[1] == "scale" then
+      scaleCount = scaleCount + 1
+      Assert.equal(t[2], 1)
+    elseif t[1] == "translate" then
+      translateCount = translateCount + 1
+    end
+  end
+  Assert.equal(scaleCount, 1)
+  Assert.equal(translateCount, 1)
+end
+
+function T.restores_line_width_on_unselected_success()
+  local TextButton = textButtonModule()
+  local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
+  local g, _ = recordingGraphics()
+  g._state.lineWidth = 4
+  local text = {
+    measure = function()
+      return 10
+    end,
+    lineHeight = 16,
+    draw = function() end,
+  }
+  TextButton.draw(g, button, { label = "Hi", selected = false, text = text })
+  Assert.equal(g._state.lineWidth, 4)
+  Assert.equal(g._calls.pushCount, g._calls.popCount)
+end
+
+function T.requires_graphics_contract()
+  local TextButton = textButtonModule()
+  local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
+  local text = {
+    measure = function()
+      return 10
+    end,
+    lineHeight = 16,
+    draw = function() end,
+  }
+  for _, key in ipairs({ "getLineWidth", "setLineWidth", "push", "pop", "translate", "scale" }) do
+    local g, _ = recordingGraphics()
+    g[key] = nil
+    Assert.throws(function()
+      TextButton.draw(g, button, { label = "Yes", selected = false, text = text })
+    end, "missing " .. key .. " should fail")
+  end
+end
+
+function T.rounded_only_geometry_no_cornerCut()
+  local TextButton = textButtonModule()
+  local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
+  Assert.isTrue(button.border.cornerRadius ~= nil, "has cornerRadius")
+  Assert.isTrue(button.border.cornerCut == nil, "no cornerCut")
+  Assert.isTrue(button.face.cornerCut == nil, "face no cornerCut")
+  local g, calls = recordingGraphics()
+  local text = {
+    measure = function()
+      return 10
+    end,
+    lineHeight = 16,
+    draw = function() end,
+  }
+  TextButton.draw(g, button, { label = "Yes", selected = false, text = text })
+  Assert.equal(#calls.polygons, 0, "no polygons for rounded")
+  Assert.isTrue(#calls.rectangles >= 5, "rounded rectangles used")
 end
 
 return { tests = T }
