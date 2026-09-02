@@ -97,6 +97,7 @@ function TextButton.resolve(spec)
     rimWidth = 1 * scale,
     innerBorderWidth = 1 * scale,
     cornerCut = 2 * scale,
+    cornerRadius = 3 * scale,
     faceSplit = 0.5,
     contentInsetX = 4 * scale,
     contentInsetY = 12 * scale,
@@ -109,9 +110,8 @@ local function drawFocusOutline(graphics, button, colors)
   local scale = assert(button.scale, "text button scale is missing")
   local whiteWidth = 5 * scale
   local redWidth = 3 * scale
-  local margin = 1 * scale
   local outerRadius = 3 * scale
-  local inset = margin + whiteWidth / 2
+  local inset = 1 * scale
   local radius = math.max(0, outerRadius - whiteWidth / 2)
   graphics.setColor(colors.focusOuter[1], colors.focusOuter[2], colors.focusOuter[3], colors.focusOuter[4])
   graphics.setLineWidth(whiteWidth)

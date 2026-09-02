@@ -46,6 +46,12 @@ local function shape(rectValue, cornerCut, name)
   return { rect = rectValue, cornerCut = cornerCut }
 end
 
+local function shapeRounded(rectValue, cornerRadius, name)
+  assertFiniteRectangle(rectValue, name .. " rectangle")
+  assertPositiveRectangle(rectValue, name .. " rectangle")
+  return { rect = rectValue, cornerRadius = cornerRadius, cornerCut = cornerRadius }
+end
+
 ---@param spec table
 ---@return table
 function Button.resolve(spec)
@@ -54,8 +60,24 @@ function Button.resolve(spec)
   local borderWidth = metric(spec.borderWidth, "button border width")
   local rimWidth = metric(spec.rimWidth, "button rim width")
   local innerBorderWidth = metric(spec.innerBorderWidth, "button inner border width")
-  local cornerCut = metric(spec.cornerCut, "button corner cut")
-  assert(cornerCut <= math.min(rectValue.width, rectValue.height) / 2, "button corner cut is too large")
+  local hasRadius = spec.cornerRadius ~= nil
+  local hasCut = spec.cornerCut ~= nil
+  assert(hasRadius or hasCut, "button corner radius or cut is required")
+  local cornerCut
+  local cornerRadius
+  if hasRadius then
+    cornerRadius = metric(spec.cornerRadius, "button corner radius")
+    assert(cornerRadius <= math.min(rectValue.width, rectValue.height) / 2, "button corner radius is too large")
+    if hasCut then
+      cornerCut = metric(spec.cornerCut, "button corner cut")
+      assert(cornerCut <= math.min(rectValue.width, rectValue.height) / 2, "button corner cut is too large")
+    else
+      cornerCut = cornerRadius
+    end
+  else
+    cornerCut = metric(spec.cornerCut, "button corner cut")
+    assert(cornerCut <= math.min(rectValue.width, rectValue.height) / 2, "button corner cut is too large")
+  end
   assert(
     finite(spec.faceSplit) and spec.faceSplit > 0 and spec.faceSplit < 1,
     "button face split must be between 0 and 1"
@@ -63,13 +85,30 @@ function Button.resolve(spec)
   local contentInsetX = metric(spec.contentInsetX, "button horizontal content inset")
   local contentInsetY = metric(spec.contentInsetY, "button vertical content inset")
 
-  local border = shape(rectValue, cornerCut, "button border")
+  local border
   local rimRect = insetRect(rectValue, borderWidth)
-  local rim = shape(rimRect, math.max(0, cornerCut - borderWidth), "button rim")
+  local rim
   local innerBorderRect = insetRect(rimRect, rimWidth)
-  local innerBorder = shape(innerBorderRect, math.max(0, cornerCut - borderWidth - rimWidth), "button inner border")
+  local innerBorder
   local faceRect = insetRect(innerBorderRect, innerBorderWidth)
-  local face = shape(faceRect, math.max(0, cornerCut - borderWidth - rimWidth - innerBorderWidth), "button face")
+  local face
+  if hasRadius then
+    border = shapeRounded(rectValue, cornerRadius, "button border")
+    rim = shapeRounded(rimRect, math.max(0, cornerRadius - borderWidth), "button rim")
+    innerBorder =
+      shapeRounded(innerBorderRect, math.max(0, cornerRadius - borderWidth - rimWidth), "button inner border")
+    face = shapeRounded(faceRect, math.max(0, cornerRadius - borderWidth - rimWidth - innerBorderWidth), "button face")
+    -- Preserve legacy cornerCut for callers that inspect it, while storing radius for rounded drawing.
+    border.cornerCut = cornerCut
+    rim.cornerCut = math.max(0, cornerCut - borderWidth)
+    innerBorder.cornerCut = math.max(0, cornerCut - borderWidth - rimWidth)
+    face.cornerCut = math.max(0, cornerCut - borderWidth - rimWidth - innerBorderWidth)
+  else
+    border = shape(rectValue, cornerCut, "button border")
+    rim = shape(rimRect, math.max(0, cornerCut - borderWidth), "button rim")
+    innerBorder = shape(innerBorderRect, math.max(0, cornerCut - borderWidth - rimWidth), "button inner border")
+    face = shape(faceRect, math.max(0, cornerCut - borderWidth - rimWidth - innerBorderWidth), "button face")
+  end
 
   local contentRect = {
     x = faceRect.x + contentInsetX,
@@ -130,6 +169,19 @@ local function drawCutShape(graphics, descriptor)
   )
 end
 
+local function drawRoundedShape(graphics, descriptor)
+  local rectValue = descriptor.rect
+  local radius = descriptor.cornerRadius
+  if radius == nil then
+    radius = 0
+  end
+  if radius == 0 then
+    graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, rectValue.height)
+    return
+  end
+  graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, rectValue.height, radius, radius)
+end
+
 local function drawFaceTop(graphics, face)
   local rectValue = face.rect
   local splitY = face.splitY
@@ -154,6 +206,46 @@ local function drawFaceTop(graphics, face)
   )
 end
 
+local function drawRoundedFaceTop(graphics, face)
+  local rectValue = face.rect
+  local splitY = face.splitY
+  local radius = face.cornerRadius
+  if radius == nil then
+    radius = 0
+  end
+  if radius == 0 then
+    graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, splitY - rectValue.y)
+    return
+  end
+  local topHeight = splitY - rectValue.y
+  if topHeight <= 0 then
+    return
+  end
+  -- Draw top slice with rounded top corners and square bottom edge at splitY.
+  -- First draw a rounded rectangle for the top slice, then square off the bottom corners.
+  graphics.rectangle("fill", rectValue.x, rectValue.y, rectValue.width, topHeight, radius, radius)
+  if topHeight > radius then
+    -- Overlay square strip over the bottom `radius` pixels to flatten bottom corners.
+    graphics.rectangle("fill", rectValue.x, splitY - radius, rectValue.width, radius)
+  end
+end
+
+local function drawShape(graphics, descriptor)
+  if descriptor.cornerRadius ~= nil then
+    drawRoundedShape(graphics, descriptor)
+  else
+    drawCutShape(graphics, descriptor)
+  end
+end
+
+local function drawFaceTopDispatch(graphics, face)
+  if face.cornerRadius ~= nil then
+    drawRoundedFaceTop(graphics, face)
+  else
+    drawFaceTop(graphics, face)
+  end
+end
+
 ---@param graphics table
 ---@param button table
 ---@param palette table
@@ -172,15 +264,15 @@ function Button.draw(graphics, button, palette)
   local faceBottom = { color(palette, "faceBottom") }
 
   graphics.setColor(border[1], border[2], border[3], border[4])
-  drawCutShape(graphics, button.border)
+  drawShape(graphics, button.border)
   graphics.setColor(rim[1], rim[2], rim[3], rim[4])
-  drawCutShape(graphics, button.rim)
+  drawShape(graphics, button.rim)
   graphics.setColor(innerBorder[1], innerBorder[2], innerBorder[3], innerBorder[4])
-  drawCutShape(graphics, button.innerBorder)
+  drawShape(graphics, button.innerBorder)
   graphics.setColor(faceBottom[1], faceBottom[2], faceBottom[3], faceBottom[4])
-  drawCutShape(graphics, button.face)
+  drawShape(graphics, button.face)
   graphics.setColor(faceTop[1], faceTop[2], faceTop[3], faceTop[4])
-  drawFaceTop(graphics, button.face)
+  drawFaceTopDispatch(graphics, button.face)
 end
 
 ---@param button table

@@ -70,6 +70,7 @@ function ImageButton.resolve(spec)
     rimWidth = 2 * scale,
     innerBorderWidth = 1 * scale,
     cornerCut = 2 * scale,
+    cornerRadius = 3 * scale,
     faceSplit = 0.5,
     contentInsetX = 0,
     contentInsetY = 0,
