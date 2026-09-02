@@ -374,14 +374,21 @@ function T.tests.gender_confirmation_and_name_confirmation_preserve_source_contr
     end
 
     view.phase = "name_confirm"
+    view.confirmationChoice = { kind = "name", selected = 0 }
     local nameLayout = OakIntroLayout.compute(800, 600, view, {}, manifest)
     local buttons = assert(nameLayout.confirmationButtons)
     local yes, no = assert(buttons[0]), assert(buttons[1])
-    Assert.isTrue(yes.rect.x + yes.rect.width <= no.rect.x)
     Assert.equal(yes.scale, no.scale)
+    Assert.near(yes.rect.x, no.rect.x, 1e-6)
+    Assert.near(yes.rect.width, no.rect.width, 1e-6)
+    Assert.isTrue(yes.rect.y + yes.rect.height <= no.rect.y + 1e-6)
+    Assert.near((no.rect.y - (yes.rect.y + yes.rect.height)) / yes.scale, 8)
     Assert.isTrue(yes.rect.height >= 44 and no.rect.height >= 44)
     Assert.isTrue(inside(yes.rect, nameLayout.stageContent))
     Assert.isTrue(inside(no.rect, nameLayout.stageContent))
+    Assert.notNil(nameLayout.dialogue, "name-confirm reserves dialogue")
+    Assert.notNil(nameLayout.oakRegion, "name-confirm keeps Oak region")
+    Assert.notNil(nameLayout.selectorRegion, "name-confirm keeps selector region")
   end
 end
 

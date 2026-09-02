@@ -234,25 +234,32 @@ local function genderConfirmationEntries(selectorRegion, cardSource, genderWidge
   }
 end
 
-local function nameConfirmationEntries(sceneContent, selectorRegion, cardSource, gap)
-  local scale = confirmationScale(selectorRegion, cardSource)
-  local refW, refH = TextButton.REFERENCE_WIDTH, TextButton.REFERENCE_HEIGHT
-  local pairWidth = (refW * 2 + 8) * scale
-  local horizontal = pairWidth <= sceneContent.width
-  local scaledGap = 8 * scale
-  local groupWidth, groupHeight
-  if horizontal then
-    groupWidth = refW * 2 * scale + scaledGap
-    groupHeight = refH * scale
-  else
-    groupWidth = refW * scale
-    groupHeight = refH * 2 * scale + scaledGap
-  end
+local function nameConfirmationEntries(nameStage, choiceRegion)
+  local stackSourceHeight = TextButton.REFERENCE_HEIGHT * 2 + 8
+  local stageScale = math.min(nameStage.width / 256, nameStage.height / 192)
+  local scale =
+    math.min(stageScale, choiceRegion.width / TextButton.REFERENCE_WIDTH, choiceRegion.height / stackSourceHeight)
+  assert(
+    scale == scale and scale > 0 and scale < math.huge and scale > -math.huge,
+    "Oak name confirmation scale must be a finite positive number"
+  )
+  local scaledWidth = TextButton.REFERENCE_WIDTH * scale
+  local scaledHeight = stackSourceHeight * scale
   local origin = {
-    x = sceneContent.x + (sceneContent.width - groupWidth) / 2,
-    y = sceneContent.y + sceneContent.height - groupHeight - gap,
+    x = choiceRegion.x + (choiceRegion.width - scaledWidth) / 2,
+    y = choiceRegion.y + (choiceRegion.height - scaledHeight) / 2,
   }
-  return textButtonEntries(origin, scale, horizontal, scaledGap)
+  return textButtonEntries(origin, scale, false, 8 * scale)
+end
+
+local function nameStageAndRegions(sceneContent, dialogue, gap)
+  local nameStage =
+    rect(sceneContent.x, sceneContent.y, sceneContent.width, dialogue.outerRect.y - gap - sceneContent.y)
+  local oakWidth = (nameStage.width - gap) * 0.46
+  local choiceWidth = nameStage.width - oakWidth - gap
+  local oakRegion = rect(nameStage.x, nameStage.y, oakWidth, nameStage.height)
+  local choiceRegion = rect(nameStage.x + oakWidth + gap, nameStage.y, choiceWidth, nameStage.height)
+  return nameStage, oakRegion, choiceRegion
 end
 
 ---@param width number
@@ -276,6 +283,7 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   local safeFrame = rect(inset, inset, width - inset * 2, height - inset * 2)
   local gap = math.min(8, math.max(0, math.floor(minimum * 0.02 + 0.5)))
   local reservesDialogue = view.dialogue ~= nil
+    or view.phase == "name_confirm"
     or view.phase == "greeting"
     or view.phase == "oak_welcome"
     or view.phase == "oak_world_inhabited"
@@ -322,6 +330,15 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
     subjectWidget = widget(manifest, subjectId)
     local visibleSourceX = subjectId == "oak" and -(view.oakBgScrollX or 0) or 0
     result.subject = sourceWidgetRect(subjectWidget, canvas, visibleSourceX)
+  end
+  local nameStage, nameOakRegion, nameChoiceRegion
+  if view.phase == "name_confirm" then
+    assert(dialogue, "Oak name confirmation requires reserved dialogue")
+    nameStage, nameOakRegion, nameChoiceRegion = nameStageAndRegions(sceneContent, assert(dialogue), gap)
+    result.oakRegion, result.selectorRegion = nameOakRegion, nameChoiceRegion
+    if subjectId == "oak" and result.subject and subjectWidget then
+      result.subject = composedOakRect(assert(result.subject), assert(subjectWidget), nameOakRegion, 1)
+    end
   end
   local selectorActive = view.phase == "gender_select" or view.phase == "gender_confirm"
   local compositionProgress = view.genderCompositionProgress
@@ -382,17 +399,8 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
       end
     end
   end
-  if view.confirmationChoice then
-    if view.phase == "name_confirm" then
-      local sourceGender = view.genderFocus == 0 and "male" or "female"
-      local sourceCard = assert(manifest.genderSelector.buttons[sourceGender]).bounds
-      -- Ensure selectorRegion available; compute if not (when composition not active)
-      if not selectorRegion then
-        local _, tempSelector = selectorRegions(scene, gap)
-        selectorRegion = tempSelector
-      end
-      result.confirmationButtons = nameConfirmationEntries(sceneContent, assert(selectorRegion), sourceCard, gap)
-    end
+  if view.phase == "name_confirm" and view.confirmationChoice and view.confirmationChoice.kind == "name" then
+    result.confirmationButtons = nameConfirmationEntries(assert(nameStage), assert(nameChoiceRegion))
   end
   if view.phase == "name_edit" then
     local previewHeight = math.min(220, math.max(48, math.floor(sceneContent.height * 0.28)))

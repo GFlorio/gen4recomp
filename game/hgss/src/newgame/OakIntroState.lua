@@ -125,7 +125,11 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 ---@field disposed boolean
+---@field _frozenStatus table?
+---@field _frozenAdapter table?
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
+---@field _clearFrozen fun(self: OakIntroState)
+---@field _stepDialogue fun(self: OakIntroState, snapshot: table?): table?
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
 ---@field update fun(self: OakIntroState, dt: number)
 ---@field tick fun(self: OakIntroState, frames: integer)
@@ -204,6 +208,31 @@ local function textInputHost(host)
   }
 end
 
+---@param status table
+---@return table
+local function copyFrozenStatus(status)
+  assert(type(status) == "table", "dialogue status is required for frozen presentation")
+  local frozen = {}
+  frozen.frameIndex = status.frameIndex
+  frozen.lineHeight = assert(status.lineHeight, "dialogue lineHeight is required")
+  frozen.lineSpacing = assert(status.lineSpacing, "dialogue lineSpacing is required")
+  frozen.waiting = false
+  frozen.cursorPhase = nil
+  frozen.scrollLines = nil
+  frozen.scrollOffsetY = 0
+  local lines = {}
+  for index, line in ipairs(status.visibleLines or {}) do
+    local src = line.tokens or line
+    local copy = {}
+    for tokenIndex, token in ipairs(src) do
+      copy[tokenIndex] = token
+    end
+    lines[index] = copy
+  end
+  frozen.visibleLines = lines
+  return frozen
+end
+
 ---@param options OakIntroStateOptions
 ---@return OakIntroState
 function OakIntroState.new(options)
@@ -253,6 +282,8 @@ function OakIntroState.new(options)
       dialoguePresentation = nil,
       dialogueMessageKey = nil,
       dialogueCursorPlacement = options.dialogueCursorPlacement,
+      _frozenStatus = nil,
+      _frozenAdapter = nil,
     }, OakIntroState)
     self:_setTextInput(false)
     self.controller:start()
@@ -281,9 +312,61 @@ function OakIntroState:_setTextInput(enabled)
   self.textInputEnabled = enabled
 end
 
+function OakIntroState:_clearFrozen()
+  self._frozenStatus = nil
+  self._frozenAdapter = nil
+end
+
+function OakIntroState:_stepDialogue(snapshot)
+  local dialogue = self.dialogueController
+  if not dialogue then
+    return nil
+  end
+  local candidate
+  do
+    local view = self.controller:view()
+    if view.phase == "name_confirm" then
+      local status = dialogue:status()
+      if status.state == "WAITING_CLOSE" then
+        candidate = copyFrozenStatus(status)
+      end
+    end
+  end
+  local result = dialogue:step(snapshot)
+  if candidate and not dialogue:isModal() then
+    local view = self.controller:view()
+    if view.confirmationChoice and view.confirmationChoice.kind == "name" then
+      local frozen = candidate
+      self._frozenStatus = frozen
+      self._frozenAdapter = {
+        isModal = function()
+          return true
+        end,
+        status = function()
+          return frozen
+        end,
+      }
+    end
+  end
+  return result
+end
+
 function OakIntroState:_sync()
   local view = self.controller:view()
   ---@cast view OakIntroStateView
+  if self._frozenStatus then
+    if view.phase ~= "name_confirm" or not view.confirmationChoice or view.confirmationChoice.kind ~= "name" then
+      self:_clearFrozen()
+    end
+  end
+  if
+    self._frozenStatus
+    and self.dialogueController
+    and view.messageKey ~= self.dialogueMessageKey
+    and view.messageKey
+  then
+    self:_clearFrozen()
+  end
   self:_setTextInput(view.nameInputEnabled)
   if self.dialogueController and view.messageKey ~= self.dialogueMessageKey then
     self.dialogueMessageKey = view.messageKey
@@ -317,7 +400,7 @@ function OakIntroState:update(dt)
     self.accumulator = math.max(0, self.accumulator - SOURCE_FRAME_DURATION)
     local phaseBeforeDialogue = self.controller:view().phase
     if self.dialogueController then
-      self.dialogueController:step()
+      self:_stepDialogue()
     end
     local phaseAfterDialogue = self.controller:view().phase
     local genderCompositionStarted = phaseBeforeDialogue == "gender_question"
@@ -340,7 +423,7 @@ function OakIntroState:tick(frames)
   for _ = 1, frames do
     local phaseBeforeDialogue = self.controller:view().phase
     if self.dialogueController then
-      self.dialogueController:step()
+      self:_stepDialogue()
     end
     local phaseAfterDialogue = self.controller:view().phase
     local genderCompositionStarted = phaseBeforeDialogue == "gender_question"
@@ -374,7 +457,16 @@ function OakIntroState:draw()
   local view = self:view()
   self.renderer:draw(view)
   if self.dialogueController and self.dialogueRenderer then
-    self.dialogueRenderer:draw(self.dialogueController, view.dialoguePresentation)
+    if self.dialogueController:isModal() then
+      self.dialogueRenderer:draw(self.dialogueController, view.dialoguePresentation)
+    elseif
+      view.confirmationChoice
+      and view.confirmationChoice.kind == "name"
+      and self._frozenAdapter
+      and view.dialoguePresentation
+    then
+      self.dialogueRenderer:draw(self._frozenAdapter, view.dialoguePresentation)
+    end
   end
 end
 
@@ -396,7 +488,7 @@ function OakIntroState:keypressed(key, _, isrepeat)
       or ({ ["left"] = "left", ["right"] = "right", ["up"] = "up", ["down"] = "down" })[key]
       or "confirm"
     if self.dialogueController and self.dialogueController:isModal() then
-      self.dialogueController:step({ actionPressed = action == "confirm", cancelPressed = action == "cancel" })
+      self:_stepDialogue({ actionPressed = action == "confirm", cancelPressed = action == "cancel" })
       self:_sync()
       return
     end
@@ -423,7 +515,7 @@ function OakIntroState:gamepadpressed(_, button)
     or action == "cancel"
   then
     if self.dialogueController and self.dialogueController:isModal() then
-      self.dialogueController:step({ actionPressed = action == "confirm", cancelPressed = action == "cancel" })
+      self:_stepDialogue({ actionPressed = action == "confirm", cancelPressed = action == "cancel" })
       self:_sync()
       return
     end
@@ -488,6 +580,7 @@ function OakIntroState:dispose()
     return
   end
   self.disposed = true
+  self:_clearFrozen()
   self:_setTextInput(false)
   self.controller:dispose()
   if self.renderer then
