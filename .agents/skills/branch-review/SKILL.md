@@ -10,6 +10,11 @@ toward deletion, reuse, and fixing the owning invariant rather than the reported
 Fix established issues directly. Leave only decisions whose correct behavior genuinely
 requires the human.
 
+For spec-driven branches, this is the only generic repository-quality review in the
+implementation pipeline. Assume no per-deliverable cleanup reviewer has already handled
+naming, residue, speculative branches/helpers, simplification, test quality, lint, or
+adversarial correctness; own those concerns here across the complete integrated branch.
+
 The review also performs a prevention retrospective after the code review. That retrospective
 may recommend guidance changes, but it must not edit guidance during the review.
 
@@ -27,8 +32,9 @@ The dispatch prompt contains only:
    delta; findings deliberately left and why; guidance/prevention feedback; final
    verification and lint status.`
 
-If a finalized implementation spec exists for the branch, also pass its absolute path and
-applicable approved-deviation record, if any. Do not pass implementation notes, author
+If a finalized implementation spec exists for the branch, also pass the absolute path to its
+`SPEC.md`, **every deliverable file listed in its Deliverables table**, and the applicable
+approved-deviation record, if any. Do not pass implementation notes, author
 summaries, failed approaches, or design rationalizations.
 
 When the subagent returns, inspect the summary and independently verify the final branch gate
@@ -142,6 +148,15 @@ Review missing and excessive coverage:
 - Are tests freezing expected-to-change data or source text instead of behavior/invariants?
 - Are fake-driven production branches or implementation-reproducing mocks present?
 - Is expensive setup duplicated when one scenario could prove related postconditions?
+
+For a spec-driven branch, independently reconcile every acceptance scenario in the finalized
+deliverables against the tests at `HEAD`. Map scenarios by behavior; permanent test names must
+not contain temporary acceptance IDs. Treat a scenario as unsatisfied when it is missing,
+materially weakened, moved below its prescribed observable boundary, bypasses required
+production composition, makes a required capability/version optional or skippable, or no
+longer proves the specified expected result. Do not rely on implementation notes, author
+scenario mappings, or claims that a changed test is mechanically equivalent; establish the
+equivalence from the spec and test itself.
 
 Fix tests and production design together when difficult testing exposes unnecessary coupling.
 

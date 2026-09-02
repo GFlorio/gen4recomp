@@ -19,6 +19,9 @@ behavior lands.
    layer. Do not create an acceptance test for a docs-only or skill-only change merely to
    satisfy a ritual.
 
+Prefer the smallest set of production-composed scenarios that proves every material observable
+outcome. Combine related postconditions from one natural user journey instead of duplicating expensive setup.
+
 ## Scenario contract
 
 4. **Add or update a scenario before production implementation.** The scenario stays red
@@ -42,7 +45,12 @@ behavior lands.
    missing dump or cold cache fails loudly instead of skipping. A scenario that only
    skipped was never observed red: say so in the notes and treat the deliverable as
    unverified rather than reporting a contract that no run has exercised.
-10. **Return** scenario IDs, the production boundary exercised, data/capabilities
+10. **Freeze the behavioral contract after the intended red is observed.** Implementation may
+    refactor test plumbing, but it must not weaken or materially change the scenario's setup,
+    action, observable boundary, expected result, required capabilities, or version coverage to
+    make the branch green. A semantic change requires an approved contract correction/deviation;
+    the implementation agent cannot authorize it.
+11. **Return** scenario IDs, the production boundary exercised, data/capabilities
     required, the red result, and cleanup behavior.
 
 ## Layer boundaries
@@ -79,5 +87,5 @@ any). Change no production code.
 | "I'll build the session in the test" | Hand-assembled sessions test reconstruction, not composition. Boot the runtime. |
 | "The shader compiled, that is the acceptance pass" | That is graphics smoke. Acceptance stops before any draw call. |
 | "I'll wait 60 ticks for the dialogue" | Wait on controller/semantic state with bounded diagnostics. |
-| "The scenario is inconvenient, I'll assert less" | A valid contract is corrected only with evidence and review, never quietly weakened. |
+| "The scenario is inconvenient, I'll assert less" | A valid contract changes only with evidence and an approved contract correction/deviation, never quietly weakened. |
 | "No dump here, the suite skipped and stayed green" | A skip is not the red observation. Require the capability, or record the deliverable unverified. |

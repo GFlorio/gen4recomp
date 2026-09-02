@@ -1,6 +1,6 @@
 ---
 name: change-review
-description: Use when a task's uncommitted work is ready for a pre-commit cleanup - a fresh-context review that fixes the working diff directly, applies repository guidance and the simplification checklist, and selects the narrowest credible tests plus lint instead of reflexively running the entire suite twice.
+description: Use for standalone/ad-hoc uncommitted work that is ready for a pre-commit cleanup, or when a human explicitly requests a change review - a fresh-context review that fixes the working diff directly, applies repository guidance and the simplification checklist, and selects the narrowest credible tests plus lint. Do not use as an automatic stage of spec-based-development; that workflow defers generic repository-quality review to the integrated branch review.
 ---
 
 # Change Review
@@ -8,6 +8,10 @@ description: Use when a task's uncommitted work is ready for a pre-commit cleanu
 Review and clean the **uncommitted** working diff before commit. Scope is intentionally small:
 fix established issues directly rather than producing a report of work the author can already
 apply.
+
+This skill is not an automatic stage of `spec-based-development`. That workflow performs
+factual per-deliverable gates and defers independent generic cleanup to `branch-review` after
+all deliverables are integrated.
 
 ## Dispatch
 
