@@ -155,18 +155,65 @@ function T.compiled_visuals_normalize_source_actor_families(romFs)
   Assert.deepEqual(ordinary.idlePresentation, {
     mode = "static",
     cadence = 0,
-    frameOffsets = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
   })
   for spriteId, mode in pairs(familyModes) do
     Assert.equal(bundle.visuals[spriteId].idlePresentation.mode, mode)
   end
+  Assert.equal(follower.idlePresentation.mode, "animated")
   Assert.equal(follower.idlePresentation.cadence, 1)
   Assert.equal(follower.directions.south.idle.durationTicks, follower.directions.south.walk.durationTicks)
-  Assert.equal(follower.idlePresentation.frameOffsets[1], 0)
-  Assert.equal(follower.idlePresentation.frameOffsets[2], -2 / 16)
+  for _, direction in ipairs(manifest.directionOrder) do
+    for _, segment in ipairs(ordinary.directions[direction].idle.frames) do
+      Assert.equal(segment.displayOffsetY, 0, "static idle segment offset must be 0")
+    end
+  end
   for _, visual in pairs(bundle.visuals) do
     Assert.isNil(visual.actorFamily, "raw actor family must not cross the generated asset boundary")
   end
+end
+
+function T.marill_south_idle_preserves_retail_offset_phase(romFs)
+  local bundle = assert(FieldActorCompiler.compile(romFs))
+  local southIdle = bundle.visuals[1032].directions.south.idle
+  local southWalk = bundle.visuals[1032].directions.south.walk
+  Assert.equal(southWalk.durationTicks, 20)
+  Assert.deepEqual({ southWalk.frames[1].ticks, southWalk.frames[2].ticks, southWalk.frames[3].ticks }, { 5, 10, 5 })
+  Assert.equal(southWalk.frames[1].frameIndex, southWalk.frames[3].frameIndex, "the loop returns to its first slot")
+  Assert.equal(southIdle.durationTicks, 20)
+  local offsets = {}
+  local frameIndices = {}
+  local tick = 0
+  for _, segment in ipairs(southIdle.frames) do
+    for _ = 1, segment.ticks do
+      offsets[tick] = segment.displayOffsetY
+      frameIndices[tick] = segment.frameIndex
+      tick = tick + 1
+    end
+  end
+  Assert.equal(tick, 20, "idle must expand to 20 ticks")
+  for t = 0, 19 do
+    local expected = ((t >= 5 and t <= 9) or (t >= 15 and t <= 19)) and -2 / 16 or 0
+    Assert.equal(offsets[t], expected, "idle offset at phase " .. t)
+  end
+  local seen = {}
+  for t = 0, 19 do
+    local fi = frameIndices[t]
+    local off = offsets[t]
+    seen[fi] = seen[fi] or {}
+    seen[fi][off] = true
+  end
+  local hasReused = false
+  for _, offMap in pairs(seen) do
+    local count = 0
+    for _ in pairs(offMap) do
+      count = count + 1
+    end
+    if count > 1 then
+      hasReused = true
+      break
+    end
+  end
+  Assert.isTrue(hasReused, "a reused atlas frame must appear with two offsets")
 end
 
 -- The render facts every target class must inherit from the shared model member:

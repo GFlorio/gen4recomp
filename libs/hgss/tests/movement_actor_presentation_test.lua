@@ -162,21 +162,28 @@ local function staticVisual()
 end
 
 local function followerVisual()
-  local frameOffsets = {}
-  for frameIndex = 1, 8 do
-    frameOffsets[frameIndex] = 0
-  end
-  frameOffsets[5] = -0.5
   local visual = FieldActorFixture.visual(99, {
     frameCount = 8,
     idlePresentation = {
       mode = "animated",
       cadence = 1,
-      frameOffsets = frameOffsets,
     },
   })
   for _, direction in ipairs({ "north", "south", "west", "east" }) do
-    visual.directions[direction].idle = visual.directions[direction].walk
+    local walk = visual.directions[direction].walk
+    local idleFrames = {}
+    for i, segment in ipairs(walk.frames) do
+      idleFrames[i] = {
+        frameIndex = segment.frameIndex,
+        ticks = segment.ticks,
+        displayOffsetY = segment.frameIndex == 5 and -0.5 or 0,
+      }
+    end
+    visual.directions[direction].idle = {
+      frames = idleFrames,
+      loop = walk.loop,
+      durationTicks = walk.durationTicks,
+    }
   end
   return visual
 end

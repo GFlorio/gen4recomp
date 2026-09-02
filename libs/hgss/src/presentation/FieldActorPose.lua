@@ -16,7 +16,7 @@ local FACINGS = { north = true, south = true, west = true, east = true }
 
 -- Walk the pose's per-frame durations. A looping pose wraps on its total
 -- duration; a one-shot pose holds its last frame.
-function FieldActorPose.frameIndexAt(pose, tick)
+function FieldActorPose.sampleAt(pose, tick)
   assert(type(pose) == "table" and #pose.frames > 0, "a pose needs at least one frame")
   assert(
     type(tick) == "number" and tick >= 0 and tick == math.floor(tick),
@@ -26,11 +26,15 @@ function FieldActorPose.frameIndexAt(pose, tick)
   local position = pose.loop and (tick % total) or math.min(tick, total - 1)
   for _, frame in ipairs(pose.frames) do
     if position < frame.ticks then
-      return frame.frameIndex
+      return frame
     end
     position = position - frame.ticks
   end
-  return pose.frames[#pose.frames].frameIndex
+  return pose.frames[#pose.frames]
+end
+
+function FieldActorPose.frameIndexAt(pose, tick)
+  return FieldActorPose.sampleAt(pose, tick).frameIndex
 end
 
 -- Resolve the pose set for a facing. `poseName` is "idle" or "walk"; an actor

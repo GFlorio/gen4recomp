@@ -835,6 +835,14 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
       Assert.equal(record.worldX, delayAnchor.worldX, "Delay32 keeps Marill's world X anchor")
       Assert.equal(record.logicalWorldY, delayAnchor.logicalWorldY, "Delay32 keeps Marill's logical world Y anchor")
       Assert.equal(record.worldZ, delayAnchor.worldZ, "Delay32 keeps Marill's world Z anchor")
+      local phase = record.poseTick % 20
+      local expectedOffset = ((phase >= 5 and phase <= 9) or (phase >= 15 and phase <= 19)) and -2 / 16 or 0
+      Assert.near(
+        record.worldY,
+        record.logicalWorldY + expectedOffset,
+        1e-9,
+        "Delay32 draw Y follows source phase at tick " .. index
+      )
       if index > 1 then
         Assert.equal(
           record.poseTick,
@@ -871,16 +879,9 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
         "taskless wait keeps Marill's logical world Y anchor"
       )
       Assert.equal(record.worldZ, tasklessAnchor.worldZ, "taskless wait keeps Marill's world Z anchor")
-      local expectedOffset = withCompiledVisual(record, function(visual)
-        local idlePresentation = assert(visual.idlePresentation, "Marill's visual must provide idle presentation data")
-        return assert(idlePresentation.frameOffsets[record.frameIndex], "Marill's idle frame must provide a Y offset")
-      end)
-      Assert.near(
-        record.worldY,
-        record.logicalWorldY + expectedOffset,
-        1e-9,
-        "taskless draw Y follows the selected idle frame's display offset"
-      )
+      local phase = record.poseTick % 20
+      local expectedOffset = ((phase >= 5 and phase <= 9) or (phase >= 15 and phase <= 19)) and -2 / 16 or 0
+      Assert.near(record.worldY, record.logicalWorldY + expectedOffset, 1e-9, "taskless draw Y follows source phase")
       sawLogicalAnchor = sawLogicalAnchor or math.abs(record.worldY - record.logicalWorldY) <= 1e-9
       sawNegativeDisplayOffset = sawNegativeDisplayOffset or record.worldY < record.logicalWorldY - 1e-9
       tasklessWorldYs[record.worldY] = true

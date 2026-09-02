@@ -58,8 +58,20 @@ local function isFiniteNumber(value)
 end
 
 -- Validate the source-independent presentation data needed by every runtime
--- actor. The frame-offset array is indexed by the generated visual's 1-based
--- atlas frame indices, so holes and non-numeric display offsets are unsafe.
+-- actor. Idle display offsets are carried on ordered pose segments, so each
+-- idle segment must have a finite displayOffsetY.
+local function isValidIdlePose(pose)
+  if type(pose) ~= "table" or not Validate.isArray(pose.frames) or #pose.frames == 0 then
+    return false
+  end
+  for _, segment in ipairs(pose.frames) do
+    if type(segment) ~= "table" or not isFiniteNumber(segment.displayOffsetY) then
+      return false
+    end
+  end
+  return true
+end
+
 function FieldActorCache.isValidVisual(visual, spriteId)
   if type(visual) ~= "table" or visual.schema ~= FieldActorCache.SCHEMA then
     return false
@@ -82,23 +94,30 @@ function FieldActorCache.isValidVisual(visual, spriteId)
   then
     return false
   end
-  if not Validate.isArray(idlePresentation.frameOffsets) or #idlePresentation.frameOffsets == 0 then
-    return false
-  end
   local render = visual.render
   if
     type(render) ~= "table"
     or render.image ~= FieldActorCache.atlasPath(visual.spriteId)
     or not Validate.isNonNegativeInteger(render.frameCount)
     or render.frameCount == 0
-    or #idlePresentation.frameOffsets ~= render.frameCount
   then
     return false
   end
-  for _, offset in ipairs(idlePresentation.frameOffsets) do
-    if not isFiniteNumber(offset) then
+  if type(visual.directions) ~= "table" then
+    return false
+  end
+  local hasIdle = false
+  for _, set in pairs(visual.directions) do
+    if type(set) ~= "table" or type(set.idle) ~= "table" then
       return false
     end
+    if not isValidIdlePose(set.idle) then
+      return false
+    end
+    hasIdle = true
+  end
+  if not hasIdle then
+    return false
   end
   return true
 end

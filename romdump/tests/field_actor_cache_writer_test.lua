@@ -11,6 +11,14 @@ local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter"
 
 local T = {}
 
+local function idlePose()
+  return {
+    frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } },
+    loop = true,
+    durationTicks = 1,
+  }
+end
+
 local function visual(spriteId)
   return {
     schema = FieldActorCache.SCHEMA,
@@ -25,8 +33,10 @@ local function visual(spriteId)
       mirrorEastWest = false,
     },
     frames = { { textureSlot = 0, paletteSlot = 0 }, { textureSlot = 1, paletteSlot = 0 } },
-    directions = {},
-    idlePresentation = { mode = "static", cadence = 0, frameOffsets = { 0, 0 } },
+    directions = {
+      south = { idle = idlePose(), walk = idlePose() },
+    },
+    idlePresentation = { mode = "static", cadence = 0 },
   }
 end
 

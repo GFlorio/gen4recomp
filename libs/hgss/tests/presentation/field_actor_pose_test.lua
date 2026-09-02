@@ -79,4 +79,25 @@ function T.rejects_a_visual_without_the_requested_direction()
   end)
 end
 
+function T.sample_distinguishes_reused_frame_identity()
+  local pose = {
+    frames = {
+      { frameIndex = 1, ticks = 2, displayOffsetY = 0 },
+      { frameIndex = 1, ticks = 2, displayOffsetY = -2 / 16 },
+    },
+    loop = true,
+    durationTicks = 4,
+  }
+  local first = FieldActorPose.sampleAt(pose, 0)
+  local second = FieldActorPose.sampleAt(pose, 2)
+  Assert.equal(first.frameIndex, 1)
+  Assert.equal(second.frameIndex, 1)
+  Assert.equal(first.displayOffsetY, 0)
+  Assert.equal(second.displayOffsetY, -2 / 16)
+  Assert.equal(FieldActorPose.frameIndexAt(pose, 0), 1)
+  Assert.equal(FieldActorPose.frameIndexAt(pose, 2), 1)
+  Assert.equal(FieldActorPose.sampleAt(pose, 1).displayOffsetY, 0)
+  Assert.equal(FieldActorPose.sampleAt(pose, 3).displayOffsetY, -2 / 16)
+end
+
 return { tests = T }

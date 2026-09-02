@@ -33,6 +33,14 @@ local function writeActorIndex(c, spriteIds)
   c:write(FieldActorCache.markerPath(), "m")
 end
 
+local function validIdlePose()
+  return {
+    frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } },
+    loop = true,
+    durationTicks = 1,
+  }
+end
+
 local function writeActorVisual(c, spriteId)
   c:writeLua(FieldActorCache.visualPath(spriteId), {
     schema = FieldActorCache.SCHEMA,
@@ -41,7 +49,9 @@ local function writeActorVisual(c, spriteId)
     idlePresentation = {
       mode = "static",
       cadence = 0,
-      frameOffsets = { 0 },
+    },
+    directions = {
+      south = { idle = validIdlePose(), walk = validIdlePose() },
     },
   })
   c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
@@ -115,11 +125,13 @@ function T.actor_visual_without_frame_count_is_not_ready()
   c:writeLua(FieldActorCache.visualPath(0), {
     schema = FieldActorCache.SCHEMA,
     spriteId = 0,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(0) },
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = nil },
     idlePresentation = {
       mode = "static",
       cadence = 0,
-      frameOffsets = { 0 },
+    },
+    directions = {
+      south = { idle = validIdlePose(), walk = validIdlePose() },
     },
   })
   c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
@@ -128,10 +140,10 @@ end
 
 function T.actor_visual_with_malformed_idle_presentation_is_not_ready()
   local cases = {
-    { mode = "unknown", cadence = 0, frameOffsets = { 0 } },
-    { mode = "static", cadence = 1, frameOffsets = { 0 } },
-    { mode = "animated", cadence = 1, frameOffsets = { [1] = 0, [3] = 0 } },
-    { mode = "animated", cadence = 1, frameOffsets = { "0" } },
+    { mode = "unknown", cadence = 0 },
+    { mode = "static", cadence = 1 },
+    { mode = "animated", cadence = 0 },
+    { mode = "static", cadence = "0" },
   }
   for _, idlePresentation in ipairs(cases) do
     local c = cache()
@@ -139,29 +151,101 @@ function T.actor_visual_with_malformed_idle_presentation_is_not_ready()
     c:writeLua(FieldActorCache.visualPath(0), {
       schema = FieldActorCache.SCHEMA,
       spriteId = 0,
-      render = { kind = "atlas", image = FieldActorCache.atlasPath(0) },
-      idlePresentation = idlePresentation,
+      render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
+      idlePresentation = { mode = idlePresentation.mode, cadence = idlePresentation.cadence },
+      directions = {
+        south = { idle = validIdlePose(), walk = validIdlePose() },
+      },
     })
     c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
     Assert.isFalse(FieldActorCache.isReady(c, "m"), "malformed idle presentation must fail readiness")
   end
 end
 
-function T.actor_visual_with_incomplete_idle_frame_offsets_is_not_ready()
-  local c = cache()
+function T.actor_visual_with_malformed_idle_display_offset_is_not_ready()
+  local c
+
+  -- missing displayOffsetY
+  c = cache()
   writeActorIndex(c, { 0 })
   c:writeLua(FieldActorCache.visualPath(0), {
     schema = FieldActorCache.SCHEMA,
     spriteId = 0,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 2 },
-    idlePresentation = {
-      mode = "static",
-      cadence = 0,
-      frameOffsets = { 0 },
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
+    idlePresentation = { mode = "static", cadence = 0 },
+    directions = {
+      south = {
+        idle = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 },
+        walk = validIdlePose(),
+      },
     },
   })
   c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
-  Assert.isFalse(FieldActorCache.isReady(c, "m"), "every generated atlas frame requires an idle display offset")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "idle segment without displayOffsetY must fail")
+
+  -- string displayOffsetY
+  c = cache()
+  writeActorIndex(c, { 0 })
+  c:writeLua(FieldActorCache.visualPath(0), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
+    idlePresentation = { mode = "static", cadence = 0 },
+    directions = {
+      south = {
+        idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = "0" } }, loop = true, durationTicks = 1 },
+        walk = validIdlePose(),
+      },
+    },
+  })
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "string displayOffsetY must fail")
+
+  -- NaN
+  c = cache()
+  writeActorIndex(c, { 0 })
+  c:write(
+    FieldActorCache.visualPath(0),
+    'return { schema = "'
+      .. FieldActorCache.SCHEMA
+      .. '", spriteId = 0, render = { kind = "atlas", image = "'
+      .. FieldActorCache.atlasPath(0)
+      .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0/0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } } } }'
+  )
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "NaN displayOffsetY must fail")
+
+  -- infinite
+  c = cache()
+  writeActorIndex(c, { 0 })
+  c:write(
+    FieldActorCache.visualPath(0),
+    'return { schema = "'
+      .. FieldActorCache.SCHEMA
+      .. '", spriteId = 0, render = { kind = "atlas", image = "'
+      .. FieldActorCache.atlasPath(0)
+      .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = math.huge } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } } } }'
+  )
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "infinite displayOffsetY must fail")
+
+  -- old shape with only frameOffsets and no displayOffsetY on segments
+  c = cache()
+  writeActorIndex(c, { 0 })
+  c:writeLua(FieldActorCache.visualPath(0), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
+    idlePresentation = { mode = "static", cadence = 0, frameOffsets = { 0 } },
+    directions = {
+      south = {
+        idle = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 },
+        walk = validIdlePose(),
+      },
+    },
+  })
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "old frameOffsets-only visual must fail")
 end
 
 function T.actor_valid_artifact_is_ready()

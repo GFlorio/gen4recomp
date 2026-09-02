@@ -22,8 +22,10 @@
 -- no longer trustworthy.
 --
 -- fieldActors schema 3/cache v2: generated visuals carry the required
--- source-independent idle presentation profile. A stale visual cannot supply
--- the actor's idle cadence and frame display offsets safely.
+-- source-independent idle presentation profile. Each idle pose segment
+-- carries a finite displayOffsetY required for phase-correct presentation;
+-- a stale visual cannot supply the actor's idle cadence and display offsets
+-- safely.
 --
 -- fieldUi schema 6: wayfinding rects become final 48x32 surfaces. Each
 -- (type, map) rect is a 6x4 arrangement (48px wide, 32px tall) composed at

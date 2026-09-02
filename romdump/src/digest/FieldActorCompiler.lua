@@ -202,28 +202,57 @@ local function decodeAtlas(pack, frames, context)
   }
 end
 
-local function idlePresentation(mode, directions, frameCount)
-  local frameOffsets = {}
-  for frameIndex = 1, frameCount do
-    frameOffsets[frameIndex] = 0
-  end
-  if mode == "animated" then
-    -- ov01_021F8FC0 applies -2 source FX32 units during the middle displayed
-    -- band of the follower loop. The timeline has already collapsed source
-    -- frames into displayed frames, so the second displayed frame in each
-    -- directional loop is the normalized frame-level condition.
-    for _, direction in ipairs(manifest.directionOrder) do
-      local frames = directions[direction].walk.frames
-      local middle = frames[2]
-      if middle then
-        frameOffsets[middle.frameIndex] = FOLLOWER_DISPLAY_OFFSET
-      end
-    end
-  end
+local function idlePresentation(mode)
   return {
     mode = mode,
     cadence = mode == "animated" and 1 or 0,
-    frameOffsets = frameOffsets,
+  }
+end
+
+local function idleDisplayOffset(phase)
+  if (phase >= 5 and phase <= 9) or (phase >= 15 and phase <= 19) then
+    return FOLLOWER_DISPLAY_OFFSET
+  end
+  return 0
+end
+
+local function buildAnimatedIdlePose(sourcePose, context)
+  if sourcePose.durationTicks ~= 20 then
+    Errors.raise(
+      "FIELD_ACTOR_IDLE_DURATION_UNEXPECTED",
+      "animated idle source duration must be 20, got " .. tostring(sourcePose.durationTicks),
+      { durationTicks = sourcePose.durationTicks, context = context }
+    )
+  end
+  local samples = {}
+  local tickIndex = 0
+  for _, segment in ipairs(sourcePose.frames) do
+    for _ = 1, segment.ticks do
+      samples[#samples + 1] = {
+        frameIndex = segment.frameIndex,
+        displayOffsetY = idleDisplayOffset(tickIndex),
+      }
+      tickIndex = tickIndex + 1
+    end
+  end
+  local encoded = {}
+  for _, sample in ipairs(samples) do
+    local last = encoded[#encoded]
+    if last and last.frameIndex == sample.frameIndex and last.displayOffsetY == sample.displayOffsetY then
+      last.ticks = last.ticks + 1
+    else
+      encoded[#encoded + 1] = {
+        frameIndex = sample.frameIndex,
+        ticks = 1,
+        displayOffsetY = sample.displayOffsetY,
+      }
+    end
+  end
+  return {
+    frames = encoded,
+    loop = sourcePose.loop,
+    durationTicks = sourcePose.durationTicks,
+    sourceRange = sourcePose.sourceRange,
   }
 end
 
@@ -231,7 +260,7 @@ end
 -- 1-4 are the base directional set in global_fieldmap.h order; a descriptor with
 -- eight ranges carries a second set whose gameplay trigger is not yet traced, so
 -- it is preserved under a neutral name.
-local function buildPoses(perRange, ranges, idleMode, frameCount)
+local function buildPoses(perRange, ranges, idleMode)
   local order = manifest.directionOrder
 
   local function poseFor(index)
@@ -256,25 +285,29 @@ local function buildPoses(perRange, ranges, idleMode, frameCount)
       animations[index] = poseFor(index)
     end
     for _, direction in ipairs(order) do
-      local idle = idleMode == "animated" and animations[1]
-        or {
-          frames = { { frameIndex = animations[1].frames[1].frameIndex, ticks = 1 } },
+      local idle
+      if idleMode == "animated" then
+        idle = buildAnimatedIdlePose(animations[1], { direction = direction })
+      else
+        idle = {
+          frames = { { frameIndex = animations[1].frames[1].frameIndex, ticks = 1, displayOffsetY = 0 } },
           loop = true,
           durationTicks = 1,
         }
+      end
       directions[direction] = { idle = idle, walk = animations[1] }
     end
-    return directions, nil, animations, idlePresentation(idleMode, directions, frameCount)
+    return directions, nil, animations, idlePresentation(idleMode)
   end
   for i, direction in ipairs(order) do
     local walk = poseFor(i)
     local idle
     if idleMode == "animated" then
-      idle = walk
+      idle = buildAnimatedIdlePose(walk, { direction = direction })
     else
       -- Ordinary actors hold the first displayed frame of their facing range.
       idle = {
-        frames = { { frameIndex = walk.frames[1].frameIndex, ticks = 1 } },
+        frames = { { frameIndex = walk.frames[1].frameIndex, ticks = 1, displayOffsetY = 0 } },
         loop = true,
         durationTicks = 1,
       }
@@ -290,13 +323,17 @@ local function buildPoses(perRange, ranges, idleMode, frameCount)
       alternate[direction] = poseFor(#order + i)
     end
   end
-  return directions, alternate, nil, idlePresentation(idleMode, directions, frameCount)
+  return directions, alternate, nil, idlePresentation(idleMode)
 end
 
 local function staticDirections()
   local directions = {}
   for _, direction in ipairs(manifest.directionOrder) do
-    local pose = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 }
+    local pose = {
+      frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } },
+      loop = true,
+      durationTicks = 1,
+    }
     directions[direction] = { idle = pose, walk = pose }
   end
   return directions
@@ -313,7 +350,7 @@ local function finishStaticModel(spriteId, compiled)
     pivot = { x = 0.5, y = 1 },
     frames = { { textureSlot = 0, paletteSlot = 0 } },
     directions = staticDirections(),
-    idlePresentation = { mode = "static", cadence = 0, frameOffsets = { 0 } },
+    idlePresentation = { mode = "static", cadence = 0 },
   }
   return visual, atlas
 end
@@ -402,7 +439,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local frameSet = FieldActorFrames.collect(timeline, descriptor.ranges, #pack.textures, #pack.palettes, context)
   local frames, perRange = frameSet.frames, frameSet.perRange
   local atlas = decodeAtlas(pack, frames, context)
-  local directions, alternate, animations, idleProfile = buildPoses(perRange, descriptor.ranges, idleMode, #frames)
+  local directions, alternate, animations, idleProfile = buildPoses(perRange, descriptor.ranges, idleMode)
 
   local placement = {
     sourceSize = { width = atlas.frameWidth, height = atlas.frameHeight },

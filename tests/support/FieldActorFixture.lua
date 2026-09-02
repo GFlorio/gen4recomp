@@ -182,14 +182,10 @@ end
 function FieldActorFixture.visual(spriteId, opts)
   opts = opts or {}
   local frameCount = opts.frameCount or 5
-  local frameOffsets = {}
-  for frameIndex = 1, frameCount do
-    frameOffsets[frameIndex] = 0
-  end
   local directions = {}
   for index, direction in ipairs({ "north", "south", "west", "east" }) do
     local set = {
-      idle = { frames = { { frameIndex = index, ticks = 1 } }, loop = true, durationTicks = 1 },
+      idle = { frames = { { frameIndex = index, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 },
     }
     if not opts.omitWalk then
       set.walk = {
@@ -269,7 +265,6 @@ function FieldActorFixture.visual(spriteId, opts)
     idlePresentation = opts.idlePresentation or {
       mode = "static",
       cadence = 0,
-      frameOffsets = frameOffsets,
     },
   }
 end

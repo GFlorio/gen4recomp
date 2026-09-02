@@ -30,7 +30,7 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field pose string
 ---@field poseTick integer
 ---@field private _visual table
----@field private _idlePresentation { mode: "static"|"animated", cadence: integer, frameOffsets: table<integer, number> }
+---@field private _idlePresentation { mode: "static"|"animated", cadence: integer }
 ---@field private _scriptedPresentationAdvanced boolean
 ---@field presentationOffset { x: number, y: number } render-only action or idle display offset
 ---@field activeEmoteKind string? the active semantic emote (e.g. "exclamation") while an emote action is live, else nil
@@ -98,7 +98,6 @@ local function requireIdlePresentation(visual, idlePresentation)
       or (idlePresentation.mode == "animated" and idlePresentation.cadence == 1),
     "field actor idle cadence does not match its mode"
   )
-  assert(type(idlePresentation.frameOffsets) == "table", "field actor idle frame offsets are required")
 end
 
 local function applyIdlePresentation(actor, advance)
@@ -107,11 +106,9 @@ local function applyIdlePresentation(actor, advance)
     actor.poseTick = actor.poseTick + idlePresentation.cadence
   end
   actor.pose = "idle"
-  local frameIndex = FieldActorPose.frameIndex(actor._visual, actor.facing, "idle", actor.poseTick)
-  actor.presentationOffset.y = assert(
-    idlePresentation.frameOffsets[frameIndex],
-    "field actor idle frame " .. frameIndex .. " has no display offset"
-  )
+  local pose = FieldActorPose.select(actor._visual, actor.facing, "idle")
+  local segment = FieldActorPose.sampleAt(pose, actor.poseTick)
+  actor.presentationOffset.y = assert(segment.displayOffsetY, "field actor idle segment has no display offset")
 end
 
 -- Identity is derived only from map and object-event identity, so it survives
