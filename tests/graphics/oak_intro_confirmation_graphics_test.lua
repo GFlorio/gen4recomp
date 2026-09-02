@@ -160,17 +160,14 @@ function T.name_confirmation_uses_common_side_by_side_backings(scope)
     local image = render(scope, renderer, view, entry.manifest)
     local layout = view.layout
     local yes, no = layout.confirmationButtons[0], layout.confirmationButtons[1]
-    -- Common scale: same as gender confirmation.
-    local genderYes =
-      OakIntroLayout.compute(800, 600, confirmationView("gender", 0), {}, entry.manifest).confirmationButtons[0]
-    Assert.equal(yes.scale, genderYes.scale)
-    Assert.isTrue(yes.rect.x + yes.rect.width <= no.rect.x or yes.rect.y + yes.rect.height <= no.rect.y)
     Assert.equal(yes.scale, no.scale)
+    Assert.equal(yes.rect.x, no.rect.x)
+    Assert.equal(yes.rect.width, no.rect.width)
+    Assert.isTrue(yes.rect.y + yes.rect.height <= no.rect.y, "name choices must be vertically stacked")
+    Assert.near((no.rect.y - (yes.rect.y + yes.rect.height)) / yes.scale, 8, 1e-6)
     Assert.equal(font4.fontDef.fontId, 4)
-    -- Check buttons have shared geometry.
     Assert.notNil(yes.button)
     Assert.notNil(no.button)
-    -- Ensure rendering produced something (not blank).
     Assert.notNil(image)
   end
 end

@@ -525,8 +525,13 @@ function T.tests.name_submission_exits_composition_before_confirm_and_rejection_
     Assert.equal(App.state.state:view().phase, "name_confirm")
     Assert.equal(App.state.state:view().genderCompositionProgress, 0)
     local layout = App.state.state:view().layout
-    Assert.isNil(layout.oakRegion, "ordinary Oak name-confirm presentation must not retain a split region")
-    Assert.isNil(layout.selectorRegion, "ordinary Oak name-confirm presentation must not retain a selector region")
+    Assert.notNil(layout.oakRegion, "name-confirm keeps Oak in its dedicated left region")
+    Assert.notNil(layout.selectorRegion, "name-confirm keeps choice in its dedicated right region")
+    Assert.notNil(layout.dialogue, "name-confirm reserves the bottom dialogue")
+    Assert.isTrue(
+      layout.oakRegion.x + layout.oakRegion.width <= layout.selectorRegion.x + 1e-6,
+      "Oak region is left of choice region"
+    )
 
     completeMessage()
     App.keypressed("escape")

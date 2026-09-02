@@ -645,9 +645,8 @@ function OakIntroController:press(action)
   if self._confirmationChoice then
     local kind = self._confirmationChoice.kind
     local vertical = action == "up" or action == "down"
-    local horizontal = action == "left" or action == "right"
-    if (kind == "gender" and vertical) or (kind == "name" and horizontal) then
-      local index = (action == "up" or action == "left") and 0 or 1
+    if (kind == "gender" and vertical) or (kind == "name" and vertical) then
+      local index = action == "up" and 0 or 1
       local changed = self._confirmationChoice.selected ~= index
       self._confirmationChoice.selected = assertSelectionIndex(index)
       if changed then

@@ -302,10 +302,10 @@ function T.tests.profile_controls_emit_final_rectangles_without_generic_button_g
   Assert.equal(yes.button.rect.x, yes.rect.x)
 end
 
-function T.tests.name_confirmation_is_side_by_side_and_falls_back_only_below_minimum_target()
+function T.tests.name_confirmation_layout_is_oak_left_with_vertical_stack()
   local data = manifest()
-  local function view()
-    return {
+  for _, size in ipairs({ { 640, 480 }, { 800, 600 }, { 390, 844 } }) do
+    local layout = OakIntroLayout.compute(size[1], size[2], {
       phase = "name_confirm",
       visual = "oak",
       primaryWidget = "oak",
@@ -313,58 +313,79 @@ function T.tests.name_confirmation_is_side_by_side_and_falls_back_only_below_min
       confirmationChoice = { kind = "name", selected = 0 },
       genderCompositionProgress = 0,
       oakBgScrollX = 0,
-    }
-  end
-
-  local ordinary = OakIntroLayout.compute(800, 600, view(), {}, data)
-  local ordinaryYes = assert(ordinary.confirmationButtons[0])
-  local ordinaryNo = assert(ordinary.confirmationButtons[1])
-  Assert.isTrue(ordinaryYes.rect.height >= 20)
-  Assert.isTrue(ordinaryNo.rect.height >= 20)
-  Assert.isTrue(inside(ordinaryYes.rect, ordinary.stageContent))
-  Assert.isTrue(inside(ordinaryNo.rect, ordinary.stageContent))
-  -- At 800x600 either side-by-side or vertical is valid as long as common scale holds; just check they fit.
-
-  local constrained = OakIntroLayout.compute(96, 96, view(), {}, data)
-  local constrainedYes = assert(constrained.confirmationButtons[0])
-  local constrainedNo = assert(constrained.confirmationButtons[1])
-  Assert.isTrue(inside(constrainedYes.rect, constrained.stageContent))
-  Assert.isTrue(inside(constrainedNo.rect, constrained.stageContent))
-
-  for _, size in ipairs({ { 1, 1 }, { 2, 3 }, { 10, 10 } }) do
-    local tiny = OakIntroLayout.compute(size[1], size[2], view(), {}, data)
-    for choice = 0, 1 do
-      local entry = assert(tiny.confirmationButtons[choice])
-      Assert.isTrue(entry.rect.width > 0 and entry.rect.height > 0)
-      Assert.isTrue(inside(entry.rect, tiny.stageContent), "tiny confirmation must remain inside safe content")
-    end
+    }, {}, data)
+    Assert.notNil(layout.dialogue, "name_confirm must reserve dialogue at " .. size[1] .. "x" .. size[2])
+    local oakRegion = assert(layout.oakRegion)
+    local choiceRegion = assert(layout.selectorRegion)
+    Assert.isTrue(oakRegion.x + oakRegion.width <= choiceRegion.x, "Oak region must be left of choice region")
+    Assert.equal(oakRegion.y, choiceRegion.y)
+    Assert.equal(oakRegion.height, choiceRegion.height)
+    Assert.isTrue(inside(assert(layout.subject), oakRegion))
+    local yes = assert(layout.confirmationButtons[0])
+    local no = assert(layout.confirmationButtons[1])
+    Assert.isTrue(inside(yes.rect, choiceRegion))
+    Assert.isTrue(inside(no.rect, choiceRegion))
+    Assert.isTrue(disjoint(yes.rect, layout.dialogue.outerRect))
+    Assert.isTrue(disjoint(no.rect, layout.dialogue.outerRect))
+    Assert.isTrue(disjoint(oakRegion, layout.dialogue.outerRect))
+    Assert.isTrue(disjoint(choiceRegion, layout.dialogue.outerRect))
+    Assert.equal(yes.scale, no.scale)
+    Assert.equal(yes.rect.x, no.rect.x)
+    Assert.equal(yes.rect.width, no.rect.width)
+    Assert.equal(yes.rect.height, no.rect.height)
+    Assert.isTrue(yes.rect.y + yes.rect.height <= no.rect.y)
+    Assert.near((no.rect.y - (yes.rect.y + yes.rect.height)) / yes.scale, 8, 1e-6)
+    Assert.equal(yes.key, "yes")
+    Assert.equal(no.key, "no")
   end
 end
 
-function T.tests.name_confirmation_is_centered_side_by_side_in_ordinary_scene()
+function T.tests.name_confirmation_oak_does_not_jump_when_choices_activate()
   local data = manifest()
-  for _, gender in ipairs({ "male", "female" }) do
-    local layout = OakIntroLayout.compute(800, 600, {
+  for _, size in ipairs({ { 640, 480 }, { 800, 600 }, { 390, 844 } }) do
+    local withoutChoice = OakIntroLayout.compute(size[1], size[2], {
       phase = "name_confirm",
       visual = "oak",
       primaryWidget = "oak",
-      genderFocus = gender == "male" and 0 or 1,
+      genderFocus = 1,
+      genderCompositionProgress = 0,
+      oakBgScrollX = 0,
+      dialogue = { message = "test", messageKey = "profile.name_confirm.female" },
+    }, {}, data)
+    local withChoice = OakIntroLayout.compute(size[1], size[2], {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 1,
       confirmationChoice = { kind = "name", selected = 0 },
       genderCompositionProgress = 0,
       oakBgScrollX = 0,
+      dialogue = { message = "test", messageKey = "profile.name_confirm.female" },
     }, {}, data)
-
-    Assert.isNil(layout.oakRegion)
-    Assert.isNil(layout.selectorRegion)
-    local choices = assert(layout.confirmationButtons)
-    for choice, key in pairs({ [0] = "yes", [1] = "no" }) do
-      local entry = assert(choices[choice])
-      Assert.equal(entry.key, key)
-      Assert.isTrue(inside(entry.rect, layout.stageContent))
-      Assert.isTrue(entry.rect.height >= 44)
-    end
-    Assert.isTrue(choices[0].rect.x + choices[0].rect.width <= choices[1].rect.x)
+    Assert.notNil(withoutChoice.dialogue)
+    Assert.notNil(withChoice.dialogue)
+    Assert.deepEqual(withoutChoice.dialogue.outerRect, withChoice.dialogue.outerRect)
+    Assert.deepEqual(withoutChoice.oakRegion, withChoice.oakRegion)
+    Assert.deepEqual(withoutChoice.selectorRegion, withChoice.selectorRegion)
+    Assert.deepEqual(withoutChoice.subject, withChoice.subject)
+    Assert.isNil(withoutChoice.confirmationButtons)
+    Assert.notNil(withChoice.confirmationButtons)
   end
+end
+
+function T.tests.name_confirmation_dialogue_is_reserved_without_active_message()
+  local data = manifest()
+  local layout = OakIntroLayout.compute(640, 480, {
+    phase = "name_confirm",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 0,
+    oakBgScrollX = 0,
+  }, {}, data)
+  Assert.notNil(layout.dialogue)
+  Assert.notNil(layout.oakRegion)
+  Assert.notNil(layout.selectorRegion)
 end
 
 function T.tests.gender_composition_interpolates_oak_into_the_contained_region()
@@ -566,10 +587,13 @@ function T.tests.ordinary_oak_geometry_resumes_after_the_profile_composition_exi
     Assert.equal(finalView.phase, "name_confirm")
     Assert.equal(finalView.genderCompositionProgress, 0)
     local finalLayout = OakIntroLayout.compute(size[1], size[2], finalView, {}, data)
-    local ordinaryLayout = OakIntroLayout.compute(size[1], size[2], ordinaryView(finalView.oakBgScrollX), {}, data)
-    Assert.deepEqual(finalLayout.subject, ordinaryLayout.subject)
-    Assert.isNil(finalLayout.oakRegion, "ordinary Oak presentation must not retain a split composition region")
-    Assert.isNil(finalLayout.selectorRegion, "ordinary Oak presentation must not retain a selector region")
+    Assert.notNil(finalLayout.dialogue, "name_confirm must reserve dialogue after composition exit")
+    Assert.notNil(finalLayout.oakRegion)
+    Assert.notNil(finalLayout.selectorRegion)
+    Assert.isTrue(inside(assert(finalLayout.subject), assert(finalLayout.oakRegion)))
+    Assert.isTrue(disjoint(assert(finalLayout.oakRegion), assert(finalLayout.selectorRegion)))
+    Assert.isTrue(disjoint(assert(finalLayout.oakRegion), finalLayout.dialogue.outerRect))
+    Assert.isTrue(disjoint(assert(finalLayout.selectorRegion), finalLayout.dialogue.outerRect))
   end
 end
 
@@ -591,62 +615,38 @@ function T.tests.profile_widgets_use_their_manifest_source_geometry()
   end
 end
 
-function T.tests.name_confirmation_uses_same_scale_as_gender_confirmation()
+function T.tests.name_confirmation_scale_is_independent_of_gender()
   local data = manifest()
-  for _, size in ipairs({ { 800, 600 }, { 1024, 768 } }) do
-    for _, gender in ipairs({ 0, 1 }) do
-      local genderLayout = OakIntroLayout.compute(size[1], size[2], {
-        phase = "gender_confirm",
-        visual = "oak",
-        primaryWidget = "oak",
-        genderFocus = gender,
-        genderCompositionProgress = 1,
-        confirmationChoice = { kind = "gender", selected = 0 },
-      }, {}, data)
-      local nameLayout = OakIntroLayout.compute(size[1], size[2], {
-        phase = "name_confirm",
-        visual = "oak",
-        primaryWidget = "oak",
-        genderFocus = gender,
-        confirmationChoice = { kind = "name", selected = 0 },
-        genderCompositionProgress = 0,
-        oakBgScrollX = 0,
-      }, {}, data)
-      local gYes = assert(genderLayout.confirmationButtons[0])
-      local nYes = assert(nameLayout.confirmationButtons[0])
-      local gNo = assert(genderLayout.confirmationButtons[1])
-      local nNo = assert(nameLayout.confirmationButtons[1])
-      Assert.equal(gYes.scale, nYes.scale)
-      Assert.equal(gNo.scale, nNo.scale)
-      Assert.equal(gYes.rect.width, nYes.rect.width)
-      Assert.equal(gYes.rect.height, nYes.rect.height)
-    end
-  end
-end
-
-function T.tests.name_confirmation_is_bottom_aligned_with_common_gap()
-  local data = manifest()
-  local layout = OakIntroLayout.compute(800, 600, {
-    phase = "name_confirm",
-    visual = "oak",
-    primaryWidget = "oak",
-    genderFocus = 0,
-    confirmationChoice = { kind = "name", selected = 0 },
-    genderCompositionProgress = 0,
-    oakBgScrollX = 0,
-  }, {}, data)
-  local yes = assert(layout.confirmationButtons[0])
-  local no = assert(layout.confirmationButtons[1])
-  local gap = 8 * yes.scale
-  local groupBottom = math.max(yes.rect.y + yes.rect.height, no.rect.y + no.rect.height)
-  -- Bottom should be near stage bottom (within original gap tolerance). Check it's bottom-aligned.
-  Assert.isTrue(groupBottom <= layout.stageContent.y + layout.stageContent.height + 1e-6)
-  Assert.isTrue(groupBottom >= layout.stageContent.y + layout.stageContent.height - 20)
-  if yes.rect.y == no.rect.y then
-    Assert.near((no.rect.x - (yes.rect.x + yes.rect.width)), gap, 1e-6)
-  else
-    Assert.near((no.rect.y - (yes.rect.y + yes.rect.height)), gap, 1e-6)
-    Assert.equal(yes.rect.width, no.rect.width)
+  for _, size in ipairs({ { 800, 600 }, { 640, 480 }, { 390, 844 } }) do
+    local male = OakIntroLayout.compute(size[1], size[2], {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      confirmationChoice = { kind = "name", selected = 0 },
+      genderCompositionProgress = 0,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local female = OakIntroLayout.compute(size[1], size[2], {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 1,
+      confirmationChoice = { kind = "name", selected = 1 },
+      genderCompositionProgress = 0,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local mYes = assert(male.confirmationButtons[0])
+    local fYes = assert(female.confirmationButtons[0])
+    local mNo = assert(male.confirmationButtons[1])
+    local fNo = assert(female.confirmationButtons[1])
+    Assert.equal(mYes.scale, fYes.scale)
+    Assert.equal(mYes.rect.width, fYes.rect.width)
+    Assert.equal(mYes.rect.height, fYes.rect.height)
+    Assert.equal(mYes.rect.x, fYes.rect.x)
+    Assert.equal(mNo.rect.x, fNo.rect.x)
+    Assert.deepEqual(male.oakRegion, female.oakRegion)
+    Assert.deepEqual(male.selectorRegion, female.selectorRegion)
   end
 end
 

@@ -764,4 +764,310 @@ function T.dialogue_completion_edge_does_not_enter_the_new_choice()
   Assert.notNil(state:view().confirmationChoice)
 end
 
+function T.frozen_name_question_remains_drawable_after_modal_close()
+  local state, controller = stateHarness()
+  local modal = true
+  local completion
+  local tokens = { { kind = "glyph", text = "Hello" }, { kind = "focus_indicator", field = "yesno" } }
+  controller.phase = "name_confirm"
+  controller.view = function(self)
+    return {
+      phase = self.phase,
+      messageKey = modal and "profile.name_confirm.male" or nil,
+      message = modal and { tokens = tokens } or nil,
+      confirmationChoice = not modal and { kind = "name", selected = 0 } or nil,
+      genderCompositionProgress = 0,
+      name = "GOLD",
+      nameInputEnabled = false,
+      genderFocus = 0,
+      visual = "oak",
+      primaryWidget = "oak",
+      virtualKeys = {},
+      oakBgScrollX = 0,
+    }
+  end
+  controller.messageCompleted = function(_, key)
+    Assert.equal(key, "profile.name_confirm.male")
+    modal = false
+  end
+  local dialogue = {
+    open = function()
+      return {
+        onComplete = function(_, callback)
+          completion = callback
+        end,
+      }
+    end,
+    step = function(_, snapshot)
+      if snapshot and snapshot.actionPressed and completion then
+        local callback = completion
+        completion = nil
+        callback()
+        modal = false
+      end
+    end,
+    isModal = function()
+      return modal
+    end,
+    status = function()
+      return {
+        state = "WAITING_CLOSE",
+        waiting = true,
+        cursorPhase = 1,
+        frameIndex = 3,
+        visibleLines = { { tokens[1], tokens[2] } },
+        scrollLines = nil,
+        scrollOffsetY = 0,
+        lineHeight = 16,
+        lineSpacing = 2,
+      }
+    end,
+  }
+  local renderer = {
+    drawn = {},
+    draw = function(self, controllerArg, presentation)
+      self.drawn[#self.drawn + 1] =
+        { controller = controllerArg, presentation = presentation, status = controllerArg:status() }
+    end,
+  }
+  state.dialogueController = dialogue
+  state.dialogueRenderer = renderer
+  state.dialogueFormatter = {
+    format = function(_, key)
+      return { tokens = tokens, text = key, hadUnresolvedSubstitutions = false }
+    end,
+    choiceLabels = function()
+      return { [0] = "YES", [1] = "NO" }
+    end,
+  }
+  state:_sync()
+  state:draw()
+  Assert.equal(#renderer.drawn, 1)
+  Assert.equal(renderer.drawn[1].controller, dialogue)
+  Assert.isTrue(renderer.drawn[1].controller:isModal())
+  renderer.drawn = {}
+  state:keypressed("return")
+  Assert.isFalse(dialogue:isModal())
+  Assert.deepEqual(controller.view(controller).confirmationChoice, { kind = "name", selected = 0 })
+  local view = state:view()
+  Assert.notNil(view.dialoguePresentation, "presentation must persist after close")
+  Assert.notNil(view.layout.dialogue)
+  state:draw()
+  Assert.equal(#renderer.drawn, 1)
+  local drawn = renderer.drawn[1]
+  Assert.isTrue(drawn.controller ~= dialogue, "frozen adapter must be a different object")
+  Assert.isTrue(drawn.controller:isModal(), "frozen adapter must appear modal to renderer")
+  local status = drawn.status
+  Assert.equal(status.frameIndex, 3)
+  Assert.equal(status.waiting, false)
+  Assert.isNil(status.cursorPhase)
+  Assert.isNil(status.scrollLines)
+  Assert.equal(status.scrollOffsetY, 0)
+  Assert.equal(status.lineHeight, 16)
+  Assert.equal(status.lineSpacing, 2)
+  Assert.equal(#status.visibleLines, 1)
+  Assert.equal(status.visibleLines[1][1].text, "Hello")
+  Assert.equal(status.visibleLines[1][2].kind, "focus_indicator")
+  Assert.notNil(drawn.presentation)
+  Assert.equal(state.dialogueController, dialogue)
+end
+
+function T.frozen_name_question_is_cleared_after_yes_no_or_cancel()
+  local state, controller = stateHarness()
+  local modal = true
+  local completion
+  controller.phase = "name_confirm"
+  controller.view = function(self)
+    return {
+      phase = self.phase,
+      messageKey = modal and "profile.name_confirm.male" or nil,
+      message = modal and { tokens = {} } or nil,
+      confirmationChoice = not modal and { kind = "name", selected = 0 } or nil,
+      genderCompositionProgress = 0,
+      name = "GOLD",
+      nameInputEnabled = false,
+      genderFocus = 0,
+      visual = "oak",
+      primaryWidget = "oak",
+      virtualKeys = {},
+      oakBgScrollX = 0,
+    }
+  end
+  controller.messageCompleted = function()
+    modal = false
+  end
+  controller.press = function(self, action)
+    self.pressed[#self.pressed + 1] = action
+    if action == "yes" or action == "no" or action == "cancel" or action == "confirm" then
+      self.phase = "gender_question"
+    end
+  end
+  local dialogue = {
+    open = function()
+      return {
+        onComplete = function(_, cb)
+          completion = cb
+        end,
+      }
+    end,
+    step = function(_, snapshot)
+      if snapshot and snapshot.actionPressed and completion then
+        local cb = completion
+        completion = nil
+        cb()
+        modal = false
+      end
+    end,
+    isModal = function()
+      return modal
+    end,
+    status = function()
+      return {
+        state = "WAITING_CLOSE",
+        waiting = true,
+        cursorPhase = 0,
+        frameIndex = 0,
+        visibleLines = { { { kind = "glyph", text = "Q" } } },
+        scrollLines = nil,
+        scrollOffsetY = 0,
+        lineHeight = 16,
+        lineSpacing = 0,
+      }
+    end,
+  }
+  local renderer = {
+    drawn = {},
+    draw = function(self, c, p)
+      self.drawn[#self.drawn + 1] = { controller = c, presentation = p }
+    end,
+  }
+  state.dialogueController = dialogue
+  state.dialogueRenderer = renderer
+  state.dialogueFormatter = {
+    format = function()
+      return { tokens = {}, text = "x", hadUnresolvedSubstitutions = false }
+    end,
+    choiceLabels = function()
+      return { [0] = "YES", [1] = "NO" }
+    end,
+  }
+  state:_sync()
+  state:keypressed("return")
+  Assert.notNil(state._frozenStatus, "frozen must be active after close into name choice")
+  controller.phase = "name_confirm"
+  state.controller:press("yes")
+  state:_sync()
+  Assert.isNil(state._frozenStatus, "frozen must be cleared after Yes")
+  Assert.isNil(state._frozenAdapter)
+  modal = true
+  controller.phase = "name_confirm"
+  state.dialogueController = dialogue
+  state:_sync()
+  dialogue.status = function()
+    return {
+      state = "WAITING_CLOSE",
+      waiting = true,
+      cursorPhase = 0,
+      frameIndex = 0,
+      visibleLines = { { { kind = "glyph", text = "Q2" } } },
+      scrollLines = nil,
+      scrollOffsetY = 0,
+      lineHeight = 16,
+      lineSpacing = 0,
+    }
+  end
+  completion = function()
+    modal = false
+  end
+  state:_stepDialogue({ actionPressed = true })
+  state:_sync()
+  Assert.notNil(state._frozenStatus)
+  controller.phase = "gender_question"
+  state:_sync()
+  Assert.isNil(state._frozenStatus, "frozen must be cleared when leaving name_confirm")
+  modal = true
+  controller.phase = "name_confirm"
+  state._frozenStatus = { visibleLines = {} }
+  state._frozenAdapter = {
+    isModal = function()
+      return true
+    end,
+    status = function()
+      return state._frozenStatus
+    end,
+  }
+  state:dispose()
+  Assert.isNil(state._frozenStatus)
+  Assert.isNil(state._frozenAdapter)
+end
+
+function T.frozen_is_not_activated_while_still_waiting_close_without_action()
+  local state, controller = stateHarness()
+  local modal = true
+  controller.phase = "name_confirm"
+  controller.view = function(self)
+    return {
+      phase = self.phase,
+      messageKey = "profile.name_confirm.male",
+      message = { tokens = {} },
+      confirmationChoice = nil,
+      genderCompositionProgress = 0,
+      name = "GOLD",
+      nameInputEnabled = false,
+      genderFocus = 0,
+      visual = "oak",
+      primaryWidget = "oak",
+      virtualKeys = {},
+      oakBgScrollX = 0,
+    }
+  end
+  local dialogue = {
+    stepCount = 0,
+    isModal = function()
+      return modal
+    end,
+    status = function()
+      return {
+        state = "WAITING_CLOSE",
+        waiting = true,
+        cursorPhase = 1,
+        frameIndex = 0,
+        visibleLines = { { { kind = "glyph", text = "Q" } } },
+        scrollLines = nil,
+        scrollOffsetY = 0,
+        lineHeight = 16,
+        lineSpacing = 0,
+      }
+    end,
+    step = function(self)
+      self.stepCount = self.stepCount + 1
+    end,
+    open = function()
+      return { onComplete = function() end }
+    end,
+  }
+  local renderer = {
+    drawn = {},
+    draw = function(self, c, _)
+      self.drawn[#self.drawn + 1] = c
+    end,
+  }
+  state.dialogueController = dialogue
+  state.dialogueRenderer = renderer
+  state.dialogueFormatter = {
+    format = function()
+      return { tokens = {}, text = "x", hadUnresolvedSubstitutions = false }
+    end,
+    choiceLabels = function()
+      return { [0] = "YES", [1] = "NO" }
+    end,
+  }
+  state.dialogueMessageKey = "profile.name_confirm.male"
+  state:tick(1)
+  Assert.isNil(state._frozenStatus, "frozen must not activate while still WAITING_CLOSE without close")
+  Assert.isTrue(dialogue:isModal())
+  state:draw()
+  Assert.equal(renderer.drawn[1], dialogue, "real controller must remain draw owner while WAITING_CLOSE")
+end
+
 return { tests = T }

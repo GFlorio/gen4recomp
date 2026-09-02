@@ -12,9 +12,7 @@ local TextButton = require("libs.ui.src.TextButton")
 ---@field assets table
 ---@field bindings table
 ---@field manifest table
-local OakIntroRenderer = {}
-OakIntroRenderer.__index = OakIntroRenderer
-OakIntroRenderer.REQUIRED_ASSETS = {
+local REQUIRED_ASSETS = {
   "oak",
   "marill",
   "marill_appear",
@@ -26,6 +24,9 @@ OakIntroRenderer.REQUIRED_ASSETS = {
   "gender_male",
   "gender_female",
 }
+
+local OakIntroRenderer = {}
+OakIntroRenderer.__index = OakIntroRenderer
 
 local REVEAL_SHADER = [[
   uniform number brightness;
@@ -149,7 +150,7 @@ function OakIntroRenderer.new(options)
   assert(type(options.manifest.background) == "table", "Oak renderer requires a generated intro background")
   local assets = options.manifest.widgets
   assert(options.manifest.background, "Oak renderer requires a generated background")
-  for _, assetId in ipairs(OakIntroRenderer.REQUIRED_ASSETS) do
+  for _, assetId in ipairs(REQUIRED_ASSETS) do
     assert(assets[assetId], "Oak renderer requires generated asset " .. assetId)
   end
   local graphics = options.graphics or love.graphics
@@ -178,6 +179,7 @@ function OakIntroRenderer.new(options)
     releaseAll(acquired)
     error("Oak renderer shader construction returned no shader", 0)
   end
+  ---@diagnostic disable-next-line: return-type-mismatch
   return setmetatable({
     assets = renderedAssets,
     manifest = options.manifest,
@@ -271,22 +273,15 @@ function OakIntroRenderer:_draw(view)
         local selected = view.genderFocus == gender
         local palette = profilePalette(self.manifest, selected, selected and view.focusBlinkDelta or 0)
         local colors = {
-          face = { palette.face[1] * 255, palette.face[2] * 255, palette.face[3] * 255, 1 },
-          border = { palette.border[1] * 255, palette.border[2] * 255, palette.border[3] * 255, 1 },
-          rim = { palette.rim[1] * 255, palette.rim[2] * 255, palette.rim[3] * 255, 1 },
-          selectedRim = { palette.selectedRim[1] * 255, palette.selectedRim[2] * 255, palette.selectedRim[3] * 255, 1 },
-        }
-        -- Convert to 0-1 normalized for ImageButton
-        local normColors = {
-          face = { colors.face[1] / 255, colors.face[2] / 255, colors.face[3] / 255, 1 },
-          border = { colors.border[1] / 255, colors.border[2] / 255, colors.border[3] / 255, 1 },
-          rim = { colors.rim[1] / 255, colors.rim[2] / 255, colors.rim[3] / 255, 1 },
-          selectedRim = { colors.selectedRim[1] / 255, colors.selectedRim[2] / 255, colors.selectedRim[3] / 255, 1 },
+          face = { palette.face[1], palette.face[2], palette.face[3], 1 },
+          border = { palette.border[1], palette.border[2], palette.border[3], 1 },
+          rim = { palette.rim[1], palette.rim[2], palette.rim[3], 1 },
+          selectedRim = { palette.selectedRim[1], palette.selectedRim[2], palette.selectedRim[3], 1 },
           innerBorder = { palette.face[1], palette.face[2], palette.face[3], 1 },
         }
         ImageButton.draw(graphics, entry.button, {
           selected = selected,
-          colors = normColors,
+          colors = colors,
           imageRect = entry.portraitRect,
           drawImage = function(rect)
             drawAsset(self, entry.portraitId, 1, rect)
@@ -314,25 +309,25 @@ function OakIntroRenderer:_draw(view)
   end
   if layout.confirmationButtons then
     local labels = assert(view.choiceLabels)
+    local textPalette = {
+      foreground = paletteColor(self.choiceText.fontDef, 16),
+      shadow = paletteColor(self.choiceText.fontDef, 2),
+      background = paletteColor(self.choiceText.fontDef, 1),
+    }
+    textPalette.background.a = 0
+    local adapter = {
+      measure = function(text)
+        return self.choiceText:textWidth(text)
+      end,
+      lineHeight = self.choiceText.fontDef.lineHeight,
+      draw = function(text, x, y)
+        self.choiceText:drawTextWithPalette(text, x, y, textPalette)
+      end,
+    }
     for choice = 0, 1 do
       local entry = assert(layout.confirmationButtons[choice])
       local selected = view.confirmationChoice.selected == choice
       local label = assert(labels[choice])
-      local textPalette = {
-        foreground = paletteColor(self.choiceText.fontDef, 16),
-        shadow = paletteColor(self.choiceText.fontDef, 2),
-        background = paletteColor(self.choiceText.fontDef, 1),
-      }
-      textPalette.background.a = 0
-      local adapter = {
-        measure = function(text)
-          return self.choiceText:textWidth(text)
-        end,
-        lineHeight = self.choiceText.fontDef.lineHeight,
-        draw = function(text, x, y)
-          self.choiceText:drawTextWithPalette(text, x, y, textPalette)
-        end,
-      }
       TextButton.draw(graphics, entry.button, {
         label = label,
         selected = selected,
@@ -362,13 +357,11 @@ function OakIntroRenderer:draw(view)
   local graphics = self.graphics
   local red, green, blue, alpha = graphics.getColor()
   local shader = graphics.getShader()
-  local lineWidth = graphics.getLineWidth()
   local ok, failure = xpcall(function()
     self:_draw(view)
   end, debug.traceback)
   graphics.setShader(shader)
   graphics.setColor(red, green, blue, alpha)
-  graphics.setLineWidth(lineWidth)
   if not ok then
     error(failure, 0)
   end
