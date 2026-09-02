@@ -49,7 +49,19 @@ MovementCalibration.FACE_TICKS = 1
 -- asm/overlay_01_022001E4.s, ov01_02200614: the exclamation effect's
 -- entrance and completion progression surrounds a 30-update hold.
 MovementCalibration.EMOTE_TICKS = 33
-MovementCalibration.GESTURE_TICKS = 4
+-- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
+-- asm/unk_02062108.s and asm/unk_data_020FDB44.s: gesture commands
+-- 67, 68, 100, 102, 104 map to semantic names warp_out, warp_in,
+-- nurse_bow, give, receive; lifetime counts the per-update state machine
+-- including whether setup and final steps chain in the same map-object
+-- update via sub_02062400's nonzero chaining.
+local GESTURE_TICKS_BY_NAME = {
+  warp_out = 20,
+  warp_in = 20,
+  nurse_bow = 10,
+  give = 22,
+  receive = 22,
+}
 
 -- Vertical arc heights for jump presentation (world units / tiles).
 MovementCalibration.JUMP_HEIGHTS = {
@@ -164,7 +176,9 @@ function MovementCalibration.actionTicks(action)
   elseif kind == "emote" then
     return MovementCalibration.EMOTE_TICKS
   elseif kind == "gesture" then
-    return MovementCalibration.GESTURE_TICKS
+    local ticks = GESTURE_TICKS_BY_NAME[action.name]
+    assert(ticks, "unknown gesture " .. tostring(action.name))
+    return ticks
   end
   error("unknown movement action " .. tostring(kind))
 end

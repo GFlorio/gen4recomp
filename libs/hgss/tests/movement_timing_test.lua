@@ -39,6 +39,18 @@ local SOURCE_TIMINGS = {
   { action = { action = "emote", name = "exclamation" }, ticks = 33 },
 }
 
+-- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
+-- asm/unk_02062108.s and asm/unk_data_020FDB44.s: gesture lifetimes
+-- are the per-update state-machine counts including same-update chaining
+-- of setup/final steps via sub_02062400.
+local GESTURE_TIMINGS = {
+  { action = { action = "gesture", name = "warp_out" }, ticks = 20 },
+  { action = { action = "gesture", name = "warp_in" }, ticks = 20 },
+  { action = { action = "gesture", name = "nurse_bow" }, ticks = 10 },
+  { action = { action = "gesture", name = "give" }, ticks = 22 },
+  { action = { action = "gesture", name = "receive" }, ticks = 22 },
+}
+
 local function timingHarness()
   local services = FakeServices.new()
   services.audio = { play = function() end }
@@ -87,6 +99,13 @@ function T.tests.source_timing_matrix_matches_the_runtime_duration_owner()
   for _, case in ipairs(SOURCE_TIMINGS) do
     Assert.equal(MovementCalibration.actionTicks(case.action), case.ticks, "source timing for " .. case.action.action)
   end
+  for _, case in ipairs(GESTURE_TIMINGS) do
+    Assert.equal(
+      MovementCalibration.actionTicks(case.action),
+      case.ticks,
+      "source timing for gesture " .. case.action.name
+    )
+  end
 end
 
 function T.tests.jump_duration_rejects_an_unverified_distance_and_speed_pair()
@@ -107,6 +126,11 @@ function T.tests.movement_task_holds_each_source_boundary_until_its_final_tick()
       ticks = 16,
     },
     { name = "exclamation", action = { action = "emote", name = "exclamation" }, ticks = 33 },
+    { name = "warp_out", action = { action = "gesture", name = "warp_out" }, ticks = 20 },
+    { name = "warp_in", action = { action = "gesture", name = "warp_in" }, ticks = 20 },
+    { name = "nurse_bow", action = { action = "gesture", name = "nurse_bow" }, ticks = 10 },
+    { name = "give", action = { action = "gesture", name = "give" }, ticks = 22 },
+    { name = "receive", action = { action = "gesture", name = "receive" }, ticks = 22 },
   }
 
   for _, case in ipairs(cases) do
@@ -134,6 +158,14 @@ function T.tests.movement_task_holds_each_source_boundary_until_its_final_tick()
       end
     end
   end
+end
+
+function T.tests.gesture_duration_rejects_an_unknown_gesture_name()
+  local ok, err = pcall(function()
+    MovementCalibration.actionTicks({ action = "gesture", name = "unknown_gesture" })
+  end)
+  Assert.isFalse(ok, "an unknown gesture must fail")
+  Assert.isTrue(tostring(err):find("unknown gesture", 1, true) ~= nil, "failure identifies the unknown gesture")
 end
 
 return T
