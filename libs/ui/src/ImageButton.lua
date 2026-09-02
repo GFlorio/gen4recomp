@@ -69,7 +69,6 @@ function ImageButton.resolve(spec)
     borderWidth = 2 * scale,
     rimWidth = 2 * scale,
     innerBorderWidth = 1 * scale,
-    cornerCut = 2 * scale,
     cornerRadius = 3 * scale,
     faceSplit = 0.5,
     contentInsetX = 0,
@@ -86,7 +85,6 @@ function ImageButton.draw(graphics, button, spec)
   assert(type(graphics) == "table", "image button graphics is required")
   assert(type(graphics.setColor) == "function", "image button graphics setColor is required")
   assert(type(graphics.rectangle) == "function", "image button graphics rectangle is required")
-  assert(type(graphics.polygon) == "function", "image button graphics polygon is required")
   assert(type(button) == "table" and type(button.rect) == "table", "resolved image button is required")
   assert(type(button.contentRect) == "table", "image button content rectangle is missing")
   assert(type(spec) == "table", "image button spec is required")
@@ -96,7 +94,6 @@ function ImageButton.draw(graphics, button, spec)
   assert(type(spec.imageRect) == "table", "image button imageRect is required")
   assert(type(spec.drawImage) == "function", "image button drawImage is required")
 
-  -- Validate colors closed.
   for key in pairs(spec.colors) do
     assert(ALLOWED_COLOR_KEYS[key], "image button unknown color role: " .. tostring(key))
   end

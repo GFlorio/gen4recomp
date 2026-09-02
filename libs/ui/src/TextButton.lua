@@ -96,7 +96,6 @@ function TextButton.resolve(spec)
     borderWidth = 2 * scale,
     rimWidth = 1 * scale,
     innerBorderWidth = 1 * scale,
-    cornerCut = 2 * scale,
     cornerRadius = 3 * scale,
     faceSplit = 0.5,
     contentInsetX = 4 * scale,
@@ -144,7 +143,12 @@ function TextButton.draw(graphics, button, spec)
   assert(type(graphics) == "table", "text button graphics is required")
   assert(type(graphics.setColor) == "function", "text button graphics setColor is required")
   assert(type(graphics.rectangle) == "function", "text button graphics rectangle is required")
-  assert(type(graphics.polygon) == "function", "text button graphics polygon is required")
+  assert(type(graphics.getLineWidth) == "function", "text button graphics getLineWidth is required")
+  assert(type(graphics.setLineWidth) == "function", "text button graphics setLineWidth is required")
+  assert(type(graphics.push) == "function", "text button graphics push is required")
+  assert(type(graphics.pop) == "function", "text button graphics pop is required")
+  assert(type(graphics.translate) == "function", "text button graphics translate is required")
+  assert(type(graphics.scale) == "function", "text button graphics scale is required")
   assert(type(button) == "table" and type(button.rect) == "table", "resolved text button is required")
   assert(type(spec) == "table", "text button spec is required")
   assert(type(spec.label) == "string", "text button label is required")
@@ -160,6 +164,18 @@ function TextButton.draw(graphics, button, spec)
     assert(type(spec.colors) == "table", "text button colors must be a table")
   end
 
+  local scale = assert(button.scale, "text button scale is missing")
+  local content = button.contentRect
+  assert(type(content) == "table", "text button content rectangle is missing")
+
+  local labelWidth = spec.text.measure(spec.label)
+  assert(finite(labelWidth) and labelWidth >= 0, "text button label width must be a finite non-negative number")
+  local lineHeight = spec.text.lineHeight
+  local sourceContentWidth = content.width / scale
+  local sourceContentHeight = content.height / scale
+  assert(labelWidth <= sourceContentWidth + 1e-6, "text button label does not fit inside content rectangle")
+  assert(lineHeight <= sourceContentHeight + 1e-6, "text button label height does not fit inside content rectangle")
+
   local colors = mergeColors(spec.colors)
 
   local palette = {
@@ -170,72 +186,27 @@ function TextButton.draw(graphics, button, spec)
     faceBottom = colors.faceBottom,
   }
 
+  local savedLineWidth = graphics.getLineWidth()
+
   Button.draw(graphics, button, palette)
 
   if spec.selected then
-    -- Preserve graphics line width state? We set widths for focus; caller may rely on it.
-    -- Ensure focus drawing uses setLineWidth if available, else fallback.
-    if type(graphics.setLineWidth) == "function" and type(graphics.push) == "function" then
-      drawFocusOutline(graphics, button, colors)
-    elseif type(graphics.setLineWidth) == "function" then
-      drawFocusOutline(graphics, button, colors)
-    else
-      -- If no setLineWidth, still draw with default width.
-      drawFocusOutline(graphics, button, colors)
-    end
+    drawFocusOutline(graphics, button, colors)
   end
 
-  local labelWidth = spec.text.measure(spec.label)
-  assert(finite(labelWidth) and labelWidth >= 0, "text button label width must be a finite non-negative number")
-  local lineHeight = spec.text.lineHeight
-  local content = button.contentRect
-  assert(type(content) == "table", "text button content rectangle is missing")
+  graphics.push()
+  graphics.translate(content.x, content.y)
+  graphics.scale(scale, scale)
 
-  -- Spec requires failure when label cannot fit.
-  assert(labelWidth <= content.width + 1e-6, "text button label does not fit inside content rectangle")
-  assert(lineHeight <= content.height + 1e-6, "text button label height does not fit inside content rectangle")
-
-  local scale = assert(button.scale, "text button scale is missing")
-  -- Text adapter works in source space. Apply button-local translate + scale.
-  local localContentX = (content.x - button.rect.x) / scale
-  local localContentY = (content.y - button.rect.y) / scale
-  local localContentWidth = content.width / scale
-  local localContentHeight = content.height / scale
-
-  local textXSource = localContentX + (localContentWidth - labelWidth) / 2
-  local textYSource = localContentY + (localContentHeight - lineHeight) / 2
-
-  local pushed = false
-  if
-    type(graphics.push) == "function"
-    and type(graphics.pop) == "function"
-    and type(graphics.translate) == "function"
-    and type(graphics.scale) == "function"
-  then
-    graphics.push()
-    pushed = true
-    graphics.translate(button.rect.x, button.rect.y)
-    graphics.scale(scale, scale)
-  elseif
-    type(graphics.push) == "function"
-    and type(graphics.pop) == "function"
-    and type(graphics.scale) == "function"
-  then
-    graphics.push()
-    pushed = true
-    graphics.scale(scale, scale)
-    -- Adjust coordinates to absolute source when translate unavailable.
-    textXSource = content.x / scale + (content.width / scale - labelWidth) / 2
-    textYSource = content.y / scale + (content.height / scale - lineHeight) / 2
-  end
+  local textXSource = (sourceContentWidth - labelWidth) / 2
+  local textYSource = (sourceContentHeight - lineHeight) / 2
 
   local ok, err = pcall(function()
     spec.text.draw(spec.label, textXSource, textYSource)
   end)
 
-  if pushed and type(graphics.pop) == "function" then
-    graphics.pop()
-  end
+  graphics.pop()
+  graphics.setLineWidth(savedLineWidth)
 
   if not ok then
     error(err, 0)
