@@ -107,6 +107,21 @@ local function writeActorVisualWithGestures(c, spriteId, gestures, frameCount)
   c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
 end
 
+local function writeStaticModelVisual(c, spriteId, gestures, frameCount)
+  c:writeLua(FieldActorCache.visualPath(spriteId), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = spriteId,
+    render = { kind = "staticModel", image = FieldActorCache.atlasPath(spriteId), frameCount = frameCount or 1 },
+    idlePresentation = {
+      mode = "static",
+      cadence = 0,
+    },
+    directions = validDirections(),
+    gestures = gestures or {},
+  })
+  c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
+end
+
 function T.actor_index_missing_sprite_ids_is_not_ready()
   local c = cache()
   c:writeLua(FieldActorCache.indexPath(), { schema = FieldActorCache.INDEX_SCHEMA })
@@ -588,8 +603,19 @@ end
 function T.actor_visual_with_static_model_gestures_empty_is_ready()
   local c = cache()
   writeActorIndex(c, { 0 })
-  writeActorVisual(c, 0)
+  writeStaticModelVisual(c, 0, {})
   Assert.isTrue(FieldActorCache.isReady(c, "m"), "static-like visual with empty gestures must be ready")
+  Assert.isTrue(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
+end
+
+function T.actor_visual_with_static_model_gesture_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeStaticModelVisual(c, 0, {
+    give = { pose = validGesturePose(1), displayOffset = { x = 0, y = 0, z = 1 / 32 } },
+  })
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "non-empty static gesture must fail")
+  Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
 end
 
 -- Field-message index and banks

@@ -159,6 +159,9 @@ function FieldActorCache.isValidVisual(visual, spriteId)
   if type(visual.gestures) ~= "table" then
     return false
   end
+  if render.kind == "staticModel" and next(visual.gestures) ~= nil then
+    return false
+  end
   for name, record in pairs(visual.gestures) do
     if not VALID_GESTURES[name] then
       return false
