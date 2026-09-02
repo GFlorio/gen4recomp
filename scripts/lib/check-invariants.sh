@@ -76,12 +76,67 @@ check_terminal_output_file() {
   fi
 }
 
+is_first_party_lua() {
+  local path="$1"
+  if [[ "$path" =~ ^app/.*\.lua$ ]]; then
+    return 0
+  fi
+  if [[ "$path" =~ ^game/.*\.lua$ ]]; then
+    return 0
+  fi
+  if [[ "$path" =~ ^gen4/.*\.lua$ ]]; then
+    return 0
+  fi
+  if [[ "$path" =~ ^libs/.*\.lua$ ]]; then
+    return 0
+  fi
+  if [[ "$path" =~ ^romdump/.*\.lua$ ]]; then
+    return 0
+  fi
+  if [[ "$path" =~ ^scripts/.*\.lua$ ]]; then
+    return 0
+  fi
+  if [[ "$path" =~ ^tests/.*\.lua$ ]]; then
+    return 0
+  fi
+  return 1
+}
+
+check_header_diagnostic_disable_file() {
+  local path="$1"
+  local line
+  local is_first=1
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$is_first" -eq 1 ] && [[ "$line" =~ ^#! ]]; then
+      is_first=0
+      continue
+    fi
+    is_first=0
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*---@diagnostic[[:space:]]+disable: ]]; then
+      violation "$path uses a header-wide LuaLS diagnostic disable; use source typing or a narrow line directive"
+      return 0
+    fi
+    if [[ "$line" =~ ^[[:space:]]*-- ]]; then
+      continue
+    fi
+    break
+  done < "$path"
+  return 1
+}
+
 check_tracked_scope() {
   local tracked
   tracked="$(git ls-files 2>/dev/null)" || return 0
   [ -n "$tracked" ] || return 0
   local line
   while IFS= read -r line; do
+    if [[ "$line" =~ \.lua$ ]] && is_first_party_lua "$line"; then
+      [ -r "$line" ] || continue
+      check_header_diagnostic_disable_file "$line" || true
+    fi
     if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]] || [[ "$line" =~ ^romdump/src/.*\.lua$ ]]; then
       # A tracked file deleted from the working tree (a pending deletion)
       # has no source content to scan.
@@ -105,6 +160,9 @@ if [ "$#" -gt 0 ]; then
     check_terminal_output_file "$path"
     if check_assigned_or_returned_anonymous_function_file "$path"; then
       violation "$path uses an assigned or directly returned anonymous function form; name the function"
+    fi
+    if [[ "$path" =~ \.lua$ ]]; then
+      check_header_diagnostic_disable_file "$path" || true
     fi
   done
 else

@@ -8,6 +8,7 @@
 -- manifest changes the marker and the staged writer rebuilds the class. Paths
 -- are cache-relative; all IO goes through a CacheFs.
 
+---@class FieldActorCache
 local FieldActorCache = {}
 
 ---@class FieldActorCache.Index

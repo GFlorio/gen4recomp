@@ -13,7 +13,7 @@ local FieldGrid = require("libs.hgss.src.field.FieldGrid")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 local FieldTraversal = require("libs.hgss.src.field.FieldTraversal")
 
----@class FieldPlayer
+---@class FieldPlayer : FieldPlayerVisual.Source
 ---@field currentMap RuntimeFieldMap
 ---@field resolver SurfaceResolver
 ---@field occupancy fun(candidate: FieldOccupancyCandidate): string|nil

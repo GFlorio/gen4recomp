@@ -1423,6 +1423,7 @@ function T.actor_visual_with_malformed_geometry_is_not_ready()
       gestures = {},
     }
     local geom = isAtlas and visual.render.geometry or visual.render.parts[1].geometry
+    ---@diagnostic disable-next-line: redundant-parameter
     mutator(geom, visual)
     c:writeLua(FieldActorCache.visualPath(0), visual)
     c:write(FieldActorCache.atlasPath(0), "atlas-bytes")

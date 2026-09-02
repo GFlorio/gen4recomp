@@ -2267,7 +2267,11 @@ function T.reconcile_preserves_manager_slot_winner_after_flag_recreation()
   local entry = assert(mgr.maps[61])
   Assert.equal(entry.order[1].actorId, actorB.actorId)
   mgr:reconcilePhysicalWorld()
-  Assert.equal(mgr:getAt(61, keyB).actorId, actorA.actorId, "reconcile must preserve manager-slot winner despite dense order mismatch")
+  Assert.equal(
+    mgr:getAt(61, keyB).actorId,
+    actorA.actorId,
+    "reconcile must preserve manager-slot winner despite dense order mismatch"
+  )
   Assert.equal(mgr:getCollisionAt(61, keyB).actorId, actorA.actorId)
   mgr:setPosition(actorA.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
   eventState:setFlag(401)
@@ -2311,8 +2315,11 @@ function T.save_restore_compacts_holes_but_preserves_active_lookup_order()
   local captured = mgr:captureObjects()
   local validated, validationErr = FieldObjectSave.validate(captured)
   Assert.notNil(validated, tostring(validationErr))
+  ---@diagnostic disable-next-line: need-check-nil
   Assert.equal(validated.actors["map:61:object:0"].managerOrder, 0)
+  ---@diagnostic disable-next-line: need-check-nil
   Assert.equal(validated.actors["map:61:object:2"].managerOrder, 1)
+  ---@diagnostic disable-next-line: need-check-nil
   Assert.isNil(validated.actors["map:61:object:1"])
   Assert.isNil(captured.actors["map:61:object:0"].managerSlots)
   local restoredEventState = FieldEventState.new({ flags = { [401] = true } })
@@ -2333,7 +2340,11 @@ function T.save_restore_compacts_holes_but_preserves_active_lookup_order()
     keyC.cellKey = actorB.cellKey
     keyC.sourceSurfaceId = actorB.sourceSurfaceId
   end
-  Assert.equal(restoredMgr:getAt(61, keyC).actorId, actorC.actorId, "C must win after restore compaction gives B the highest slot")
+  Assert.equal(
+    restoredMgr:getAt(61, keyC).actorId,
+    actorC.actorId,
+    "C must win after restore compaction gives B the highest slot"
+  )
   Assert.equal(restoredMgr:getCollisionAt(61, keyC).actorId, actorC.actorId)
   mgr:dispose()
   restoredMgr:dispose()

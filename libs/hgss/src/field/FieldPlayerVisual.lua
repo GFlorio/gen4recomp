@@ -17,9 +17,20 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 
+---@class FieldPlayerVisual.Source
+---@field facing string
+---@field animationPaused boolean
+---@field presentationState fun(self: any): { locomotionActive: boolean, gesturePose: string?, gestureTick: integer?, gestureOffsetY: number }
+---@field clearGesturePresentation fun(self: any)
+---@field renderPosition fun(self: any, alpha: number?): { x: number, y: number, z: number }
+
+---@class FieldPlayerVisual.Options
+---@field player FieldPlayer|FieldPlayerVisual.Source
+---@field spriteId integer?
+
 ---@class FieldPlayerVisual
 ---@field actorId string
----@field player FieldPlayer
+---@field player FieldPlayerVisual.Source
 ---@field spriteId integer?
 ---@field pose string
 ---@field poseTick integer
@@ -29,6 +40,8 @@ FieldPlayerVisual.__index = FieldPlayerVisual
 
 FieldPlayerVisual.ACTOR_ID = "field:player"
 
+---@param opts FieldPlayerVisual.Options
+---@return FieldPlayerVisual
 function FieldPlayerVisual.new(opts)
   assert(type(opts) == "table" and opts.player, "FieldPlayerVisual requires a FieldPlayer")
   assert(

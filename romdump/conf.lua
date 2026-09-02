@@ -1,8 +1,8 @@
----@diagnostic disable: duplicate-set-field
 -- LÖVE configuration for the romdump CLI. It is always windowless and runs
 -- without GPU/audio: every command is headless, prints machine-readable output,
 -- and exits with a status code.
 
+---@diagnostic disable-next-line: duplicate-set-field
 function love.conf(t)
   t.identity = "g4recomp"
   t.version = "11.5"

@@ -157,12 +157,16 @@ function T.malformed_manager_order_is_rejected()
   }
   valid, err = FieldObjectSave.validate(perMapZero)
   Assert.notNil(valid, tostring(err))
+  ---@diagnostic disable-next-line: need-check-nil
   Assert.equal(valid.actors["map:60:object:7"].managerOrder, 0)
+  ---@diagnostic disable-next-line: need-check-nil
   Assert.equal(valid.actors["map:61:object:7"].managerOrder, 0)
 
   local validRecord = record()
   valid, err = FieldObjectSave.validate(validRecord)
+  ---@diagnostic disable-next-line: need-check-nil
   Assert.notNil(valid, tostring(err))
+  ---@diagnostic disable-next-line: need-check-nil
   Assert.equal(valid.actors["map:60:object:7"].managerOrder, 0)
 end
 

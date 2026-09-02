@@ -1,4 +1,3 @@
----@diagnostic disable: undefined-field
 -- Turns presentation-neutral actor draw records into FieldRenderer draw items.
 --
 -- Ordinary actor visuals are native-resolution opaque/cutout presentation
@@ -31,44 +30,10 @@ local FieldActorDraw = {}
 ---@field visible boolean?
 
 ---@class FieldActorDraw.Entry
----@field visual FieldActorDraw.Visual
+---@field visual FieldActorCache.Visual
 ---@field meshes table?
 ---@field image table?
 ---@field billboardScales table?
-
----@class FieldActorDraw.Visual
----@field render FieldActorDraw.Render
----@field gestures table<string, { pose: table, displayOffset: { x: number, y: number, z: number } }>?
-
----@class FieldActorDraw.Render
----@field kind string
----@field parts FieldActorDraw.Part[]?
----@field geometry FieldActorDraw.Geometry?
----@field polygon FieldActorDraw.Polygon?
----@field alphaClass string
----@field textured boolean?
-
----@class FieldActorDraw.Part
----@field geometry FieldActorDraw.Geometry
----@field polygon FieldActorDraw.Polygon
----@field alphaClass string
----@field textured boolean?
-
----@class FieldActorDraw.Geometry
----@field anchorTiles { x: number, y: number, z: number }
----@field baseTransform number[]
----@field center number[]?
----@field bounds { height: number }
-
----@class FieldActorDraw.Polygon
----@field cullMode string
----@field polygonAlpha number
----@field polygonMode string
----@field lightMask integer
----@field polygonId integer
----@field translucentDepthWrite boolean
----@field depthEqual boolean
----@field fogEnabled boolean
 
 -- Draw items carry no submission numbers: queue traversal orders every part
 -- and draw in source order, positionally.
@@ -137,20 +102,25 @@ local function writeItem(record, entry, partIndex, item)
   assert(type(entry) == "table" and type(entry.visual) == "table", "a draw record needs its visual asset")
   local visual = entry.visual
   local render = visual.render
-  local part = render.kind == "staticModel" and assert(render.parts[partIndex or 1]) or render
+  ---@type FieldActorCache.StaticPart|FieldActorCache.AtlasRender
+  local part
+  if render.kind == "staticModel" then
+    ---@cast render FieldActorCache.StaticRender
+    part = assert(render.parts[partIndex or 1])
+  else
+    ---@cast render FieldActorCache.AtlasRender
+    part = render
+  end
   local geometry = assert(part.geometry, "draw visual part is missing geometry")
   local frameIndex, poseFellBack
   local gestureOffsetX, gestureOffsetY, gestureOffsetZ = 0, 0, 0
   if record.gesturePose ~= nil then
     frameIndex = FieldActorPose.gestureFrameIndex(visual, record.gesturePose, record.gestureTick or 0)
     poseFellBack = false
-    local gestures = visual.gestures
-    local gesture = gestures and gestures[record.gesturePose]
-    if gesture and gesture.displayOffset then
-      gestureOffsetX = gesture.displayOffset.x or 0
-      gestureOffsetY = gesture.displayOffset.y or 0
-      gestureOffsetZ = gesture.displayOffset.z or 0
-    end
+    local gesture = assert(visual.gestures[record.gesturePose], "unknown gesture " .. tostring(record.gesturePose))
+    gestureOffsetX = gesture.displayOffset.x
+    gestureOffsetY = gesture.displayOffset.y
+    gestureOffsetZ = gesture.displayOffset.z
   else
     frameIndex, poseFellBack =
       FieldActorPose.frameIndex(visual, record.facing, record.pose or "idle", record.poseTick or 0)
@@ -162,6 +132,8 @@ local function writeItem(record, entry, partIndex, item)
   local z = record.world.z + gestureOffsetZ + anchor.z
   local isBillboard = render.kind ~= "staticModel"
   if isBillboard then
+    ---@cast part FieldActorCache.AtlasRender
+    ---@cast geometry FieldActorCache.AtlasGeometry
     local billboardBase = writeBillboardBase(item, x, y, z, geometry.baseTransform)
     local billboardCenter = item.billboardCenter or {}
     billboardCenter[1] = billboardBase[13]
@@ -191,8 +163,11 @@ local function writeItem(record, entry, partIndex, item)
     )
   end
   local image = entry.image
-  if part.textured == false then
-    image = nil
+  if not isBillboard then
+    ---@cast part FieldActorCache.StaticPart
+    if part.textured == false then
+      image = nil
+    end
   end
   local material = item.material or {}
   material.image = image
@@ -261,7 +236,14 @@ function FieldActorDraw.itemsInto(records, assetFor, storage)
         )
       end
       local render = entry.visual.render
-      local partCount = render.kind == "staticModel" and #render.parts or 1
+      local partCount
+      if render.kind == "staticModel" then
+        ---@cast render FieldActorCache.StaticRender
+        partCount = #render.parts
+      else
+        ---@cast render FieldActorCache.AtlasRender
+        partCount = 1
+      end
       local actorSlots = storage.actorSlots[record.actorId]
       if not actorSlots then
         actorSlots = {}
@@ -269,7 +251,15 @@ function FieldActorDraw.itemsInto(records, assetFor, storage)
       end
       actorSlots.generation = generation
       for partIndex = 1, partCount do
-        local part = render.kind == "staticModel" and render.parts[partIndex] or render
+        ---@type FieldActorCache.StaticPart|FieldActorCache.AtlasRender
+        local part
+        if render.kind == "staticModel" then
+          ---@cast render FieldActorCache.StaticRender
+          part = assert(render.parts[partIndex])
+        else
+          ---@cast render FieldActorCache.AtlasRender
+          part = render
+        end
         local slot = actorSlots[partIndex]
         if not slot or slot.entry ~= entry or slot.part ~= part then
           slot = { entry = entry, part = part, item = {} }

@@ -364,7 +364,10 @@ local function assignManagerSlot(entry, actor, requestedSlot)
   assert(entry.managerSlotByActorId[actor.actorId] == nil, "actor already has a manager slot")
   local slot
   if requestedSlot ~= nil then
-    assert(type(requestedSlot) == "number" and requestedSlot % 1 == 0 and requestedSlot >= 0, "requested manager slot is invalid")
+    assert(
+      type(requestedSlot) == "number" and requestedSlot % 1 == 0 and requestedSlot >= 0,
+      "requested manager slot is invalid"
+    )
     assert(entry.managerSlots[requestedSlot] == nil, "requested manager slot is occupied")
     slot = requestedSlot
   else
@@ -1669,6 +1672,7 @@ function FieldActorManager:drawRecords()
       -- worldX/worldY/worldZ (read by terrain, collision, and save) never
       -- carry it.
       local offset = actor.presentationOffset
+      ---@diagnostic disable-next-line: invisible
       local gestureOffsetY = actor._gestureOffsetY or 0
       record.actorId = actor.actorId
       record.spriteId = actor.spriteId
@@ -1678,7 +1682,9 @@ function FieldActorManager:drawRecords()
       record.facing = actor.facing
       record.pose = actor.pose
       record.poseTick = actor.poseTick
+      ---@diagnostic disable-next-line: invisible
       record.gesturePose = actor._gesturePose
+      ---@diagnostic disable-next-line: invisible
       record.gestureTick = actor._gestureTick
       record.activeEmoteKind = actor.activeEmoteKind
       record.visible = actor.visible

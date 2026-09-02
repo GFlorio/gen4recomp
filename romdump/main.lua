@@ -1,4 +1,3 @@
----@diagnostic disable: duplicate-set-field
 -- ROM dump CLI entry point. This app is its own LÖVE root (`love romdump/`);
 -- the repo root (the source base directory) is added to package.path first so
 -- `require` resolves libs by their full repo-relative path (romdump.src.*,
@@ -14,6 +13,7 @@ package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
 local Cli = require("romdump.src.cli.Cli")
 local Runner = require("romdump.src.cli.Runner")
 
+---@diagnostic disable-next-line: duplicate-set-field
 function love.load(argv)
   local ok, parsed = pcall(Cli.parse, argv)
   if not ok then
@@ -27,6 +27,7 @@ function love.load(argv)
   Runner.load(parsed)
 end
 
+---@diagnostic disable-next-line: duplicate-set-field
 function love.update()
   Runner.update()
 end

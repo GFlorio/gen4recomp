@@ -1,4 +1,3 @@
----@diagnostic disable: undefined-field, unused-local
 -- The player visual adapter must read FieldPlayer and never write it: pose from
 -- motion, facing from the player, interpolated world position from the shared
 -- render position, and a deterministic clock that only advances mid-step.
@@ -10,6 +9,18 @@ local FieldActorPose = require("libs.hgss.src.presentation.FieldActorPose")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+
+---@class TestPlayerStub : FieldPlayerVisual.Source
+---@field motion string
+---@field worldX number
+---@field worldY number
+---@field worldZ number
+---@field previousWorldX number
+---@field previousWorldY number
+---@field previousWorldZ number
+---@field _gesturePose string?
+---@field _gestureTick integer?
+---@field _gestureOffsetY number
 
 local T = {}
 
@@ -57,7 +68,10 @@ local function runtimeMap()
 end
 
 -- A FieldPlayer-shaped stub: the adapter must depend only on this surface.
+---@return TestPlayerStub
 local function player()
+  ---@type TestPlayerStub
+  ---@diagnostic disable-next-line: missing-fields
   local stub = {
     facing = "south",
     motion = "idle",
@@ -72,6 +86,7 @@ local function player()
     _gestureTick = nil,
     _gestureOffsetY = 0,
     renderPosition = function(self, alpha)
+      ---@cast self TestPlayerStub
       alpha = alpha == nil and 1 or alpha
       return {
         x = self.previousWorldX + (self.worldX - self.previousWorldX) * alpha,
@@ -80,6 +95,7 @@ local function player()
       }
     end,
     clearGesturePresentation = function(self)
+      ---@cast self TestPlayerStub
       self._gesturePose = nil
       self._gestureTick = nil
       self._gestureOffsetY = 0
@@ -110,6 +126,8 @@ local function walkTick(subject, presentation, direction)
   presentation:updateFixed(walkPoseAtTickStart)
 end
 
+---@param subject FieldPlayer|FieldPlayerVisual.Source
+---@return FieldPlayerVisual
 local function visual(subject)
   return FieldPlayerVisual.new({
     player = subject,
@@ -484,29 +502,33 @@ function T.presentation_snapshot_distinguishes_locomotion_from_stationary_script
 end
 
 function T.visual_requires_presentation_state_and_clear_collaborator()
+  ---@diagnostic disable-next-line: missing-fields
   local incomplete = {
     facing = "south",
     motion = "idle",
-    renderPosition = function(self, alpha)
+    renderPosition = function(_, alpha)
       alpha = alpha == nil and 1 or alpha
       return { x = 0, y = 0, z = 0 }
     end,
   }
   Assert.throws(function()
+    ---@diagnostic disable-next-line: assign-type-mismatch
     FieldPlayerVisual.new({ player = incomplete, spriteId = 0 })
   end)
+  ---@diagnostic disable-next-line: missing-fields
   local missingClear = {
     facing = "south",
     motion = "idle",
-    renderPosition = function(self, alpha)
+    renderPosition = function(_, alpha)
       alpha = alpha == nil and 1 or alpha
       return { x = 0, y = 0, z = 0 }
     end,
-    presentationState = function(self)
+    presentationState = function(_)
       return { locomotionActive = false, gesturePose = nil, gestureTick = nil, gestureOffsetY = 0 }
     end,
   }
   Assert.throws(function()
+    ---@diagnostic disable-next-line: assign-type-mismatch
     FieldPlayerVisual.new({ player = missingClear, spriteId = 0 })
   end)
   local complete = player()

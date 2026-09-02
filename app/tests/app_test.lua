@@ -6,8 +6,6 @@
 -- import session through the import state and never invoke an importer left
 -- over from a previous session.
 
----@diagnostic disable: duplicate-set-field -- seams below are stubbed per test and restored by the harness
-
 local Assert = require("tests.support.Assert")
 local RomImporter = require("romdump.src.source.RomImporter")
 local HgssGame = require("game.hgss.src.HgssGame")
@@ -78,6 +76,7 @@ local function withAppHarness(opts, ready, fn)
     quitCodes = {},
   }
   local unownedOption = {}
+  ---@diagnostic disable-next-line: duplicate-set-field
   App.opts = setmetatable(opts or { dev = false }, {
     __index = function(_, key)
       if key == "dev" then
@@ -86,26 +85,37 @@ local function withAppHarness(opts, ready, fn)
       return unownedOption
     end,
   })
+  ---@diagnostic disable-next-line: duplicate-set-field
   RomImporter.isReady = ready
+  ---@diagnostic disable-next-line: duplicate-set-field
   HgssGame.new = function(options)
     result.launches[#result.launches + 1] = options
     return result.state
   end
+  ---@diagnostic disable-next-line: duplicate-set-field
   graphics.print = function()
     result.prints = result.prints + 1
   end
+  ---@diagnostic disable-next-line: duplicate-set-field
   graphics.getDimensions = function()
     return 800, 600
   end
+  ---@diagnostic disable-next-line: duplicate-set-field
   love.event.quit = function(code)
     result.quitCodes[#result.quitCodes + 1] = code
   end
   local ok, err = pcall(fn, result)
+  ---@diagnostic disable-next-line: duplicate-set-field
   App.opts = originalOpts
+  ---@diagnostic disable-next-line: duplicate-set-field
   RomImporter.isReady = originalIsReady
+  ---@diagnostic disable-next-line: duplicate-set-field
   HgssGame.new = originalNew
+  ---@diagnostic disable-next-line: duplicate-set-field
   graphics.print = originalPrint
+  ---@diagnostic disable-next-line: duplicate-set-field
   graphics.getDimensions = originalGetDimensions
+  ---@diagnostic disable-next-line: duplicate-set-field
   love.event.quit = originalQuit
   if not ok then
     error(err, 0)

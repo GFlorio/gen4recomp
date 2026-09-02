@@ -2,8 +2,6 @@
 -- records the arguments crossing from its callbacks into the real App module;
 -- it does not reconstruct FieldState or provide a second input dispatcher.
 
----@diagnostic disable: duplicate-set-field -- the test restores these intentional App seams
-
 local Assert = require("tests.support.Assert")
 local App
 
@@ -45,14 +43,17 @@ local function withEntrypoint(fn)
     -- The entrypoint's real load path must require App before callbacks can
     -- reach it. Suppressing only App.load keeps this probe before booting a
     -- second field session; the App callback boundary remains production code.
+    ---@diagnostic disable-next-line: duplicate-set-field
     App.load = function() end
     local entrypoint = assert(loadfile(love.filesystem.getSourceBaseDirectory() .. "/app/main.lua"))
     entrypoint()
     love.load({})
+    ---@diagnostic disable-next-line: duplicate-set-field
     App.load = savedAppLoad
 
     local calls = {}
     for _, name in ipairs(CALLBACKS) do
+      ---@diagnostic disable-next-line: duplicate-set-field
       App[name] = function(...)
         calls[name] = { ... }
       end
@@ -60,11 +61,14 @@ local function withEntrypoint(fn)
     fn(calls)
   end, debug.traceback)
 
+  ---@diagnostic disable-next-line: duplicate-set-field
   App.load = savedAppLoad
   for _, name in ipairs(CALLBACKS) do
+    ---@diagnostic disable-next-line: duplicate-set-field
     App[name] = savedAppCallbacks[name]
   end
   for _, name in ipairs({ "load", unpack(CALLBACKS) }) do
+    ---@diagnostic disable-next-line: duplicate-set-field
     love[name] = savedLoveCallbacks[name]
   end
   if not ok then

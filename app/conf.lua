@@ -1,4 +1,3 @@
----@diagnostic disable: duplicate-set-field
 -- LÖVE configuration for the game app. The test command (--test) gets a real
 -- but offscreen graphics context: the explicit graphics layer compiles shaders
 -- and allocates canvases, meshes, and images for real, so a windowless run would
@@ -22,6 +21,7 @@ local function isTest()
   return false
 end
 
+---@diagnostic disable-next-line: duplicate-set-field
 function love.conf(t)
   t.identity = "g4recomp"
   t.version = "11.5"
