@@ -33,16 +33,16 @@ local function manifestWithWidth(sourceWidth)
       marill = widget(40, 30, { x = 20, y = 30 }, { x = 140, y = 50, width = 40, height = 30 }),
       gender_male = widget(40, 60, { x = 20, y = 30 }, { x = 0, y = 0, width = 40, height = 60 }),
       gender_female = widget(40, 60, { x = 20, y = 30 }, { x = 0, y = 0, width = 40, height = 60 }),
-      confirmation_yes = widget(115, 57, { x = 0, y = 0 }, { x = 138, y = 26, width = 115, height = 57 }),
-      confirmation_no = widget(115, 56, { x = 0, y = 0 }, { x = 138, y = 108, width = 115, height = 56 }),
+      confirmation_yes = widget(120, 56, { x = 0, y = 0 }, { x = 0, y = 0, width = 120, height = 56 }),
+      confirmation_no = widget(120, 56, { x = 0, y = 0 }, { x = 0, y = 0, width = 120, height = 56 }),
     },
   }
   data.widgets.ball_open.sourceCenter = { x = 160, y = 80 }
   data.widgets.marill.sourceCenter = { x = 160, y = 80 }
   data.widgets.gender_male.sourceCenter = { x = 64, y = 104 }
   data.widgets.gender_female.sourceCenter = { x = 192, y = 104 }
-  data.widgets.confirmation_yes.contentRect = { x = 6, y = 22, width = 104, height = 24 }
-  data.widgets.confirmation_no.contentRect = { x = 6, y = 20, width = 104, height = 24 }
+  data.widgets.confirmation_yes.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  data.widgets.confirmation_no.contentRect = { x = 8, y = 16, width = 104, height = 24 }
   data.genderSelector = {
     defaultTone = { r = 100, g = 101, b = 102 },
     buttons = {

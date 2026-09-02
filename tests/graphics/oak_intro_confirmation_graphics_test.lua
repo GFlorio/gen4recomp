@@ -100,7 +100,10 @@ function T.source_backing_window_fill_font4_and_selected_focus_are_visible(scope
     local selectedNo = render(scope, renderer, confirmationView("gender", 1), entry.manifest)
     local yes =
       OakIntroLayout.compute(800, 600, confirmationView("gender", 0), {}, entry.manifest).confirmationButtons[0]
+    local no =
+      OakIntroLayout.compute(800, 600, confirmationView("gender", 0), {}, entry.manifest).confirmationButtons[1]
     local content = assert(entry.manifest.widgets.confirmation_yes.contentRect)
+    Assert.deepEqual(content, { x = 8, y = 16, width = 104, height = 24 }, "content window must be corrected 8/16")
     local fillX = math.floor(yes.rect.x + (content.x + 1) * yes.scale)
     local fillY = math.floor(yes.rect.y + (content.y + 1) * yes.scale)
     local actualR, actualG, actualB = selectedYes:getPixel(fillX, fillY)
@@ -109,6 +112,68 @@ function T.source_backing_window_fill_font4_and_selected_focus_are_visible(scope
     Assert.near(actualG, expectedG, 1 / 255)
     Assert.near(actualB, expectedB, 1 / 255)
 
+    local function hasFocusColors(image, rect)
+      local hasWhite, hasRed = false, false
+      local w, h = image:getWidth(), image:getHeight()
+      for y = math.floor(rect.y), math.ceil(rect.y + rect.height) - 1 do
+        for x = math.floor(rect.x), math.ceil(rect.x + rect.width) - 1 do
+          if x < 0 or x >= w or y < 0 or y >= h then
+            goto continue
+          end
+          local r, g, b = image:getPixel(x, y)
+          if r == nil then
+            goto continue
+          end
+          local qr, qg, qb = math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)
+          if qr == 255 and qg == 255 and qb == 255 then
+            hasWhite = true
+          elseif qr == 255 and qg == 0 and qb == 0 then
+            hasRed = true
+          end
+          if hasWhite and hasRed then
+            return true, true
+          end
+          ::continue::
+        end
+      end
+      return hasWhite, hasRed
+    end
+    local yesWhite, yesRed = hasFocusColors(selectedYes, yes.rect)
+    local noWhite, noRed = hasFocusColors(selectedNo, no.rect)
+    Assert.isTrue(
+      yesWhite and yesRed,
+      entry.versionId .. " selected YES focus must contain both white #FFFFFF and red #FF0000"
+    )
+    Assert.isTrue(noWhite and noRed, entry.versionId .. " selected NO focus must contain both colors when selected")
+    local yesHasWhiteUnselected, yesHasRedUnselected = hasFocusColors(selectedNo, yes.rect)
+    Assert.isFalse(
+      yesHasWhiteUnselected and yesHasRedUnselected,
+      entry.versionId .. " unselected YES must not have focus colors"
+    )
+    -- Content window must remain readable (focus must not cover label area)
+    local contentCenterX = math.floor(yes.rect.x + (content.x + content.width / 2) * yes.scale)
+    local contentCenterY = math.floor(yes.rect.y + (content.y + content.height / 2) * yes.scale)
+    local cr, cg, cb = selectedYes:getPixel(contentCenterX, contentCenterY)
+    local qr, qg, qb = math.floor(cr * 255 + 0.5), math.floor(cg * 255 + 0.5), math.floor(cb * 255 + 0.5)
+    Assert.isTrue(not (qr == 255 and qg == 0 and qb == 0), "focus must not cover label content")
+    -- Also verify at least one background pixel remains visible near content edge
+    local edgeX = math.floor(yes.rect.x + (content.x + 2) * yes.scale)
+    local edgeY = math.floor(yes.rect.y + (content.y + 2) * yes.scale)
+    local er, eg, eb = selectedYes:getPixel(edgeX, edgeY)
+    Assert.near(er, expectedR, 1 / 255, "content window background must remain visible")
+    Assert.near(eg, expectedG, 1 / 255)
+    Assert.near(eb, expectedB, 1 / 255)
+    -- Backing right/bottom chrome must remain visible (uncut)
+    for _, chosen in ipairs({ yes, no }) do
+      local backingX = math.floor(chosen.rect.x + (chosen.rect.width - 4) * 0.9)
+      local backingY = math.floor(chosen.rect.y + chosen.rect.height - 4 * chosen.scale)
+      local br, bg, bb = (chosen == yes and selectedYes or selectedNo):getPixel(backingX, backingY)
+      local fr, fg, fb = (chosen == yes and selectedYes or selectedNo):getPixel(fillX, fillY)
+      Assert.isTrue(
+        math.abs(br - fr) > 1 / 255 or math.abs(bg - fg) > 1 / 255 or math.abs(bb - fb) > 1 / 255,
+        entry.versionId .. " backing lower/right chrome must remain visible (uncut crop)"
+      )
+    end
     local focusChanged = false
     for y = math.floor(yes.rect.y), math.ceil(yes.rect.y + yes.rect.height) - 1 do
       for x = math.floor(yes.rect.x), math.ceil(yes.rect.x + yes.rect.width) - 1 do
@@ -136,6 +201,7 @@ function T.name_confirmation_uses_common_side_by_side_backings(scope)
     Assert.equal(yes.scale, no.scale)
     Assert.equal(font4.fontDef.fontId, 4)
     local content = assert(entry.manifest.widgets.confirmation_yes.contentRect)
+    Assert.deepEqual(content, { x = 8, y = 16, width = 104, height = 24 })
     local backingX = math.floor(yes.rect.x + 2 * yes.scale)
     local backingY = math.floor(yes.rect.y + 2 * yes.scale)
     local contentX = math.floor(yes.rect.x + (content.x + 1) * yes.scale)
@@ -148,6 +214,16 @@ function T.name_confirmation_uses_common_side_by_side_backings(scope)
         or math.abs(backingB - contentB) > 1 / 255,
       entry.versionId .. " confirmation backing must remain visible outside its content window"
     )
+    -- Right/bottom chrome must be visible for both
+    for _, button in ipairs({ yes, no }) do
+      local rx = math.floor(button.rect.x + button.rect.width - 3 * button.scale)
+      local ry = math.floor(button.rect.y + button.rect.height - 3 * button.scale)
+      local r, g, b = image:getPixel(rx, ry)
+      Assert.isTrue(
+        math.abs(r - contentR) > 1 / 255 or math.abs(g - contentG) > 1 / 255 or math.abs(b - contentB) > 1 / 255,
+        entry.versionId .. " side-by-side backing right/bottom chrome must be present"
+      )
+    end
   end
 end
 

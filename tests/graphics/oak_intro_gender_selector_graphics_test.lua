@@ -103,44 +103,99 @@ local function quantize(value)
   return math.floor(value * 255 + 0.5)
 end
 
-function T.card_interiors_preserve_background_while_frames_and_portraits_remain_visible(scope)
-  for _, entry in ipairs(readyManifests()) do
-    local view = selectorView(entry.manifest, 256, 192)
-    local renderer = rendererFor(scope, entry.cache, entry.manifest)
-    local actual = render(scope, renderer, view)
-    local backgroundView = selectorView(entry.manifest, 256, 192)
-    backgroundView.phase = "background"
-    backgroundView.layout = OakIntroLayout.compute(256, 192, backgroundView, {}, entry.manifest)
-    local background = render(scope, renderer, backgroundView)
-    for gender = 0, 1 do
-      local cardEntry = view.layout.genderButtons[gender]
-      local card, portrait = cardEntry.rect, cardEntry.portraitRect
-      for y = math.floor(card.y + 4), math.ceil(card.y + card.height - 4) - 1 do
-        for x = math.floor(card.x + 4), math.ceil(card.x + card.width - 4) - 1 do
-          if
-            x < portrait.x
-            or x >= portrait.x + portrait.width
-            or y < portrait.y
-            or y >= portrait.y + portrait.height
-          then
-            local br, bg, bb = background:getPixel(x, y)
-            local ar, ag, ab = actual:getPixel(x, y)
-            Assert.equal(quantize(ar), quantize(br), entry.versionId .. " card interior red channel")
-            Assert.equal(quantize(ag), quantize(bg), entry.versionId .. " card interior green channel")
-            Assert.equal(quantize(ab), quantize(bb), entry.versionId .. " card interior blue channel")
-          end
+function T.card_interiors_use_opaque_source_tone_and_pulse(scope)
+  local function clamp(value)
+    return math.max(0, math.min(1, value))
+  end
+  local function expectedTone(manifest, delta)
+    local tone = assert(manifest.genderSelector and manifest.genderSelector.defaultTone)
+    return {
+      r = quantize(clamp(tone.r / 255 + delta / 31)),
+      g = quantize(clamp(tone.g / 255 + delta / 31)),
+      b = quantize(clamp(tone.b / 255 + delta / 31)),
+    }
+  end
+  local function interiorSample(card, portrait)
+    for y = math.floor(card.y + 6), math.ceil(card.y + card.height - 6) - 1 do
+      for x = math.floor(card.x + 6), math.ceil(card.x + card.width - 6) - 1 do
+        if
+          x < portrait.x
+          or x >= portrait.x + portrait.width
+          or y < portrait.y
+          or y >= portrait.y + portrait.height
+        then
+          return x, y
         end
       end
     end
-    local left = view.layout.genderButtons[0].rect
-    local right = view.layout.genderButtons[1].rect
-    local x, y = math.floor((left.x + left.width + right.x) / 2), math.floor(left.y + left.height / 2)
-    local br, bg, bb, ba = background:getPixel(x, y)
-    local ar, ag, ab, aa = actual:getPixel(x, y)
-    Assert.equal(quantize(ar), quantize(br))
-    Assert.equal(quantize(ag), quantize(bg))
-    Assert.equal(quantize(ab), quantize(bb))
-    Assert.equal(quantize(aa), quantize(ba))
+    return math.floor(card.x + card.width / 2), math.floor(card.y + card.height / 2)
+  end
+  for _, entry in ipairs(readyManifests()) do
+    local renderer = rendererFor(scope, entry.cache, entry.manifest)
+    local focusedZero = selectorView(entry.manifest, 256, 192, 0, 0)
+    local focusedPulse = selectorView(entry.manifest, 256, 192, 0, 8)
+    local focusedImageZero = render(scope, renderer, focusedZero)
+    local focusedImagePulse = render(scope, renderer, focusedPulse)
+    local backgroundView = selectorView(entry.manifest, 256, 192)
+    backgroundView.phase = "background"
+    backgroundView.layout = OakIntroLayout.compute(256, 192, backgroundView, {}, entry.manifest)
+    local backgroundImage = render(scope, renderer, backgroundView)
+    for gender = 0, 1 do
+      local cardEntry = focusedZero.layout.genderButtons[gender]
+      local card, portrait = cardEntry.rect, cardEntry.portraitRect
+      local sx, sy = interiorSample(card, portrait)
+      local ar, ag, ab = focusedImageZero:getPixel(sx, sy)
+      local br, bg, bb = backgroundImage:getPixel(sx, sy)
+      local toneZero = expectedTone(entry.manifest, gender == 0 and 0 or 0)
+      -- Unfocused card should be default tone, not background
+      if gender == 1 then
+        Assert.equal(quantize(ar), toneZero.r, entry.versionId .. " unfocused card interior red")
+        Assert.equal(quantize(ag), toneZero.g, entry.versionId .. " unfocused card interior green")
+        Assert.equal(quantize(ab), toneZero.b, entry.versionId .. " unfocused card interior blue")
+      end
+      Assert.isTrue(
+        quantize(ar) ~= quantize(br) or quantize(ag) ~= quantize(bg) or quantize(ab) ~= quantize(bb),
+        entry.versionId .. " card interior must be opaque tone, not background"
+      )
+    end
+    -- Focused pulse: male card interior must change with delta, female stays
+    local maleCard = focusedZero.layout.genderButtons[0]
+    local femaleCard = focusedZero.layout.genderButtons[1]
+    local mx, my = interiorSample(maleCard.rect, maleCard.portraitRect)
+    local fx, fy = interiorSample(femaleCard.rect, femaleCard.portraitRect)
+    local mr0, mg0, mb0 = focusedImageZero:getPixel(mx, my)
+    local mr1, mg1, mb1 = focusedImagePulse:getPixel(mx, my)
+    local fr0, fg0, fb0 = focusedImageZero:getPixel(fx, fy)
+    local fr1, fg1, fb1 = focusedImagePulse:getPixel(fx, fy)
+    local expectedPulse = expectedTone(entry.manifest, 8)
+    local expectedZero = expectedTone(entry.manifest, 0)
+    Assert.isTrue(
+      quantize(mr0) ~= quantize(mr1) or quantize(mg0) ~= quantize(mg1) or quantize(mb0) ~= quantize(mb1),
+      entry.versionId .. " focused card must pulse with blink delta"
+    )
+    Assert.near(quantize(mr1), expectedPulse.r, 1, entry.versionId .. " pulsed focused red")
+    Assert.near(quantize(mg1), expectedPulse.g, 1, entry.versionId .. " pulsed focused green")
+    Assert.near(quantize(mb1), expectedPulse.b, 1, entry.versionId .. " pulsed focused blue")
+    Assert.near(quantize(mr0), expectedZero.r, 1, entry.versionId .. " focused zero red")
+    Assert.equal(quantize(fr0), quantize(fr1), entry.versionId .. " unfocused card must not pulse")
+    Assert.equal(quantize(fg0), quantize(fg1), entry.versionId .. " unfocused card must not pulse green")
+    Assert.equal(quantize(fb0), quantize(fb1), entry.versionId .. " unfocused card must not pulse blue")
+    -- Portraits remain untinted across focus changes (center is opaque; transparent border would show fill)
+    for gender = 0, 1 do
+      local portrait = focusedZero.layout.genderButtons[gender].portraitRect
+      local cx = math.floor(portrait.x + portrait.width / 2)
+      local cy = math.floor(portrait.y + portrait.height / 2)
+      for dy = -2, 2 do
+        for dx = -2, 2 do
+          local x, y = cx + dx, cy + dy
+          local fr, fg, fb = focusedImageZero:getPixel(x, y)
+          local ur, ug, ub = focusedImagePulse:getPixel(x, y)
+          Assert.equal(quantize(fr), quantize(ur), entry.versionId .. " portrait must not recolor with pulse red")
+          Assert.equal(quantize(fg), quantize(ug), entry.versionId .. " portrait must not recolor with pulse green")
+          Assert.equal(quantize(fb), quantize(ub), entry.versionId .. " portrait must not recolor with pulse blue")
+        end
+      end
+    end
   end
 end
 

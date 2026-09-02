@@ -328,6 +328,16 @@ end
 function T.confirmation_uses_font_zero_metrics_and_font_four_source_palette()
   local graphics = FakeGraphics.new()
   local manifestValue = manifest()
+  manifestValue.widgets.confirmation_yes.width = 120
+  manifestValue.widgets.confirmation_yes.height = 56
+  manifestValue.widgets.confirmation_yes.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  manifestValue.widgets.confirmation_no.width = 120
+  manifestValue.widgets.confirmation_no.height = 56
+  manifestValue.widgets.confirmation_no.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  manifestValue.widgets.confirmation_yes.frames[1].width = 120
+  manifestValue.widgets.confirmation_yes.frames[1].height = 56
+  manifestValue.widgets.confirmation_no.frames[1].width = 120
+  manifestValue.widgets.confirmation_no.frames[1].height = 56
   local measuredLabels = {}
   local palettes = {}
   local font0 = textRenderer()
@@ -358,8 +368,8 @@ function T.confirmation_uses_font_zero_metrics_and_font_four_source_palette()
   confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
   confirmation.confirmationChoice = { kind = "gender", selected = 0 }
   confirmation.layout.confirmationButtons = {
-    [0] = { key = "yes", rect = { x = 10, y = 20, width = 24, height = 30 }, scale = 1 },
-    [1] = { key = "no", rect = { x = 40, y = 20, width = 24, height = 30 }, scale = 1 },
+    [0] = { key = "yes", rect = { x = 10, y = 20, width = 120, height = 56 }, scale = 1 },
+    [1] = { key = "no", rect = { x = 140, y = 20, width = 120, height = 56 }, scale = 1 },
   }
 
   renderer:draw(confirmation)
@@ -375,16 +385,16 @@ function T.confirmation_uses_font_zero_metrics_and_font_four_source_palette()
   for _, rectangle in ipairs(graphics.rectangles) do
     if
       rectangle.mode == "fill"
-      and rectangle.x == 11
-      and rectangle.y == 21
-      and rectangle.w == 2
-      and rectangle.h == 2
+      and rectangle.x == 18
+      and rectangle.y == 36
+      and rectangle.w == 104
+      and rectangle.h == 24
     then
       fill = rectangle
       break
     end
   end
-  Assert.notNil(fill, "confirmation content window must be filled")
+  Assert.notNil(fill, "confirmation content window must be filled at the corrected 8/16 window")
   Assert.deepEqual(assert(fill).color, { 32 / 255, 64 / 255, 96 / 255, 1 })
   renderer:dispose()
 end
@@ -392,8 +402,16 @@ end
 function T.selected_confirmation_focus_stays_outside_label_content()
   local graphics = FakeGraphics.new()
   local manifestValue = manifest()
-  manifestValue.widgets.confirmation_yes.contentRect = { x = 2, y = 2, width = 6, height = 6 }
-  manifestValue.widgets.confirmation_no.contentRect = { x = 2, y = 2, width = 6, height = 6 }
+  manifestValue.widgets.confirmation_yes.width = 120
+  manifestValue.widgets.confirmation_yes.height = 56
+  manifestValue.widgets.confirmation_yes.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  manifestValue.widgets.confirmation_no.width = 120
+  manifestValue.widgets.confirmation_no.height = 56
+  manifestValue.widgets.confirmation_no.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  manifestValue.widgets.confirmation_yes.frames[1].width = 120
+  manifestValue.widgets.confirmation_yes.frames[1].height = 56
+  manifestValue.widgets.confirmation_no.frames[1].width = 120
+  manifestValue.widgets.confirmation_no.frames[1].height = 56
   local renderer = OakIntroRenderer.new({
     manifest = manifestValue,
     graphics = graphics,
@@ -410,21 +428,170 @@ function T.selected_confirmation_focus_stays_outside_label_content()
   confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
   confirmation.confirmationChoice = { kind = "gender", selected = 0 }
   confirmation.layout.confirmationButtons = {
-    [0] = { key = "yes", rect = { x = 10, y = 20, width = 10, height = 10 }, scale = 1 },
-    [1] = { key = "no", rect = { x = 30, y = 20, width = 10, height = 10 }, scale = 1 },
+    [0] = { key = "yes", rect = { x = 10, y = 20, width = 120, height = 56 }, scale = 1 },
+    [1] = { key = "no", rect = { x = 150, y = 20, width = 240, height = 112 }, scale = 2 },
   }
 
   renderer:draw(confirmation)
 
+  local whiteFocus, redFocus
+  local focusCount = 0
   for _, rectangle in ipairs(graphics.rectangles) do
-    if rectangle.color[1] == 1 and rectangle.color[2] == 58 / 255 and rectangle.color[3] == 58 / 255 then
-      Assert.isTrue(
-        rectangle.x + rectangle.w <= 12 or rectangle.x >= 18 or rectangle.y + rectangle.h <= 22 or rectangle.y >= 28,
-        "focus outline must not cover the label content rectangle"
-      )
+    if rectangle.mode == "line" then
+      focusCount = focusCount + 1
+      if rectangle.color[1] == 1 and rectangle.color[2] == 1 and rectangle.color[3] == 1 then
+        whiteFocus = rectangle
+      elseif rectangle.color[1] == 1 and rectangle.color[2] == 0 and rectangle.color[3] == 0 then
+        redFocus = rectangle
+      end
+      Assert.isTrue(rectangle.rx ~= nil and rectangle.ry ~= nil, "focus must be rounded with rx/ry")
+      Assert.isTrue(rectangle.rx > 0 and rectangle.ry > 0, "focus must have positive corner radius")
+      do
+        local half = rectangle.lineWidth / 2
+        local innerLeft = rectangle.x + half
+        local innerTop = rectangle.y + half
+        local innerRight = rectangle.x + rectangle.w - half
+        local innerBottom = rectangle.y + rectangle.h - half
+        local outerLeft = rectangle.x - half
+        local outerTop = rectangle.y - half
+        local outerRight = rectangle.x + rectangle.w + half
+        local outerBottom = rectangle.y + rectangle.h + half
+        local contentLeft, contentTop = 18, 36
+        local contentRight, contentBottom = 122, 60
+        local insideHole = innerLeft <= contentLeft
+          and innerRight >= contentRight
+          and innerTop <= contentTop
+          and innerBottom >= contentBottom
+        local outsideOuter = outerRight <= contentLeft
+          or outerLeft >= contentRight
+          or outerBottom <= contentTop
+          or outerTop >= contentBottom
+        Assert.isTrue(insideHole or outsideOuter, "focus outline must not cover the label content rectangle")
+      end
     end
   end
+  Assert.equal(focusCount, 2, "selected focus must be exactly two rounded line passes")
+  Assert.notNil(whiteFocus, "selected focus must include exact white #FFFFFF overlay")
+  Assert.notNil(redFocus, "selected focus must include exact red #FF0000 overlay")
+  Assert.equal(whiteFocus.lineWidth, 5, "white underlay must be 5 source pixels")
+  Assert.equal(redFocus.lineWidth, 3, "red overlay must be 3 source pixels")
+  Assert.isTrue(
+    whiteFocus.w == 120 and whiteFocus.h == 56 or whiteFocus.w < 120,
+    "focus must be drawn within the 120x56 backing"
+  )
+  Assert.deepEqual(whiteFocus.color, { 1, 1, 1, 1 }, "white must be exact #FFFFFF")
+  Assert.deepEqual(redFocus.color, { 1, 0, 0, 1 }, "red must be exact #FF0000")
+  local scale = confirmation.layout.confirmationButtons[0].scale
+  Assert.equal(whiteFocus.lineWidth, 5 * scale)
+  Assert.equal(redFocus.lineWidth, 3 * scale)
   renderer:dispose()
+  -- Verify unselected choice draws no focus
+  local graphics2 = FakeGraphics.new()
+  local renderer2 = OakIntroRenderer.new({
+    manifest = manifestValue,
+    graphics = graphics2,
+    imageLoader = function(path)
+      local image = graphics2.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+    choiceText = choiceTextRenderer(),
+  })
+  confirmation.confirmationChoice.selected = 1
+  while #graphics2.rectangles > 0 do
+    table.remove(graphics2.rectangles)
+  end
+  renderer2:draw(confirmation)
+  local selectedRect = confirmation.layout.confirmationButtons[1].rect
+  local foundFocus = false
+  for _, rectangle in ipairs(graphics2.rectangles) do
+    if
+      rectangle.mode == "line"
+      and rectangle.color[1] == 1
+      and (rectangle.color[2] == 1 or rectangle.color[2] == 0)
+    then
+      if rectangle.x >= selectedRect.x - 10 and rectangle.x <= selectedRect.x + 10 then
+        foundFocus = true
+      end
+    end
+  end
+  Assert.isTrue(foundFocus, "focus must move to the newly selected choice")
+  renderer2:dispose()
+end
+
+function T.focus_uses_source_scale_and_restores_line_width()
+  local graphics = FakeGraphics.new()
+  graphics.setLineWidth(2)
+  local manifestValue = manifest()
+  manifestValue.widgets.confirmation_yes.width = 120
+  manifestValue.widgets.confirmation_yes.height = 56
+  manifestValue.widgets.confirmation_yes.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  manifestValue.widgets.confirmation_no.width = 120
+  manifestValue.widgets.confirmation_no.height = 56
+  manifestValue.widgets.confirmation_no.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  manifestValue.widgets.confirmation_yes.frames[1].width = 120
+  manifestValue.widgets.confirmation_yes.frames[1].height = 56
+  manifestValue.widgets.confirmation_no.frames[1].width = 120
+  manifestValue.widgets.confirmation_no.frames[1].height = 56
+  local renderer = OakIntroRenderer.new({
+    manifest = manifestValue,
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+    choiceText = choiceTextRenderer(),
+  })
+  local confirmation = view()
+  confirmation.phase = "gender_confirm"
+  confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
+  confirmation.confirmationChoice = { kind = "gender", selected = 0 }
+  confirmation.layout.confirmationButtons = {
+    [0] = { key = "yes", rect = { x = 10, y = 20, width = 240, height = 112 }, scale = 2 },
+    [1] = { key = "no", rect = { x = 260, y = 20, width = 240, height = 112 }, scale = 2 },
+  }
+  renderer:draw(confirmation)
+  Assert.equal(graphics.getLineWidth(), 2, "renderer must restore caller line width after normal draw")
+  local foundWhite, foundRed
+  for _, rectangle in ipairs(graphics.rectangles) do
+    if rectangle.mode == "line" and rectangle.color[1] == 1 and rectangle.color[2] == 1 then
+      foundWhite = rectangle
+    elseif rectangle.mode == "line" and rectangle.color[1] == 1 and rectangle.color[2] == 0 then
+      foundRed = rectangle
+    end
+  end
+  Assert.notNil(foundWhite)
+  Assert.notNil(foundRed)
+  Assert.equal(foundWhite.lineWidth, 10, "white line width must be 5 * scale")
+  Assert.equal(foundRed.lineWidth, 6, "red line width must be 3 * scale")
+  -- Failure restoration
+  graphics.setLineWidth(7)
+  local failingGraphics = FakeGraphics.new()
+  failingGraphics.setLineWidth(7)
+  local failRenderer = OakIntroRenderer.new({
+    manifest = manifestValue,
+    graphics = failingGraphics,
+    imageLoader = function(path)
+      local image = failingGraphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+    choiceText = choiceTextRenderer(),
+  })
+  failingGraphics.draw = function()
+    error("injected draw failure")
+  end
+  local ok = pcall(function()
+    failRenderer:draw(confirmation)
+  end)
+  Assert.isFalse(ok, "injected draw failure must propagate")
+  Assert.equal(failingGraphics.getLineWidth(), 7, "renderer must restore line width even after draw failure")
+  renderer:dispose()
+  failRenderer:dispose()
 end
 
 function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(_)
