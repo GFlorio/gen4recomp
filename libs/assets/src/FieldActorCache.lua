@@ -59,6 +59,8 @@ end
 
 local REQUIRED_DIRECTIONS = { north = true, south = true, west = true, east = true }
 
+local VALID_GESTURES = { nurse_bow = true, give = true, receive = true }
+
 local function isValidPose(pose, frameCount, requireDisplayOffsetY)
   if type(pose) ~= "table" then
     return false
@@ -151,6 +153,27 @@ function FieldActorCache.isValidVisual(visual, spriteId)
       return false
     end
     if set.walk ~= nil and not isValidPose(set.walk, render.frameCount, false) then
+      return false
+    end
+  end
+  if type(visual.gestures) ~= "table" then
+    return false
+  end
+  for name, record in pairs(visual.gestures) do
+    if not VALID_GESTURES[name] then
+      return false
+    end
+    if type(record) ~= "table" then
+      return false
+    end
+    if type(record.pose) ~= "table" or type(record.displayOffset) ~= "table" then
+      return false
+    end
+    if not isValidPose(record.pose, render.frameCount, false) then
+      return false
+    end
+    local offset = record.displayOffset
+    if not isFiniteNumber(offset.x) or not isFiniteNumber(offset.y) or not isFiniteNumber(offset.z) then
       return false
     end
   end

@@ -64,6 +64,7 @@ local function writeActorVisual(c, spriteId)
       cadence = 0,
     },
     directions = validDirections(),
+    gestures = {},
   })
   c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
 end
@@ -78,6 +79,30 @@ local function writeActorVisualWithDirections(c, spriteId, directions, frameCoun
       cadence = 0,
     },
     directions = directions,
+    gestures = {},
+  })
+  c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
+end
+
+local function validGesturePose(_)
+  return {
+    frames = { { frameIndex = 1, ticks = 1 } },
+    loop = false,
+    durationTicks = 1,
+  }
+end
+
+local function writeActorVisualWithGestures(c, spriteId, gestures, frameCount)
+  c:writeLua(FieldActorCache.visualPath(spriteId), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = spriteId,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId), frameCount = frameCount or 1 },
+    idlePresentation = {
+      mode = "static",
+      cadence = 0,
+    },
+    directions = validDirections(),
+    gestures = gestures,
   })
   c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
 end
@@ -402,6 +427,169 @@ function T.actor_valid_artifact_is_ready()
   writeActorVisual(c, 0)
   writeActorVisual(c, 29)
   Assert.isTrue(FieldActorCache.isReady(c, "m"))
+end
+
+function T.actor_visual_with_empty_gestures_is_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisual(c, 0)
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "empty gestures must be valid")
+  Assert.isTrue(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
+end
+
+function T.actor_visual_with_valid_gesture_clip_is_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, {
+    give = { pose = validGesturePose(1), displayOffset = { x = 0, y = 0, z = 1 / 32 } },
+  }, 1)
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "valid give clip must pass")
+  Assert.isTrue(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
+  -- second valid variant
+  c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, {
+    nurse_bow = { pose = validGesturePose(1), displayOffset = { x = 0, y = 0, z = 0 } },
+  }, 1)
+  Assert.isTrue(FieldActorCache.isReady(c, "m"))
+end
+
+function T.actor_visual_missing_gestures_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  c:writeLua(FieldActorCache.visualPath(0), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
+    idlePresentation = { mode = "static", cadence = 0 },
+    directions = validDirections(),
+  })
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "missing gestures must fail")
+  Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
+end
+
+function T.actor_visual_with_non_table_gestures_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, "nope", 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"))
+end
+
+function T.actor_visual_with_unknown_gesture_name_is_not_ready()
+  local cases = { "warp_out", "warp_in", "unknown", "nurseBow" }
+  for _, name in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local gestures = {}
+    gestures[name] = { pose = validGesturePose(1), displayOffset = { x = 0, y = 0, z = 0 } }
+    writeActorVisualWithGestures(c, 0, gestures, 1)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "unknown gesture " .. name .. " must fail")
+    Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
+  end
+end
+
+function T.actor_visual_with_malformed_gesture_pose_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, {
+    give = { pose = { frames = {}, loop = false, durationTicks = 1 }, displayOffset = { x = 0, y = 0, z = 1 / 32 } },
+  }, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "empty gesture pose must fail")
+
+  c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, {
+    give = {
+      pose = { frames = { { frameIndex = 2, ticks = 1 } }, loop = false, durationTicks = 1 },
+      displayOffset = { x = 0, y = 0, z = 0 },
+    },
+  }, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "out-of-range gesture frameIndex must fail")
+
+  c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, {
+    give = {
+      pose = { frames = { { frameIndex = 1, ticks = 0 } }, loop = false, durationTicks = 1 },
+      displayOffset = { x = 0, y = 0, z = 0 },
+    },
+  }, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "zero-tick gesture pose must fail")
+
+  c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, {
+    give = {
+      pose = { frames = { { frameIndex = 1, ticks = 1 } }, loop = false, durationTicks = 2 },
+      displayOffset = { x = 0, y = 0, z = 0 },
+    },
+  }, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "duration-mismatch gesture pose must fail")
+
+  c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisualWithGestures(c, 0, {
+    give = { displayOffset = { x = 0, y = 0, z = 0 } },
+  }, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "missing gesture pose must fail")
+end
+
+function T.actor_visual_with_malformed_gesture_display_offset_is_not_ready()
+  local cases = {
+    { displayOffset = nil, label = "missing displayOffset" },
+    { displayOffset = { x = 0, y = 0 }, label = "missing z" },
+    { displayOffset = { x = "0", y = 0, z = 0 }, label = "string x" },
+    { displayOffset = { x = 0, y = 0, z = 0 / 0 }, label = "NaN z" },
+    { displayOffset = { x = 0, y = math.huge, z = 0 }, label = "infinite y" },
+  }
+  for _, case in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    if case.displayOffset == nil then
+      c:writeLua(FieldActorCache.visualPath(0), {
+        schema = FieldActorCache.SCHEMA,
+        spriteId = 0,
+        render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
+        idlePresentation = { mode = "static", cadence = 0 },
+        directions = validDirections(),
+        gestures = { give = { pose = validGesturePose(1) } },
+      })
+      c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    elseif case.label == "NaN z" then
+      c:write(
+        FieldActorCache.visualPath(0),
+        'return { schema = "'
+          .. FieldActorCache.SCHEMA
+          .. '", spriteId = 0, render = { kind = "atlas", image = "'
+          .. FieldActorCache.atlasPath(0)
+          .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { north = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } }, south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } }, west = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } }, east = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } } }, gestures = { give = { pose = { frames = { { frameIndex = 1, ticks = 1 } }, loop = false, durationTicks = 1 }, displayOffset = { x = 0, y = 0, z = 0/0 } } } }'
+      )
+      c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    elseif case.label == "infinite y" then
+      c:write(
+        FieldActorCache.visualPath(0),
+        'return { schema = "'
+          .. FieldActorCache.SCHEMA
+          .. '", spriteId = 0, render = { kind = "atlas", image = "'
+          .. FieldActorCache.atlasPath(0)
+          .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { north = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } }, south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } }, west = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } }, east = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 } } }, gestures = { give = { pose = { frames = { { frameIndex = 1, ticks = 1 } }, loop = false, durationTicks = 1 }, displayOffset = { x = 0, y = math.huge, z = 0 } } } }'
+      )
+      c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    else
+      writeActorVisualWithGestures(c, 0, {
+        give = { pose = validGesturePose(1), displayOffset = case.displayOffset },
+      }, 1)
+    end
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), case.label .. " must fail")
+  end
+end
+
+function T.actor_visual_with_static_model_gestures_empty_is_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisual(c, 0)
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "static-like visual with empty gestures must be ready")
 end
 
 -- Field-message index and banks

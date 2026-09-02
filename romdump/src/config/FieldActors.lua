@@ -75,6 +75,15 @@ return {
     { id = "heroine", spriteId = 97, gender = 1 },
   },
 
+  -- Pinned source for the HEAL/BANZAI give/receive visuals: src/player_avatar.c
+  -- PlayerAvatar_GetSpriteByStateAndGender(PLAYER_STATE_HEAL, gender) selects
+  -- SPRITE_BANZAIHERO (200) and SPRITE_BANZAIHEROINE (201)
+  -- (pret/pokeheartgold@b23531f6c82fc6a785058825a447d8439b38e47f, asm/overlay_01_sprite_data.s,
+  -- asm/overlay_01_021F72DC.s, src/player_avatar.c). Added explicitly because the
+  -- current avatar set does not cover these state-driven sprites, yet their
+  -- descriptor ranges are required for the semantic give/receive clips.
+  gestureSpriteIds = { 200, 201 },
+
   -- Common placement recovered from the field-actor loader and billboard models:
   -- a bottom-center local origin, the Nitro SBC full camera-facing billboard
   -- command, and the loader's six-model-unit Y offset. Frame dimensions come

@@ -256,6 +256,116 @@ function T.marill_keeps_its_uneven_south_loop(romFs)
   Assert.equal(south.frames[1].frameIndex, south.frames[3].frameIndex, "the loop returns to its first slot")
 end
 
+function T.compiled_visuals_publish_semantic_gesture_clips(romFs)
+  local decoded = decodeTable(romFs)
+  local nurse = assert(FieldActorGraphics.resolve(decoded, 335), "nurse 335 must be present")
+  Assert.equal(nurse.record.actorFamily, 12, "nurse actorFamily")
+  Assert.equal(nurse.record.visualDescriptor, 5, "nurse descriptor")
+  Assert.equal(#nurse.descriptor.ranges, 5, "nurse descriptor has five ranges")
+  Assert.deepEqual(
+    { nurse.descriptor.ranges[5].startFrame, nurse.descriptor.ranges[5].endFrame, nurse.descriptor.ranges[5].endMode },
+    { 64, 68, 1 },
+    "nurse fifth range is 64..68 one-shot"
+  )
+
+  local banzaiMale = assert(FieldActorGraphics.resolve(decoded, 200), "BANZAI male 200 must be present")
+  local banzaiFemale = assert(FieldActorGraphics.resolve(decoded, 201), "BANZAI female 201 must be present")
+  for _, resolved in ipairs({ banzaiMale, banzaiFemale }) do
+    Assert.equal(resolved.record.actorFamily, 10, "BANZAI actorFamily")
+    Assert.equal(resolved.record.visualDescriptor, 13, "BANZAI descriptor")
+    Assert.equal(#resolved.descriptor.ranges, 2, "BANZAI descriptor has two ranges")
+    Assert.deepEqual({
+      resolved.descriptor.ranges[1].startFrame,
+      resolved.descriptor.ranges[1].endFrame,
+      resolved.descriptor.ranges[1].endMode,
+    }, { 0, 20, 1 }, "BANZAI range 1 is 0..20 one-shot")
+    Assert.deepEqual({
+      resolved.descriptor.ranges[2].startFrame,
+      resolved.descriptor.ranges[2].endFrame,
+      resolved.descriptor.ranges[2].endMode,
+    }, { 21, 41, 1 }, "BANZAI range 2 is 21..41 one-shot")
+  end
+
+  local bundle = assert(FieldActorCompiler.compile(romFs))
+  local has200, has201 = false, false
+  for _, id in ipairs(bundle.index.spriteIds) do
+    if id == 200 then
+      has200 = true
+    end
+    if id == 201 then
+      has201 = true
+    end
+  end
+  Assert.isTrue(has200, "selectedSpriteIds must include 200")
+  Assert.isTrue(has201, "selectedSpriteIds must include 201")
+  -- sorted
+  local prev
+  for _, id in ipairs(bundle.index.spriteIds) do
+    if prev then
+      Assert.isTrue(id > prev, "selectedSpriteIds must be sorted")
+    end
+    prev = id
+  end
+
+  for _, spriteId in ipairs(bundle.index.spriteIds) do
+    local visual = assert(bundle.visuals[spriteId], "visual must exist")
+    Assert.equal(type(visual.gestures), "table", "every visual must carry gestures table")
+    Assert.isNil(visual.gestures.warp_out, "warp_out must not be a gesture clip")
+    Assert.isNil(visual.gestures.warp_in, "warp_in must not be a gesture clip")
+  end
+
+  local nurseVisual = assert(bundle.visuals[335], "nurse visual 335 must be compiled")
+  Assert.notNil(nurseVisual.gestures.nurse_bow, "nurse_bow must be present")
+  Assert.isNil(nurseVisual.gestures.give, "nurse must not have give")
+  Assert.isNil(nurseVisual.gestures.receive, "nurse must not have receive")
+  local nurseBow = nurseVisual.gestures.nurse_bow
+  Assert.equal(type(nurseBow.pose), "table", "nurse_bow pose")
+  Assert.deepEqual(nurseBow.displayOffset, { x = 0, y = 0, z = 0 }, "nurse_bow offset is zero")
+  Assert.isTrue(nurseBow.pose.durationTicks > 0, "nurse_bow pose has duration")
+  -- frame indices within atlas
+  for _, seg in ipairs(nurseBow.pose.frames) do
+    Assert.isTrue(seg.frameIndex >= 1 and seg.frameIndex <= nurseVisual.render.frameCount, "nurse_bow frame in range")
+  end
+  Assert.isNil(nurseBow.actorFamily, "no source family leaked")
+  Assert.isNil(nurseBow.visualDescriptor, "no descriptor leaked")
+  Assert.isNil(nurseBow.rangeIndex, "no range index leaked")
+
+  for _, spriteId in ipairs({ 200, 201 }) do
+    local visual = assert(bundle.visuals[spriteId], "BANZAI visual " .. spriteId .. " must be compiled")
+    Assert.notNil(visual.gestures.give, "give must be present for " .. spriteId)
+    Assert.notNil(visual.gestures.receive, "receive must be present for " .. spriteId)
+    Assert.isNil(visual.gestures.nurse_bow, "BANZAI must not have nurse_bow")
+    for _, name in ipairs({ "give", "receive" }) do
+      local gesture = visual.gestures[name]
+      Assert.equal(type(gesture.pose), "table")
+      Assert.deepEqual(gesture.displayOffset, { x = 0, y = 0, z = 1 / 32 }, name .. " offset is 1/32")
+      for _, seg in ipairs(gesture.pose.frames) do
+        Assert.isTrue(seg.frameIndex >= 1 and seg.frameIndex <= visual.render.frameCount, name .. " frame in range")
+      end
+      Assert.isNil(gesture.actorFamily)
+      Assert.isNil(gesture.visualDescriptor)
+    end
+  end
+
+  -- ordinary sprite must have empty gestures
+  local aide = assert(bundle.visuals[29], "aide 29 must be compiled")
+  Assert.equal(type(aide.gestures), "table")
+  local count = 0
+  for _ in pairs(aide.gestures) do
+    count = count + 1
+  end
+  Assert.equal(count, 0, "ordinary sprite gestures must be empty")
+
+  -- static model still carries empty gestures
+  local marill = assert(bundle.visuals[1032], "static Marill 1032 must be compiled")
+  Assert.equal(type(marill.gestures), "table")
+  count = 0
+  for _ in pairs(marill.gestures) do
+    count = count + 1
+  end
+  Assert.equal(count, 0)
+end
+
 function T.compilation_is_deterministic_and_writes_a_ready_cache(romFs, version)
   local first = assert(FieldActorCompiler.compile(romFs))
   local second = assert(FieldActorCompiler.compile(romFs))

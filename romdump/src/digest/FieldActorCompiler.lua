@@ -39,6 +39,28 @@ local FX32_ONE = 4096
 local SOURCE_MODEL_UNITS_PER_TILE = 16
 local FOLLOWER_DISPLAY_OFFSET = -(2 * FX32_ONE) / (SOURCE_MODEL_UNITS_PER_TILE * FX32_ONE)
 
+-- Source HEAL/BANZAI callback: ov01_021F8AB0 applies facing-vector Z of 2<<10
+-- (pret/pokeheartgold@b23531f6 asm/overlay_01_sprite_data.s, asm/overlay_01_021F72DC.s).
+-- Normalized to runtime tiles via SOURCE_MODEL_UNITS_PER_TILE * FX32_ONE.
+local BANZAI_FACING_Z_FX32 = 2 * 1024
+local BANZAI_DISPLAY_OFFSET_Z = BANZAI_FACING_Z_FX32 / (SOURCE_MODEL_UNITS_PER_TILE * FX32_ONE)
+
+-- Private source gesture bindings: actor family + visual descriptor -> semantic
+-- gesture name + 1-based decoded range index + normalized fixed display offset.
+-- Family 12 + descriptor 5 (SPRITE_PCWOMAN1) range 5 is Nurse Joy bow (state 9
+-- selects animation 4, asm/overlay_01_021F72DC.s). Family 10 + descriptor 13
+-- (SPRITE_BANZAIHERO/HEROINE, 200/201 via src/player_avatar.c PLAYER_STATE_HEAL)
+-- ranges 1 and 2 are give/receive (states 0/1 select animations 0/1, single-level).
+local GESTURE_BINDINGS = {
+  ["12:5"] = {
+    { rangeIndex = 5, name = "nurse_bow", displayOffset = { x = 0, y = 0, z = 0 } },
+  },
+  ["10:13"] = {
+    { rangeIndex = 1, name = "give", displayOffset = { x = 0, y = 0, z = BANZAI_DISPLAY_OFFSET_Z } },
+    { rangeIndex = 2, name = "receive", displayOffset = { x = 0, y = 0, z = BANZAI_DISPLAY_OFFSET_Z } },
+  },
+}
+
 -- Source: pret/pokeheartgold 0985, ov01_02209A38. Families 16 and 17 reach
 -- ov01_021F8D80's taskless path and ov01_021F8FC0 bob; the other encountered
 -- families use callbacks without that follower idle behavior.
@@ -46,6 +68,7 @@ local IDLE_MODE_BY_ACTOR_FAMILY = {
   [0] = "static",
   [1] = "static",
   [3] = "static",
+  [10] = "static",
   [12] = "static",
   [13] = "static",
   [15] = "static",
@@ -80,6 +103,9 @@ local function selectedSpriteIds(romFs)
   end
   for _, avatar in ipairs(manifest.avatars) do
     add(avatar.spriteId)
+  end
+  for _, spriteId in ipairs(manifest.gestureSpriteIds or {}) do
+    add(spriteId)
   end
 
   local archive = must(romFs:openNarc("zone_events"), "zone_event archive is unavailable")
@@ -351,8 +377,57 @@ local function finishStaticModel(spriteId, compiled)
     frames = { { textureSlot = 0, paletteSlot = 0 } },
     directions = staticDirections(),
     idlePresentation = { mode = "static", cadence = 0 },
+    gestures = {},
   }
   return visual, atlas
+end
+
+local function buildGestures(record, perRange, ranges, context)
+  local key = record.actorFamily .. ":" .. record.visualDescriptor
+  local bindings = GESTURE_BINDINGS[key]
+  if not bindings then
+    return {}
+  end
+  local gestures = {}
+  for _, binding in ipairs(bindings) do
+    local index = binding.rangeIndex
+    local frames = perRange[index]
+    local range = ranges[index]
+    if not frames or not range then
+      Errors.raise(
+        "FIELD_ACTOR_GESTURE_RANGE_MISSING",
+        "gesture "
+          .. binding.name
+          .. " requires range "
+          .. index
+          .. " but descriptor "
+          .. record.visualDescriptor
+          .. " has "
+          .. #ranges,
+        {
+          spriteId = context.spriteId,
+          actorFamily = record.actorFamily,
+          visualDescriptor = record.visualDescriptor,
+          rangeIndex = index,
+          gesture = binding.name,
+          context = context,
+        }
+      )
+    end
+    local ticks = 0
+    for _, frame in ipairs(frames) do
+      ticks = ticks + frame.ticks
+    end
+    gestures[binding.name] = {
+      pose = {
+        frames = frames,
+        loop = range.loop,
+        durationTicks = ticks,
+      },
+      displayOffset = { x = binding.displayOffset.x, y = binding.displayOffset.y, z = binding.displayOffset.z },
+    }
+  end
+  return gestures
 end
 
 ---@param spriteId integer
@@ -440,6 +515,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local frames, perRange = frameSet.frames, frameSet.perRange
   local atlas = decodeAtlas(pack, frames, context)
   local directions, alternate, animations, idleProfile = buildPoses(perRange, descriptor.ranges, idleMode)
+  local gestures = buildGestures(record, perRange, descriptor.ranges, context)
 
   local placement = {
     sourceSize = { width = atlas.frameWidth, height = atlas.frameHeight },
@@ -491,6 +567,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
     idlePresentation = idleProfile,
     directionalSet2 = alternate,
     nonDirectionalAnimations = animations,
+    gestures = gestures,
   }
   return visual, atlas
 end
