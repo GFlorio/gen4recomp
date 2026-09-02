@@ -2,6 +2,9 @@
 -- intro manifest; semantic timing and transition decisions remain in the
 -- engine controller.
 
+local ImageButton = require("libs.ui.src.ImageButton")
+local TextButton = require("libs.ui.src.TextButton")
+
 ---@class OakIntroRenderer
 ---@field graphics table
 ---@field text FieldTextRenderer
@@ -11,7 +14,7 @@
 ---@field manifest table
 local OakIntroRenderer = {}
 OakIntroRenderer.__index = OakIntroRenderer
-local REQUIRED_ASSETS = {
+OakIntroRenderer.REQUIRED_ASSETS = {
   "oak",
   "marill",
   "marill_appear",
@@ -20,8 +23,6 @@ local REQUIRED_ASSETS = {
   "shrink_male",
   "shrink_female",
   "ball_open",
-  "confirmation_yes",
-  "confirmation_no",
   "gender_male",
   "gender_female",
 }
@@ -60,43 +61,9 @@ local function profilePalette(manifest, selected, focusBlinkDelta)
   return {
     border = referenceColor(PROFILE_CARD.border),
     rim = referenceColor(selected and PROFILE_CARD.selectedRim or PROFILE_CARD.unselectedRim),
-    innerBorder = fill,
-    fill = fill,
+    selectedRim = referenceColor(PROFILE_CARD.selectedRim),
+    face = fill,
   }
-end
-
-local function drawFrame(graphics, rect, palette, scale)
-  local thickness = math.max(1, math.floor(scale + 0.5))
-  local function edge(frame, width, color)
-    width = math.min(width, math.floor(math.min(frame.width, frame.height) / 2))
-    if width <= 0 then
-      return
-    end
-    graphics.setColor(color[1], color[2], color[3], 1)
-    graphics.rectangle("fill", frame.x, frame.y, frame.width, width)
-    graphics.rectangle("fill", frame.x, frame.y + frame.height - width, frame.width, width)
-    graphics.rectangle("fill", frame.x, frame.y + width, width, math.max(0, frame.height - width * 2))
-    graphics.rectangle(
-      "fill",
-      frame.x + frame.width - width,
-      frame.y + width,
-      width,
-      math.max(0, frame.height - width * 2)
-    )
-  end
-  edge(rect, thickness, palette.border)
-  local inset = thickness
-  edge(
-    { x = rect.x + inset, y = rect.y + inset, width = rect.width - inset * 2, height = rect.height - inset * 2 },
-    thickness,
-    palette.rim
-  )
-  inset = inset + thickness
-  edge(
-    { x = rect.x + inset, y = rect.y + inset, width = rect.width - inset * 2, height = rect.height - inset * 2 },
-    thickness,
-    palette.innerBorder
-  )
 end
 
 local function paletteColor(definition, slot)
@@ -107,37 +74,6 @@ local function paletteColor(definition, slot)
     r, g, b = r / 255, g / 255, b / 255
   end
   return { r = r * 255, g = g * 255, b = b * 255 }
-end
-
-local function drawFocusOutline(graphics, rect, scale)
-  local whiteWidth = 5 * scale
-  local redWidth = 3 * scale
-  local margin = 1 * scale
-  local outerRadius = 3 * scale
-  local inset = margin + whiteWidth / 2
-  local radius = math.max(0, outerRadius - whiteWidth / 2)
-  graphics.setColor(1, 1, 1, 1)
-  graphics.setLineWidth(whiteWidth)
-  graphics.rectangle(
-    "line",
-    rect.x + inset,
-    rect.y + inset,
-    rect.width - inset * 2,
-    rect.height - inset * 2,
-    radius,
-    radius
-  )
-  graphics.setColor(1, 0, 0, 1)
-  graphics.setLineWidth(redWidth)
-  graphics.rectangle(
-    "line",
-    rect.x + inset,
-    rect.y + inset,
-    rect.width - inset * 2,
-    rect.height - inset * 2,
-    radius,
-    radius
-  )
 end
 
 local function defaultImageLoader(path)
@@ -213,7 +149,7 @@ function OakIntroRenderer.new(options)
   assert(type(options.manifest.background) == "table", "Oak renderer requires a generated intro background")
   local assets = options.manifest.widgets
   assert(options.manifest.background, "Oak renderer requires a generated background")
-  for _, assetId in ipairs(REQUIRED_ASSETS) do
+  for _, assetId in ipairs(OakIntroRenderer.REQUIRED_ASSETS) do
     assert(assets[assetId], "Oak renderer requires generated asset " .. assetId)
   end
   local graphics = options.graphics or love.graphics
@@ -303,33 +239,6 @@ local function drawBackground(self, region)
   self.graphics.draw(binding.image, binding.quad, region.x, region.y, 0, sx, sy)
 end
 
-local function drawConfirmationText(self, entry, label)
-  local widget = assert(self.assets["confirmation_" .. entry.key])
-  local content = assert(widget.contentRect, "Oak confirmation content rectangle is missing")
-  local scale = entry.scale
-  local contentRect = {
-    x = entry.rect.x + content.x * scale,
-    y = entry.rect.y + content.y * scale,
-    width = content.width * scale,
-    height = content.height * scale,
-  }
-  local width = self.text:textWidth(label)
-  local lineHeight = assert(self.choiceText.fontDef and self.choiceText.fontDef.lineHeight)
-  assert(width > 0 and scale > 0, "Oak choice text metrics are invalid")
-  local x = contentRect.x + (contentRect.width - width * scale) / 2
-  local y = contentRect.y + (contentRect.height - lineHeight * scale) / 2
-  local palette = {
-    foreground = paletteColor(self.choiceText.fontDef, 16),
-    shadow = paletteColor(self.choiceText.fontDef, 2),
-    background = paletteColor(self.choiceText.fontDef, 1),
-  }
-  self.graphics.push()
-  self.graphics.translate(x, y)
-  self.graphics.scale(scale, scale)
-  self.choiceText:drawTextWithPalette(label, 0, 0, palette)
-  self.graphics.pop()
-end
-
 ---@param view table
 function OakIntroRenderer:_draw(view)
   assert(not self.released, "Oak renderer is released")
@@ -361,18 +270,46 @@ function OakIntroRenderer:_draw(view)
         local entry = assert(layout.genderButtons and layout.genderButtons[gender])
         local selected = view.genderFocus == gender
         local palette = profilePalette(self.manifest, selected, selected and view.focusBlinkDelta or 0)
-        graphics.setColor(palette.fill[1], palette.fill[2], palette.fill[3], 1)
-        graphics.rectangle("fill", entry.rect.x, entry.rect.y, entry.rect.width, entry.rect.height)
-        drawAsset(self, entry.portraitId, 1, entry.portraitRect)
-        drawFrame(graphics, entry.rect, palette, entry.scale)
+        local colors = {
+          face = { palette.face[1] * 255, palette.face[2] * 255, palette.face[3] * 255, 1 },
+          border = { palette.border[1] * 255, palette.border[2] * 255, palette.border[3] * 255, 1 },
+          rim = { palette.rim[1] * 255, palette.rim[2] * 255, palette.rim[3] * 255, 1 },
+          selectedRim = { palette.selectedRim[1] * 255, palette.selectedRim[2] * 255, palette.selectedRim[3] * 255, 1 },
+        }
+        -- Convert to 0-1 normalized for ImageButton
+        local normColors = {
+          face = { colors.face[1] / 255, colors.face[2] / 255, colors.face[3] / 255, 1 },
+          border = { colors.border[1] / 255, colors.border[2] / 255, colors.border[3] / 255, 1 },
+          rim = { colors.rim[1] / 255, colors.rim[2] / 255, colors.rim[3] / 255, 1 },
+          selectedRim = { colors.selectedRim[1] / 255, colors.selectedRim[2] / 255, colors.selectedRim[3] / 255, 1 },
+          innerBorder = { palette.face[1], palette.face[2], palette.face[3], 1 },
+        }
+        ImageButton.draw(graphics, entry.button, {
+          selected = selected,
+          colors = normColors,
+          imageRect = entry.portraitRect,
+          drawImage = function(rect)
+            drawAsset(self, entry.portraitId, 1, rect)
+          end,
+        })
       end
     elseif layout.selectedProfileButton then
       local entry = layout.selectedProfileButton
-      local palette = profilePalette(self.manifest, true, 0)
-      graphics.setColor(palette.fill[1], palette.fill[2], palette.fill[3], 1)
-      graphics.rectangle("fill", entry.rect.x, entry.rect.y, entry.rect.width, entry.rect.height)
-      drawAsset(self, entry.portraitId, 1, entry.portraitRect)
-      drawFrame(graphics, entry.rect, palette, entry.scale)
+      local palette = profilePalette(self.manifest, true, view.focusBlinkDelta or 0)
+      local colors = {
+        face = { palette.face[1], palette.face[2], palette.face[3], 1 },
+        border = { palette.border[1], palette.border[2], palette.border[3], 1 },
+        rim = { palette.rim[1], palette.rim[2], palette.rim[3], 1 },
+        selectedRim = { palette.selectedRim[1], palette.selectedRim[2], palette.selectedRim[3], 1 },
+      }
+      ImageButton.draw(graphics, entry.button, {
+        selected = true,
+        colors = colors,
+        imageRect = entry.portraitRect,
+        drawImage = function(rect)
+          drawAsset(self, entry.portraitId, 1, rect)
+        end,
+      })
     end
   end
   if layout.confirmationButtons then
@@ -380,28 +317,27 @@ function OakIntroRenderer:_draw(view)
     for choice = 0, 1 do
       local entry = assert(layout.confirmationButtons[choice])
       local selected = view.confirmationChoice.selected == choice
-      local widget = assert(self.assets["confirmation_" .. entry.key])
-      local content = assert(widget.contentRect, "Oak confirmation content rectangle is missing")
-      drawAsset(self, "confirmation_" .. entry.key, 1, {
-        x = entry.rect.x,
-        y = entry.rect.y,
-        width = entry.rect.width,
-        height = entry.rect.height,
-        scale = entry.scale,
-      })
-      local contentRect = {
-        x = entry.rect.x + content.x * entry.scale,
-        y = entry.rect.y + content.y * entry.scale,
-        width = content.width * entry.scale,
-        height = content.height * entry.scale,
+      local label = assert(labels[choice])
+      local textPalette = {
+        foreground = paletteColor(self.choiceText.fontDef, 16),
+        shadow = paletteColor(self.choiceText.fontDef, 2),
+        background = paletteColor(self.choiceText.fontDef, 1),
       }
-      local background = paletteColor(self.choiceText.fontDef, 1)
-      graphics.setColor(background.r / 255, background.g / 255, background.b / 255, 1)
-      graphics.rectangle("fill", contentRect.x, contentRect.y, contentRect.width, contentRect.height)
-      if selected then
-        drawFocusOutline(graphics, entry.rect, entry.scale)
-      end
-      drawConfirmationText(self, entry, assert(labels[choice]))
+      textPalette.background.a = 0
+      local adapter = {
+        measure = function(text)
+          return self.choiceText:textWidth(text)
+        end,
+        lineHeight = self.choiceText.fontDef.lineHeight,
+        draw = function(text, x, y)
+          self.choiceText:drawTextWithPalette(text, x, y, textPalette)
+        end,
+      }
+      TextButton.draw(graphics, entry.button, {
+        label = label,
+        selected = selected,
+        text = adapter,
+      })
     end
   end
   graphics.setColor(1, 1, 1, 1)

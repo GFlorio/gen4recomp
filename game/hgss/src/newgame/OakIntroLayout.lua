@@ -1,6 +1,9 @@
 -- Pure host-native geometry for the Oak intro. Source dimensions are semantic
 -- placement relationships, never a fixed render surface.
 
+local ImageButton = require("libs.ui.src.ImageButton")
+local TextButton = require("libs.ui.src.TextButton")
+
 local OakIntroLayout = {}
 
 local function clamp(value, low, high)
@@ -138,31 +141,10 @@ local function sourceCenteredWidget(widgetValue, canvas)
   }
 end
 
-local function confirmationWidget(manifest, key)
-  local value = widget(manifest, "confirmation_" .. key)
-  assert(value.contentRect, "Oak confirmation content rectangle is missing: " .. key)
-  return value
-end
-
-local function confirmationEntries(origin, scale, yes, no, horizontal, gap)
-  local entries = {}
-  local firstX, firstY = origin.x, origin.y
-  local secondX, secondY
-  if horizontal then
-    secondX, secondY = firstX + yes.width * scale + gap, firstY
-  else
-    secondX, secondY = firstX, firstY + yes.height * scale + gap
-  end
-  entries[0] = { key = "yes", rect = rect(firstX, firstY, yes.width * scale, yes.height * scale), scale = scale }
-  entries[1] = { key = "no", rect = rect(secondX, secondY, no.width * scale, no.height * scale), scale = scale }
-  return entries
-end
-
-local function genderConfirmationEntries(selectorRegion, cardSource, genderWidget, manifest)
-  local yes, no = confirmationWidget(manifest, "yes"), confirmationWidget(manifest, "no")
+local function confirmationScale(selectorRegion, cardSource)
   local cardWidth, cardHeight = cardSource.width, cardSource.height
-  local stackWidth = math.max(yes.width, no.width)
-  local stackHeight = yes.height + 8 + no.height
+  local stackWidth = TextButton.REFERENCE_WIDTH
+  local stackHeight = TextButton.REFERENCE_HEIGHT * 2 + 8
   local groupWidth, groupHeight = cardWidth + 8 + stackWidth, math.max(cardHeight, stackHeight)
   local sourceScale = math.min(selectorRegion.width / 256, selectorRegion.height / 192)
   local availableWidth = selectorRegion.width >= 24 and selectorRegion.width - 24 or selectorRegion.width
@@ -170,6 +152,33 @@ local function genderConfirmationEntries(selectorRegion, cardSource, genderWidge
   local insetScale = math.min(availableWidth / groupWidth, availableHeight / groupHeight)
   local scale = math.min(sourceScale, insetScale)
   assert(scale > 0, "Oak gender confirmation scale must be positive")
+  return scale
+end
+
+local function textButtonEntries(origin, scale, horizontal, gap)
+  local refW, refH = TextButton.REFERENCE_WIDTH, TextButton.REFERENCE_HEIGHT
+  local w, h = refW * scale, refH * scale
+  local entries = {}
+  if horizontal then
+    local firstRect = rect(origin.x, origin.y, w, h)
+    local secondRect = rect(origin.x + w + gap, origin.y, w, h)
+    entries[0] = { key = "yes", rect = firstRect, scale = scale, button = TextButton.resolve({ rect = firstRect, scale = scale }) }
+    entries[1] = { key = "no", rect = secondRect, scale = scale, button = TextButton.resolve({ rect = secondRect, scale = scale }) }
+  else
+    local firstRect = rect(origin.x, origin.y, w, h)
+    local secondRect = rect(origin.x, origin.y + h + gap, w, h)
+    entries[0] = { key = "yes", rect = firstRect, scale = scale, button = TextButton.resolve({ rect = firstRect, scale = scale }) }
+    entries[1] = { key = "no", rect = secondRect, scale = scale, button = TextButton.resolve({ rect = secondRect, scale = scale }) }
+  end
+  return entries
+end
+
+local function genderConfirmationEntries(selectorRegion, cardSource, genderWidget, manifest)
+  local scale = confirmationScale(selectorRegion, cardSource)
+  local cardWidth, cardHeight = cardSource.width, cardSource.height
+  local stackWidth = TextButton.REFERENCE_WIDTH
+  local stackHeight = TextButton.REFERENCE_HEIGHT * 2 + 8
+  local groupWidth, groupHeight = cardWidth + 8 + stackWidth, math.max(cardHeight, stackHeight)
   local origin = {
     x = selectorRegion.x + (selectorRegion.width - groupWidth * scale) / 2,
     y = selectorRegion.y + (selectorRegion.height - groupHeight * scale) / 2,
@@ -197,52 +206,41 @@ local function genderConfirmationEntries(selectorRegion, cardSource, genderWidge
       * scale,
     scale = scale,
   }
-  local entries = confirmationEntries({ x = stackLeft, y = stackTop }, scale, yes, no, false, 8 * scale)
+  local cardRect = rect(cardLeft, cardTop, cardWidth * scale, cardHeight * scale)
+  local cardButton = ImageButton.resolve({ rect = cardRect, scale = scale })
+  local entries = textButtonEntries({ x = stackLeft, y = stackTop }, scale, false, 8 * scale)
   return {
     card = {
       key = genderWidget,
-      rect = rect(cardLeft, cardTop, cardWidth * scale, cardHeight * scale),
+      rect = cardRect,
       scale = scale,
       portraitId = "gender_" .. genderWidget,
       portraitRect = portrait,
+      button = cardButton,
     },
     confirmation = entries,
   }
 end
 
-local function nameConfirmationEntries(sceneContent, manifest)
-  local yes, no = confirmationWidget(manifest, "yes"), confirmationWidget(manifest, "no")
-  local margin = math.min(12, math.max(0, (math.min(sceneContent.width, sceneContent.height) - 1) / 2))
-  local gap = clamp(sceneContent.width * 0.03, 12, 24)
-  local availableWidth, availableHeight = sceneContent.width - margin * 2, sceneContent.height - margin * 2
-  gap = math.min(gap, math.max(0, availableWidth - 1))
-  local preferredHeight = clamp(sceneContent.height * 0.12, 48, 88)
-  local maxHeight = math.max(yes.height, no.height)
-  local sideScale =
-    math.min(preferredHeight / maxHeight, (availableWidth - gap) / (yes.width + no.width), availableHeight / maxHeight)
-  local sideBySide = math.min(yes.height, no.height) * sideScale >= 44
-  if sideBySide then
-    local groupWidth = (yes.width + no.width) * sideScale + gap
-    local origin = {
-      x = sceneContent.x + (sceneContent.width - groupWidth) / 2,
-      y = sceneContent.y + (sceneContent.height - maxHeight * sideScale) / 2,
-    }
-    return confirmationEntries(origin, sideScale, yes, no, true, gap)
+local function nameConfirmationEntries(sceneContent, selectorRegion, cardSource, gap)
+  local scale = confirmationScale(selectorRegion, cardSource)
+  local refW, refH = TextButton.REFERENCE_WIDTH, TextButton.REFERENCE_HEIGHT
+  local pairWidth = (refW * 2 + 8) * scale
+  local horizontal = pairWidth <= sceneContent.width
+  local scaledGap = 8 * scale
+  local groupWidth, groupHeight
+  if horizontal then
+    groupWidth = refW * 2 * scale + scaledGap
+    groupHeight = refH * scale
+  else
+    groupWidth = refW * scale
+    groupHeight = refH * 2 * scale + scaledGap
   end
-  local verticalGap = 8
-    * math.min(
-      preferredHeight / maxHeight,
-      availableHeight / (yes.height + no.height + 8),
-      availableWidth / math.max(yes.width, no.width)
-    )
-  local scale = verticalGap / 8
-  local groupWidth = math.max(yes.width, no.width) * scale
-  local groupHeight = (yes.height + no.height) * scale + verticalGap
   local origin = {
     x = sceneContent.x + (sceneContent.width - groupWidth) / 2,
-    y = sceneContent.y + (sceneContent.height - groupHeight) / 2,
+    y = sceneContent.y + sceneContent.height - groupHeight - gap,
   }
-  return confirmationEntries(origin, scale, yes, no, false, verticalGap)
+  return textButtonEntries(origin, scale, horizontal, scaledGap)
 end
 
 ---@param width number
@@ -349,12 +347,15 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
       local sourceCard = assert(manifest.genderSelector.buttons[sourceGender]).bounds
       local card = mappedRect(selectorCanvas, sourceCard)
       local portrait = sourceCenteredWidget(widget(manifest, "gender_" .. sourceGender), selectorCanvas)
+      local cardRect = rect(card.x, card.y, card.width, card.height)
+      local button = ImageButton.resolve({ rect = cardRect, scale = selectorCanvas.scale })
       genderSlots[index - 1] = {
         key = sourceGender,
-        rect = rect(card.x, card.y, card.width, card.height),
+        rect = cardRect,
         scale = selectorCanvas.scale,
         portraitId = "gender_" .. sourceGender,
         portraitRect = portrait,
+        button = button,
       }
     end
     if view.phase == "gender_select" then
@@ -371,7 +372,14 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   end
   if view.confirmationChoice then
     if view.phase == "name_confirm" then
-      result.confirmationButtons = nameConfirmationEntries(sceneContent, manifest)
+      local sourceGender = view.genderFocus == 0 and "male" or "female"
+      local sourceCard = assert(manifest.genderSelector.buttons[sourceGender]).bounds
+      -- Ensure selectorRegion available; compute if not (when composition not active)
+      if not selectorRegion then
+        local tempOak, tempSelector = selectorRegions(scene, gap)
+        selectorRegion = tempSelector
+      end
+      result.confirmationButtons = nameConfirmationEntries(sceneContent, assert(selectorRegion), sourceCard, gap)
     end
   end
   if view.phase == "name_edit" then
