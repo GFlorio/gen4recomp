@@ -83,8 +83,22 @@ function T.draws_only_the_resolved_visible_rows_with_selection_scroll_and_cancel
   FieldMenuRenderer.new({ graphics = graphics }):draw({ status = menu:status(), layout = resolved })
 
   local texts, selected, cancel, indicators = 0, 0, 0, 0
+  local drawnItemTexts = {}
+  local visibleRows = 0
+  for itemIndex = 0, resolved.itemCount - 1 do
+    if
+      resolved.itemRects[itemIndex].x < resolved.scrollViewport.x + resolved.scrollViewport.width
+      and resolved.scrollViewport.x < resolved.itemRects[itemIndex].x + resolved.itemRects[itemIndex].width
+      and resolved.itemRects[itemIndex].y < resolved.scrollViewport.y + resolved.scrollViewport.height
+      and resolved.scrollViewport.y < resolved.itemRects[itemIndex].y + resolved.itemRects[itemIndex].height
+    then
+      visibleRows = visibleRows + 1
+    end
+  end
   for _, call in ipairs(graphics.calls) do
-    if call.kind == "text" then
+    if call.kind == "text" and call.text ~= "Cancel" then
+      Assert.isNil(drawnItemTexts[call.text], "each intersecting row is drawn once")
+      drawnItemTexts[call.text] = true
       texts = texts + 1
     elseif call.kind == "rectangle" and call.mode == "fill" and call.y == resolved.itemRects[19].y then
       selected = selected + 1
@@ -99,7 +113,7 @@ function T.draws_only_the_resolved_visible_rows_with_selection_scroll_and_cancel
       indicators = indicators + 1
     end
   end
-  Assert.isTrue(texts < 20, "clipped rows must not be drawn")
+  Assert.equal(texts, visibleRows, "only rectangles intersecting the viewport must be drawn")
   Assert.equal(selected, 1, "the controller selection gets exactly one highlight")
   Assert.equal(cancel, 1, "the layout-owned cancel affordance is drawn")
   Assert.equal(indicators, 2, "a scrolled list shows both scroll indicators")
