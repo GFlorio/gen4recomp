@@ -21,8 +21,6 @@ M.REQUIRED_ASSETS = {
   "shrink_male",
   "shrink_female",
   "ball_open",
-  "confirmation_no",
-  "confirmation_yes",
   "gender_male",
   "gender_female",
 }
@@ -237,35 +235,6 @@ local function sourceRect(label, reference, value)
   return true
 end
 
-local function contentRect(id, widgetValue)
-  local value = widgetValue.contentRect
-  local recordOk, recordErr = closedRecord("widget " .. id .. " contentRect", value, {
-    x = true,
-    y = true,
-    width = true,
-    height = true,
-  })
-  if not recordOk then
-    return false, recordErr
-  end
-  for _, field in ipairs({ "x", "y", "width", "height" }) do
-    if not integer(value[field]) then
-      return invalid("widget " .. id .. " contentRect is invalid", { widget = id })
-    end
-  end
-  if
-    value.width <= 0
-    or value.height <= 0
-    or value.x < 0
-    or value.y < 0
-    or value.x + value.width > widgetValue.width
-    or value.y + value.height > widgetValue.height
-  then
-    return invalid("widget " .. id .. " contentRect is outside the widget", { widget = id })
-  end
-  return true
-end
-
 local function rgbColor(label, value)
   local ok, err = closedRecord(label, value, { r = true, g = true, b = true })
   if not ok then
@@ -313,8 +282,8 @@ local function genderSelector(reference, value)
 end
 
 function M.validateManifest(manifest)
-  if type(manifest) ~= "table" or manifest.schemaVersion ~= 9 then
-    return invalid("manifest schema mismatch", { expected = 9, actual = manifest and manifest.schemaVersion })
+  if type(manifest) ~= "table" or manifest.schemaVersion ~= 10 then
+    return invalid("manifest schema mismatch", { expected = 10, actual = manifest and manifest.schemaVersion })
   end
   local recordOk, recordErr = closedRecord("manifest", manifest, {
     schemaVersion = true,
@@ -363,15 +332,7 @@ function M.validateManifest(manifest)
     elseif manifest.widgets[id].sourceCenter ~= nil then
       return invalid("widget " .. id .. " sourceCenter is obsolete", { widget = id })
     end
-    if id == "confirmation_yes" or id == "confirmation_no" then
-      if manifest.widgets[id].contentRect == nil then
-        return invalid("widget " .. id .. " contentRect is required", { widget = id })
-      end
-      local contentOk, contentErr = contentRect(id, manifest.widgets[id])
-      if not contentOk then
-        return false, contentErr
-      end
-    elseif manifest.widgets[id].contentRect ~= nil then
+    if manifest.widgets[id].contentRect ~= nil then
       return invalid("widget " .. id .. " contentRect is obsolete", { widget = id })
     end
   end

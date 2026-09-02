@@ -45,20 +45,7 @@ end
 
 function T.confirmation_configuration_declares_source_backing_and_local_windows()
   local config = require("romdump.src.config.IntroAssets")
-  Assert.deepEqual(config.confirmation, {
-    archive = "intro",
-    screen = 48,
-    char = 37,
-    palette = 33,
-    crops = {
-      yes = { x = 8, y = 32, width = 120, height = 56 },
-      no = { x = 8, y = 112, width = 120, height = 56 },
-    },
-    contentRects = {
-      yes = { x = 8, y = 16, width = 104, height = 24 },
-      no = { x = 8, y = 16, width = 104, height = 24 },
-    },
-  })
+  Assert.isNil(config.confirmation, "confirmation source config must be removed after TextButton migration")
 end
 
 local function compiler()
@@ -480,42 +467,10 @@ local function fixtureBundle(cache, marker)
     end
     assets[image] = "png"
   end
-  for _, entry in ipairs({
-    { id = "confirmation_yes", width = 115, height = 57, x = 6, y = 22 },
-    { id = "confirmation_no", width = 115, height = 56, x = 6, y = 20 },
-  }) do
-    local image = cache.assetDir() .. "/" .. entry.id .. ".png"
-    widgets[entry.id] = {
-      image = image,
-      width = entry.width,
-      height = entry.height,
-      anchor = { x = 0, y = 0 },
-      sourceBounds = { x = 0, y = 0, width = entry.width, height = entry.height },
-      sampling = "nearest",
-      provenance = { rule = "fixture" },
-      contentRect = { x = entry.x, y = entry.y, width = 104, height = 24 },
-      frames = {
-        {
-          image = image,
-          width = entry.width,
-          height = entry.height,
-          duration = 1,
-          anchor = { x = 0, y = 0 },
-          element = "none",
-          translateX = 0,
-          translateY = 0,
-          scaleX = 1,
-          scaleY = 1,
-          rotation = 0,
-        },
-      },
-    }
-    assets[image] = "png"
-  end
   return {
     marker = marker,
     manifest = {
-      schemaVersion = 9,
+      schemaVersion = 10,
       variant = "heartgold",
       sourceReference = { width = 256, height = 192 },
       background = {
@@ -586,16 +541,16 @@ function T.v9_bundle_publishes_without_profile_control_files()
   local CacheWriter = writer()
   local backend = FakeCache.new()
   local live = CacheFs.forVersion("heartgold", backend)
-  local bundle = fixtureBundle(cache, "intro-cache-v9:fixture:ready")
+  local bundle = fixtureBundle(cache, "intro-cache-v10:fixture:ready")
 
   Assert.notNil(bundle.manifest.genderSelector)
   Assert.isNil(bundle.manifest.profileConfirmation)
-  Assert.notNil(bundle.manifest.widgets.confirmation_yes)
-  Assert.notNil(bundle.manifest.widgets.confirmation_no)
+  Assert.isNil(bundle.manifest.widgets.confirmation_yes)
+  Assert.isNil(bundle.manifest.widgets.confirmation_no)
   Assert.isTrue(CacheWriter.write(live, bundle))
   Assert.isTrue(cache.isReady(live, bundle.marker), "retained files are sufficient for readiness")
 
-  local missing = fixtureBundle(cache, "intro-cache-v9:fixture:missing")
+  local missing = fixtureBundle(cache, "intro-cache-v10:fixture:missing")
   missing.assets[missing.manifest.widgets.oak.frames[1].image] = nil
   Assert.isFalse(pcall(CacheWriter.write, live, missing), "missing retained widget files reject publication")
 end
@@ -644,7 +599,7 @@ function T.failed_replacement_preserves_the_previous_ready_class()
   live:write(cache.markerPath(), stale.marker)
   Assert.isFalse(cache.isReady(live, stale.marker), "schema-8 intro output is stale")
 
-  local old = fixtureBundle(cache, "intro-cache-v9:old:dependencies")
+  local old = fixtureBundle(cache, "intro-cache-v10:old:dependencies")
   CacheWriter.write(live, old)
   local oldMarker = live:read(cache.markerPath())
   local oldManifest = live:read(cache.manifestPath())
@@ -662,7 +617,7 @@ function T.failed_replacement_preserves_the_previous_ready_class()
   }, { __index = backend })
   live = CacheFs.forVersion("heartgold", failingBackend)
 
-  local replacement = fixtureBundle(cache, "intro-cache-v9:new:dependencies")
+  local replacement = fixtureBundle(cache, "intro-cache-v10:new:dependencies")
   local published, publishErr = pcall(CacheWriter.write, live, replacement)
   Assert.isFalse(published, "a replacement failure must reach the caller")
   Assert.isTrue(tostring(publishErr):find("publication", 1, true) ~= nil)

@@ -196,7 +196,10 @@ function Button.contains(button, x, y)
     "resolved button rectangle is invalid"
   )
   assert(rectValue.width > 0 and rectValue.height > 0, "resolved button rectangle must be positive")
-  return x >= rectValue.x and x < rectValue.x + rectValue.width and y >= rectValue.y and y < rectValue.y + rectValue.height
+  return x >= rectValue.x
+    and x < rectValue.x + rectValue.width
+    and y >= rectValue.y
+    and y < rectValue.y + rectValue.height
 end
 
 return Button

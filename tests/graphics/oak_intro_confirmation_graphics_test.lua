@@ -161,7 +161,8 @@ function T.name_confirmation_uses_common_side_by_side_backings(scope)
     local layout = view.layout
     local yes, no = layout.confirmationButtons[0], layout.confirmationButtons[1]
     -- Common scale: same as gender confirmation.
-    local genderYes = OakIntroLayout.compute(800, 600, confirmationView("gender", 0), {}, entry.manifest).confirmationButtons[0]
+    local genderYes =
+      OakIntroLayout.compute(800, 600, confirmationView("gender", 0), {}, entry.manifest).confirmationButtons[0]
     Assert.equal(yes.scale, genderYes.scale)
     Assert.isTrue(yes.rect.x + yes.rect.width <= no.rect.x or yes.rect.y + yes.rect.height <= no.rect.y)
     Assert.equal(yes.scale, no.scale)

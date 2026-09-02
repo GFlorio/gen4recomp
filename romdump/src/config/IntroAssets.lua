@@ -42,20 +42,6 @@ local IntroAssets = {
       },
     },
   },
-  confirmation = {
-    archive = "intro",
-    screen = 48,
-    char = 37,
-    palette = 33,
-    crops = {
-      yes = { x = 8, y = 32, width = 120, height = 56 },
-      no = { x = 8, y = 112, width = 120, height = 56 },
-    },
-    contentRects = {
-      yes = { x = 8, y = 16, width = 104, height = 24 },
-      no = { x = 8, y = 16, width = 104, height = 24 },
-    },
-  },
   oak = { char = 10, palette = 11, screen = 9 },
   gender = {
     male = { char = 12, palette = 16, screen = 9 },

@@ -8,8 +8,6 @@ local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
 local T = {}
 local WIDGETS = {
   "ball_open",
-  "confirmation_no",
-  "confirmation_yes",
   "female",
   "gender_female",
   "gender_male",
@@ -62,7 +60,7 @@ local function validManifest()
   widgets.gender_male.sourceCenter = { x = 64, y = 104 }
   widgets.gender_female.sourceCenter = { x = 192, y = 104 }
   return {
-    schemaVersion = 9,
+    schemaVersion = 10,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -87,24 +85,8 @@ local function validManifest()
   }
 end
 
-local function confirmationWidget(manifest, id, width, height, contentRect)
-  local widget = manifest.widgets[id]
-  widget.width = width
-  widget.height = height
-  widget.anchor = { x = 0, y = 0 }
-  widget.sourceBounds = { x = 0, y = 0, width = width, height = height }
-  widget.frames = { frame(widget.image, width, height, 1) }
-  widget.contentRect = contentRect
-end
-
-local function addConfirmationWidgets(manifest)
-  confirmationWidget(manifest, "confirmation_yes", 120, 56, { x = 8, y = 16, width = 104, height = 24 })
-  confirmationWidget(manifest, "confirmation_no", 120, 56, { x = 8, y = 16, width = 104, height = 24 })
-end
-
 local function reject(cache, mutate, label)
   local manifest = validManifest()
-  addConfirmationWidgets(manifest)
   mutate(manifest)
   local ok, err = cache.validateManifest(manifest)
   Assert.isFalse(ok, label .. " must be rejected")
@@ -113,28 +95,24 @@ end
 
 function T.complete_schema_manifest_loads_and_declares_closed_inventory()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.equal(cache.SCHEMA, "g4-intro-assets-v9")
+  Assert.equal(cache.SCHEMA, "g4-intro-assets-v10")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
-  addConfirmationWidgets(manifest)
   Assert.isTrue(cache.validateManifest(manifest))
   Assert.keySet(
     manifest.widgets,
-    "ball_open,confirmation_no,confirmation_yes,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+    "ball_open,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
   )
   Assert.deepEqual(manifest.widgets.gender_male.sourceCenter, { x = 64, y = 104 })
   Assert.deepEqual(manifest.widgets.gender_female.sourceCenter, { x = 192, y = 104 })
   Assert.deepEqual(manifest.genderSelector.buttons.male.bounds, { x = 18, y = 25, width = 93, height = 148 })
   Assert.isNil(manifest.genderSelector.buttons.male.hitBounds)
   Assert.isNil(manifest.profileConfirmation)
-  Assert.deepEqual(manifest.widgets.confirmation_yes.contentRect, { x = 8, y = 16, width = 104, height = 24 })
-  Assert.deepEqual(manifest.widgets.confirmation_no.contentRect, { x = 8, y = 16, width = 104, height = 24 })
 end
 
 function T.stale_and_malformed_manifests_fail_before_composition()
   local cache = require("libs.assets.src.IntroAssetCache")
   local complete = validManifest()
-  addConfirmationWidgets(complete)
   Assert.isTrue(cache.validateManifest(complete), "the complete schema fixture must be accepted first")
   reject(cache, function(manifest)
     manifest.schemaVersion = 1
@@ -167,8 +145,8 @@ function T.stale_and_malformed_manifests_fail_before_composition()
     manifest.widgets.ball_open.sourceCenter.x = 257
   end, "out-of-range ball source center")
   reject(cache, function(manifest)
-    manifest.schemaVersion = 7
-  end, "stale v7 schema")
+    manifest.schemaVersion = 9
+  end, "stale v9 schema")
   reject(cache, function(manifest)
     manifest.widgets.gender_male.sourceCenter = nil
   end, "missing male selector source center")
@@ -191,17 +169,22 @@ function T.stale_and_malformed_manifests_fail_before_composition()
     manifest.genderSelector.buttons.male.hitBounds = { x = 18, y = 25, width = 93, height = 148 }
   end, "removed gender hit bounds")
   reject(cache, function(manifest)
-    manifest.widgets.confirmation_yes.contentRect.x = -1
-  end, "out-of-bounds confirmation content rectangle")
+    manifest.widgets.confirmation_yes = {
+      image = "assets/generated/intro/confirmation_yes.png",
+      width = 120,
+      height = 56,
+      anchor = { x = 0, y = 0 },
+      sourceBounds = { x = 0, y = 0, width = 120, height = 56 },
+      sampling = "nearest",
+      frames = { frame("assets/generated/intro/confirmation_yes.png", 120, 56, 1) },
+    }
+  end, "old confirmation widget is unknown")
   reject(cache, function(manifest)
-    manifest.widgets.confirmation_yes.contentRect = nil
-  end, "missing confirmation content rectangle")
+    manifest.widgets.oak.contentRect = { x = 0, y = 0, width = 10, height = 10 }
+  end, "obsolete contentRect is rejected")
   reject(cache, function(manifest)
-    manifest.widgets.confirmation_no.contentRect.width = 113
-  end, "confirmation content rectangle exceeding widget")
-  reject(cache, function(manifest)
-    manifest.widgets.confirmation_yes.contentRect.scroll = 1
-  end, "unknown confirmation content rectangle field")
+    manifest.widgets.oak.contentRect = { x = 8, y = 16, width = 104, height = 24 }
+  end, "obsolete contentRect is rejected")
   reject(cache, function(manifest)
     manifest.schemaVersion = 6
   end, "stale v6 schema")
@@ -217,7 +200,6 @@ function T.semantic_records_do_not_add_files_to_cache_readiness()
   local backend = FakeCache.new()
   local cacheFs = CacheFs.forVersion("heartgold", backend)
   local manifest = validManifest()
-  addConfirmationWidgets(manifest)
   backend:write(cacheFs:resolve(cache.markerPath()), "ready")
   cacheFs.loadLua = function(_, path)
     if path == cache.manifestPath() then
