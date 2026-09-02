@@ -55,12 +55,12 @@ MovementCalibration.EMOTE_TICKS = 33
 -- nurse_bow, give, receive; lifetime counts the per-update state machine
 -- including whether setup and final steps chain in the same map-object
 -- update via sub_02062400's nonzero chaining.
-local GESTURE_TICKS_BY_NAME = {
-  warp_out = 20,
-  warp_in = 20,
-  nurse_bow = 10,
-  give = 22,
-  receive = 22,
+local GESTURE_PROFILE = {
+  warp_out = { durationTicks = 20 },
+  warp_in = { durationTicks = 20 },
+  nurse_bow = { durationTicks = 10 },
+  give = { durationTicks = 22 },
+  receive = { durationTicks = 22 },
 }
 
 -- Vertical arc heights for jump presentation (world units / tiles).
@@ -176,11 +176,78 @@ function MovementCalibration.actionTicks(action)
   elseif kind == "emote" then
     return MovementCalibration.EMOTE_TICKS
   elseif kind == "gesture" then
-    local ticks = GESTURE_TICKS_BY_NAME[action.name]
-    assert(ticks, "unknown gesture " .. tostring(action.name))
-    return ticks
+    local profile = GESTURE_PROFILE[action.name]
+    assert(profile, "unknown gesture " .. tostring(action.name))
+    return profile.durationTicks
   end
   error("unknown movement action " .. tostring(kind))
+end
+
+function MovementCalibration.gesturePresentationAt(name, progressTicks, durationTicks)
+  local profile = GESTURE_PROFILE[name]
+  assert(profile, "unknown gesture " .. tostring(name))
+  assert(
+    type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 0,
+    "gesture progress must be a non-negative integer"
+  )
+  assert(
+    type(durationTicks) == "number" and durationTicks % 1 == 0 and durationTicks > 0,
+    "gesture duration must be a positive integer"
+  )
+  assert(durationTicks == profile.durationTicks, "gesture duration mismatches calibrated ticks for " .. tostring(name))
+  assert(progressTicks <= durationTicks, "gesture progress exceeds duration for " .. tostring(name))
+  if name == "warp_out" then
+    return { pose = nil, poseTick = nil, offsetY = progressTicks }
+  elseif name == "warp_in" then
+    return { pose = nil, poseTick = nil, offsetY = durationTicks - progressTicks }
+  elseif name == "nurse_bow" then
+    if progressTicks >= 1 and progressTicks <= 8 then
+      return { pose = "nurse_bow", poseTick = progressTicks - 1, offsetY = 0 }
+    end
+    return { pose = nil, poseTick = nil, offsetY = 0 }
+  elseif name == "give" then
+    assert(progressTicks >= 1, "gesture give requires progress >= 1")
+    return { pose = "give", poseTick = progressTicks - 1, offsetY = 0 }
+  elseif name == "receive" then
+    assert(progressTicks >= 1, "gesture receive requires progress >= 1")
+    return { pose = "receive", poseTick = progressTicks - 1, offsetY = 0 }
+  end
+  error("unknown gesture " .. tostring(name))
+end
+
+function MovementCalibration.gestureFacingAt(name, progressTicks)
+  local profile = GESTURE_PROFILE[name]
+  assert(profile, "unknown gesture " .. tostring(name))
+  assert(
+    type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 0,
+    "gesture progress must be a non-negative integer"
+  )
+  if name == "nurse_bow" and progressTicks >= 9 then
+    return "south"
+  end
+  return nil
+end
+
+function MovementCalibration.gesturePresentationAfterCommit(name, durationTicks)
+  local profile = GESTURE_PROFILE[name]
+  assert(profile, "unknown gesture " .. tostring(name))
+  assert(
+    type(durationTicks) == "number" and durationTicks % 1 == 0 and durationTicks > 0,
+    "gesture duration must be a positive integer"
+  )
+  assert(durationTicks == profile.durationTicks, "gesture duration mismatches calibrated ticks for " .. tostring(name))
+  if name == "warp_out" then
+    return { pose = nil, poseTick = nil, offsetY = 20 }
+  elseif name == "warp_in" then
+    return { pose = nil, poseTick = nil, offsetY = 0 }
+  elseif name == "nurse_bow" then
+    return { pose = nil, poseTick = nil, offsetY = 0 }
+  elseif name == "give" then
+    return MovementCalibration.gesturePresentationAt(name, durationTicks, durationTicks)
+  elseif name == "receive" then
+    return MovementCalibration.gesturePresentationAt(name, durationTicks, durationTicks)
+  end
+  error("unknown gesture " .. tostring(name))
 end
 
 return MovementCalibration

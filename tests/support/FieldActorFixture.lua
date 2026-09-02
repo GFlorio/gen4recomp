@@ -262,6 +262,7 @@ function FieldActorFixture.visual(spriteId, opts)
     pivot = { x = 0.5, y = 1 },
     frames = { { textureSlot = 0, paletteSlot = 0 } },
     directions = directions,
+    gestures = {},
     idlePresentation = opts.idlePresentation or {
       mode = "static",
       cadence = 0,

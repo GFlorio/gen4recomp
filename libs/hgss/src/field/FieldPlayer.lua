@@ -43,6 +43,10 @@ local FieldTraversal = require("libs.hgss.src.field.FieldTraversal")
 ---@field transitionFrom table?
 ---@field transitionTo table?
 ---@field transitionProgress number?
+---@field private _gesturePose string?
+---@field private _gestureTick integer?
+---@field private _gestureOffsetY number
+---@field private _scriptedMotion table?
 local FieldPlayer = {}
 FieldPlayer.__index = FieldPlayer
 
@@ -183,6 +187,9 @@ function FieldPlayer.new(options)
     transitionKind = nil,
     transitionFacing = nil,
     transitionProgress = nil,
+    _gesturePose = nil,
+    _gestureTick = nil,
+    _gestureOffsetY = 0,
   }, FieldPlayer)
 end
 
@@ -782,7 +789,16 @@ function FieldPlayer:setScriptPosition(position)
   self.progressTicks = 0
   self.from, self.to = nil, nil
   self._scriptedMotion = nil
+  self._gesturePose = nil
+  self._gestureTick = nil
+  self._gestureOffsetY = 0
   self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
+end
+
+function FieldPlayer:clearGesturePresentation()
+  self._gesturePose = nil
+  self._gestureTick = nil
+  self._gestureOffsetY = 0
 end
 
 function FieldPlayer:beginScriptedAction(action)
@@ -868,9 +884,26 @@ function FieldPlayer:beginScriptedAction(action)
     direction = action.direction,
     distance = action.distance,
     speed = action.speed,
+    gestureName = action.name,
     durationTicks = durationTicks,
     progressTicks = 0,
+    startGesturePose = self._gesturePose,
+    startGestureTick = self._gestureTick,
+    startGestureOffsetY = self._gestureOffsetY,
   }
+  if kind == "gesture" then
+    self._gesturePose = nil
+    self._gestureTick = nil
+    self._gestureOffsetY = 0
+  elseif kind == "walk" or kind == "walk_in_place" or kind == "jump" then
+    self._gesturePose = nil
+    self._gestureTick = nil
+    self._gestureOffsetY = 0
+  elseif kind == "face" then
+    self._gesturePose = nil
+    self._gestureTick = nil
+    self._gestureOffsetY = 0
+  end
   -- Snapshot previousWorld at begin so first render interpolates from source.
   self.previousWorldX, self.previousWorldY, self.previousWorldZ = fromState.worldX, fromState.worldY, fromState.worldZ
 end
@@ -909,6 +942,13 @@ function FieldPlayer:advanceScriptedAction(progressTicks, durationTicks)
     self.worldY = self.from.worldY
     self.worldZ = self.from.worldZ
   end
+  if m.action == "gesture" then
+    local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
+    local presentation = MovementCalibration.gesturePresentationAt(m.gestureName, progressTicks, durationTicks)
+    self._gesturePose = presentation.pose
+    self._gestureTick = presentation.poseTick
+    self._gestureOffsetY = presentation.offsetY
+  end
   self.progressTicks = progressTicks
   self.durationTicks = durationTicks
 end
@@ -924,6 +964,13 @@ function FieldPlayer:commitScriptedAction()
     self.worldX, self.worldY, self.worldZ = self.to.worldX, self.to.worldY, self.to.worldZ
     self.surfaceId = self.to.surfaceId
   end
+  if m.action == "gesture" then
+    local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
+    local held = MovementCalibration.gesturePresentationAfterCommit(m.gestureName, m.durationTicks)
+    self._gesturePose = held.pose
+    self._gestureTick = held.poseTick
+    self._gestureOffsetY = held.offsetY
+  end
   self.motion = "idle"
   self.progressTicks = 0
   self.from, self.to = nil, nil
@@ -935,6 +982,11 @@ function FieldPlayer:cancelScriptedMovement()
   local m = self._scriptedMotion
   if m and self.from then
     self.worldX, self.worldY, self.worldZ = self.from.worldX, self.from.worldY, self.from.worldZ
+  end
+  if m then
+    self._gesturePose = m.startGesturePose
+    self._gestureTick = m.startGestureTick
+    self._gestureOffsetY = m.startGestureOffsetY or 0
   end
   self.motion = "idle"
   self.progressTicks = 0

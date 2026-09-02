@@ -100,4 +100,34 @@ function T.sample_distinguishes_reused_frame_identity()
   Assert.equal(FieldActorPose.sampleAt(pose, 3).displayOffsetY, -2 / 16)
 end
 
+function T.gesture_frame_index_selects_one_shot_clip_and_clamps()
+  local visual = FieldActorFixture.visual(29)
+  visual.gestures = {
+    give = {
+      pose = {
+        frames = { { frameIndex = 5, ticks = 2 }, { frameIndex = 6, ticks = 3 } },
+        loop = false,
+        durationTicks = 5,
+      },
+      displayOffset = { x = 0, y = 0, z = 1 / 32 },
+    },
+  }
+  Assert.equal(FieldActorPose.gestureFrameIndex(visual, "give", 0), 5)
+  Assert.equal(FieldActorPose.gestureFrameIndex(visual, "give", 2), 6)
+  Assert.equal(FieldActorPose.gestureFrameIndex(visual, "give", 100), 6, "one-shot clamps at last frame")
+end
+
+function T.missing_gesture_clip_raises_structured_error_without_fallback()
+  local visual = FieldActorFixture.visual(29)
+  visual.gestures = {}
+  throwsCode("ACTOR_POSE_MISSING", function()
+    FieldActorPose.gestureFrameIndex(visual, "give", 0)
+  end)
+  local err = Assert.throws(function()
+    FieldActorPose.gestureFrameIndex(visual, "nurse_bow", 0)
+  end)
+  Assert.isTrue(Errors.is(err), "structured error")
+  Assert.equal(err.code, "ACTOR_POSE_MISSING")
+end
+
 return { tests = T }

@@ -81,4 +81,25 @@ function FieldActorPose.frameIndex(visualDef, facing, poseName, tick)
   return FieldActorPose.frameIndexAt(pose, tick), fellBack
 end
 
+function FieldActorPose.gestureFrameIndex(visualDef, gestureName, tick)
+  assert(
+    type(visualDef) == "table" and type(visualDef.gestures) == "table",
+    "pose selection needs a compiled actor visual"
+  )
+  assert(type(gestureName) == "string" and gestureName ~= "", "gesture name is required")
+  assert(
+    type(tick) == "number" and tick >= 0 and tick == math.floor(tick),
+    "a gesture pose clock is a non-negative integer tick"
+  )
+  local record = visualDef.gestures[gestureName]
+  if not record or type(record.pose) ~= "table" then
+    Errors.raise(
+      FieldErrors.ACTOR_POSE_MISSING,
+      "sprite " .. tostring(visualDef.spriteId) .. " has no " .. tostring(gestureName) .. " gesture pose",
+      { spriteId = visualDef.spriteId, gesture = gestureName, pose = gestureName }
+    )
+  end
+  return FieldActorPose.frameIndexAt(record.pose, tick)
+end
+
 return FieldActorPose

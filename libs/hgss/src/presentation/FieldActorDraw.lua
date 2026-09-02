@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-field
 -- Turns presentation-neutral actor draw records into FieldRenderer draw items.
 --
 -- Ordinary actor visuals are native-resolution opaque/cutout presentation
@@ -25,6 +26,8 @@ local FieldActorDraw = {}
 ---@field facing string
 ---@field pose string?
 ---@field poseTick integer?
+---@field gesturePose string?
+---@field gestureTick integer?
 ---@field visible boolean?
 
 ---@class FieldActorDraw.Entry
@@ -35,6 +38,7 @@ local FieldActorDraw = {}
 
 ---@class FieldActorDraw.Visual
 ---@field render FieldActorDraw.Render
+---@field gestures table<string, { pose: table, displayOffset: { x: number, y: number, z: number } }>?
 
 ---@class FieldActorDraw.Render
 ---@field kind string
@@ -135,13 +139,27 @@ local function writeItem(record, entry, partIndex, item)
   local render = visual.render
   local part = render.kind == "staticModel" and assert(render.parts[partIndex or 1]) or render
   local geometry = assert(part.geometry, "draw visual part is missing geometry")
-  local frameIndex, poseFellBack =
-    FieldActorPose.frameIndex(visual, record.facing, record.pose or "idle", record.poseTick or 0)
+  local frameIndex, poseFellBack
+  local gestureOffsetX, gestureOffsetY, gestureOffsetZ = 0, 0, 0
+  if record.gesturePose ~= nil then
+    frameIndex = FieldActorPose.gestureFrameIndex(visual, record.gesturePose, record.gestureTick or 0)
+    poseFellBack = false
+    local gestures = visual.gestures
+    local gesture = gestures and gestures[record.gesturePose]
+    if gesture and gesture.displayOffset then
+      gestureOffsetX = gesture.displayOffset.x or 0
+      gestureOffsetY = gesture.displayOffset.y or 0
+      gestureOffsetZ = gesture.displayOffset.z or 0
+    end
+  else
+    frameIndex, poseFellBack =
+      FieldActorPose.frameIndex(visual, record.facing, record.pose or "idle", record.poseTick or 0)
+  end
 
   local anchor = geometry.anchorTiles
-  local x = record.world.x + anchor.x
-  local y = record.world.y + anchor.y
-  local z = record.world.z + anchor.z
+  local x = record.world.x + gestureOffsetX + anchor.x
+  local y = record.world.y + gestureOffsetY + anchor.y
+  local z = record.world.z + gestureOffsetZ + anchor.z
   local isBillboard = render.kind ~= "staticModel"
   if isBillboard then
     local billboardBase = writeBillboardBase(item, x, y, z, geometry.baseTransform)

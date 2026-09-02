@@ -54,6 +54,9 @@ function FieldPlayerVisual:setAvatar(spriteId)
       { spriteId = spriteId }
     )
   end
+  if self.player and self.player.clearGesturePresentation then
+    self.player:clearGesturePresentation()
+  end
   self.spriteId = spriteId
   self.poseTick = 0
 end
@@ -67,11 +70,17 @@ end
 -- original timeline: a standing actor holds the first frame of its facing
 -- range, and a turn starts the new range at its first frame.
 function FieldPlayerVisual:updateFixed(walkPoseAtTickStart)
-  local isScriptedWalking = self.player.isScriptedMoving and self.player:isScriptedMoving()
-  local walkPoseActive = self.player.motion == "walking"
-    or self.player.motion == "turning"
-    or self.player.motion == "jumping"
-    or isScriptedWalking == true
+  local scripted = self.player._scriptedMotion
+  local isScriptedLocomotion = scripted ~= nil
+    and (scripted.action == "walk" or scripted.action == "walk_in_place" or scripted.action == "jump")
+  local walkPoseActive
+  if scripted ~= nil then
+    walkPoseActive = isScriptedLocomotion or self.player.motion == "turning" or self.player.motion == "jumping"
+  else
+    walkPoseActive = self.player.motion == "walking"
+      or self.player.motion == "turning"
+      or self.player.motion == "jumping"
+  end
   local walking = not self.player.animationPaused and (walkPoseAtTickStart == true or walkPoseActive)
 
   local facingChanged = self.lastFacing ~= self.player.facing
@@ -105,14 +114,17 @@ end
 function FieldPlayerVisual:drawRecord(alpha)
   local point = self.player:renderPosition(alpha)
   local record = self._drawRecord
+  local gestureOffsetY = self.player._gestureOffsetY or 0
   record.actorId = self.actorId
   record.spriteId = self.spriteId
   record.world.x = point.x
-  record.world.y = point.y
+  record.world.y = point.y + gestureOffsetY
   record.world.z = point.z
   record.facing = self.player.facing
   record.pose = self.pose
   record.poseTick = self.poseTick
+  record.gesturePose = self.player._gesturePose
+  record.gestureTick = self.player._gestureTick
   record.visible = true
   return record
 end

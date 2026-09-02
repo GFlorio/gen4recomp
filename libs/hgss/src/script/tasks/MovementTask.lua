@@ -154,6 +154,13 @@ local function advanceAction(state, action, ctx)
     end
   end
   state.progressTicks = state.progressTicks + 1
+  if kind == "gesture" then
+    local facing = MovementCalibration.gestureFacingAt(action.name, state.progressTicks)
+    if facing ~= nil then
+      state.facing = facing
+      ctx.services.actors:setFacing(state.actor, facing)
+    end
+  end
   if shouldBegin then
     ctx.services.actors:advanceScriptedAction(state.actor, state.progressTicks, state.durationTicks)
   end

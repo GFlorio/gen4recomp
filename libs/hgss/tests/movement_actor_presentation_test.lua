@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-field
 -- Scripted-actor presentation lifecycle: proves facing/pose transitions on
 -- the real FieldObjectActor driven through the production
 -- Scheduler/MovementTask/ScriptActorWorld/FieldActorManager wiring (not the
@@ -1108,6 +1109,245 @@ function T.animation_pause_suppresses_normal_and_fast_pose_cadence()
 
   assertPaused("normal")
   assertPaused("fast")
+end
+
+local function gestureVisual()
+  local visual = FieldActorFixture.visual(99, { frameCount = 16 })
+  visual.gestures = {
+    nurse_bow = {
+      pose = {
+        frames = {
+          { frameIndex = 9, ticks = 2 },
+          { frameIndex = 10, ticks = 2 },
+          { frameIndex = 11, ticks = 2 },
+          { frameIndex = 12, ticks = 2 },
+        },
+        loop = false,
+        durationTicks = 8,
+      },
+      displayOffset = { x = 0, y = 0, z = 0 },
+    },
+    give = {
+      pose = {
+        frames = { { frameIndex = 13, ticks = 22 } },
+        loop = false,
+        durationTicks = 22,
+      },
+      displayOffset = { x = 0, y = 0, z = 1 / 32 },
+    },
+    receive = {
+      pose = {
+        frames = { { frameIndex = 14, ticks = 22 } },
+        loop = false,
+        durationTicks = 22,
+      },
+      displayOffset = { x = 0, y = 0, z = 1 / 32 },
+    },
+  }
+  return visual
+end
+
+function T.gesture_warp_preserves_logic_and_reproduces_source_render_vector()
+  local visual = FieldActorFixture.visual(99, { frameCount = 8 })
+  local h = harness({ visual = visual })
+  local resource = S.script({
+    api = 1,
+    id = "test.gesture_warp",
+    steps = {
+      S.applyMovement({
+        actor = ACTOR_ID,
+        movement = { S.m.gesture({ name = "warp_out" }), S.m.gesture({ name = "warp_in" }) },
+      }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  local startFieldX, startFieldZ = actor.fieldX, actor.fieldZ
+  local startWorldY = actor.worldY
+  for progress = 1, 20 do
+    h.scheduler:step(100 + progress, nil)
+    local record = assert(h.mgr:drawRecords()[1])
+    Assert.equal(record.world.y, startWorldY + progress, "warp_out update " .. progress .. " renders Y +" .. progress)
+    Assert.equal(actor.fieldX, startFieldX, "warp_out keeps logical fieldX")
+    Assert.equal(actor.fieldZ, startFieldZ, "warp_out keeps logical fieldZ")
+    Assert.equal(actor.worldY, startWorldY, "warp_out keeps logical worldY")
+    Assert.isNil(record.gesturePose, "warp has no clip")
+  end
+  Assert.equal(actor._gestureOffsetY, 20, "warp_out commit retains +20")
+  local holdRecord = assert(h.mgr:drawRecords()[1])
+  Assert.equal(holdRecord.world.y, startWorldY + 20, "warp_out held Y remains +20 after commit")
+  for progress = 1, 20 do
+    h.scheduler:step(120 + progress, nil)
+    local record = assert(h.mgr:drawRecords()[1])
+    Assert.equal(
+      record.world.y,
+      startWorldY + (20 - progress),
+      "warp_in update " .. progress .. " renders " .. (20 - progress)
+    )
+  end
+  Assert.equal(actor._gestureOffsetY, 0, "warp_in ends neutral")
+  Assert.equal(actor.fieldX, startFieldX, "warp sequence keeps logical fieldX")
+  Assert.equal(actor.worldY, startWorldY, "warp sequence keeps logical worldY")
+end
+
+function T.gesture_nurse_bow_uses_clip_then_faces_south()
+  local visual = gestureVisual()
+  local h = harness({ visual = visual })
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  actor:setFacing("north")
+  local resource = S.script({
+    api = 1,
+    id = "test.gesture_bow",
+    steps = {
+      S.applyMovement({ actor = ACTOR_ID, movement = { S.m.gesture({ name = "nurse_bow" }) } }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 200)
+  h.scheduler:step(200, nil)
+  for progress = 1, 8 do
+    h.scheduler:step(200 + progress, nil)
+    local record = assert(h.mgr:drawRecords()[1])
+    Assert.equal(record.gesturePose, "nurse_bow", "bow active update " .. progress)
+    Assert.equal(record.gestureTick, progress - 1, "bow tick " .. progress)
+    Assert.equal(actor.facing, "north", "bow keeps north before update 9")
+  end
+  h.scheduler:step(209, nil)
+  Assert.equal(actor.facing, "south", "bow faces south at update 9")
+  Assert.isNil((h.mgr:drawRecords()[1]).gesturePose, "bow update 9 has no clip")
+  h.scheduler:step(210, nil)
+  Assert.equal(actor.facing, "south", "bow remains south at update 10")
+  Assert.isNil((h.mgr:drawRecords()[1]).gesturePose, "bow commit leaves no held gesture")
+  Assert.equal(actor._gestureOffsetY, 0, "bow has no dynamic offset")
+end
+
+function T.gesture_give_and_receive_hold_final_clip_with_fixed_offset()
+  local visual = gestureVisual()
+  local h = harness({ visual = visual })
+  local resource = S.script({
+    api = 1,
+    id = "test.gesture_give_receive",
+    steps = {
+      S.applyMovement({ actor = ACTOR_ID, movement = { S.m.gesture({ name = "give" }) } }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 300)
+  h.scheduler:step(300, nil)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  for progress = 1, 22 do
+    h.scheduler:step(300 + progress, nil)
+    local record = assert(h.mgr:drawRecords()[1])
+    Assert.equal(record.gesturePose, "give", "give update " .. progress)
+    Assert.equal(record.gestureTick, progress - 1, "give tick " .. progress)
+  end
+  Assert.equal(actor._gesturePose, "give", "give held pose after commit")
+  Assert.equal(actor._gestureTick, 21, "give held tick final")
+  -- Drive a second gesture directly through the manager to avoid foreground conflicts
+  for progress = 1, 22 do
+    if progress == 1 then
+      h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "receive", durationTicks = 22 })
+    end
+    h.mgr:advanceScriptedAction(ACTOR_ID, progress, 22)
+    if progress == 1 then
+      local record = assert(h.mgr:drawRecords()[1])
+      Assert.equal(record.gesturePose, "receive", "receive restarts with its own clip")
+      Assert.equal(record.gestureTick, 0, "receive starts at tick 0")
+    end
+  end
+  h.mgr:commitScriptedAction(ACTOR_ID)
+  Assert.equal(actor._gesturePose, "receive", "receive held after commit")
+  Assert.equal(actor._gestureTick, 21, "receive held tick final")
+end
+
+function T.gesture_warp_hold_replaced_by_next_gesture_without_accumulation()
+  local visual = FieldActorFixture.visual(99, { frameCount = 8 })
+  local h = harness({ visual = visual })
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "warp_out", durationTicks = 20 })
+  h.mgr:advanceScriptedAction(ACTOR_ID, 20, 20)
+  h.mgr:commitScriptedAction(ACTOR_ID)
+  Assert.equal(actor._gestureOffsetY, 20, "warp_out held")
+  h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "warp_in", durationTicks = 20 })
+  h.mgr:advanceScriptedAction(ACTOR_ID, 1, 20)
+  Assert.equal(actor._gestureOffsetY, 19, "warp_in replaces held warp_out at first update")
+  h.mgr:advanceScriptedAction(ACTOR_ID, 20, 20)
+  h.mgr:commitScriptedAction(ACTOR_ID)
+  Assert.equal(actor._gestureOffsetY, 0, "warp_in ends neutral")
+end
+
+function T.gesture_cancellation_restores_prior_held_state_and_logical_anchor()
+  local visual = gestureVisual()
+  local h = harness({ visual = visual })
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  -- establish held give
+  h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "give", durationTicks = 22 })
+  h.mgr:advanceScriptedAction(ACTOR_ID, 22, 22)
+  h.mgr:commitScriptedAction(ACTOR_ID)
+  Assert.equal(actor._gesturePose, "give", "give held")
+  local heldPose, heldTick, heldOffset = actor._gesturePose, actor._gestureTick, actor._gestureOffsetY
+  local logicalWorldY = actor.worldY
+  -- start new gesture and advance once, then cancel
+  h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "warp_out", durationTicks = 20 })
+  h.mgr:advanceScriptedAction(ACTOR_ID, 5, 20)
+  Assert.equal(actor._gestureOffsetY, 5, "active warp offset")
+  h.mgr:cancelScriptedMovement(ACTOR_ID)
+  Assert.equal(actor._gesturePose, heldPose, "cancel restores prior held pose")
+  Assert.equal(actor._gestureTick, heldTick, "cancel restores prior held tick")
+  Assert.equal(actor._gestureOffsetY, heldOffset, "cancel restores prior held offset")
+  Assert.equal(actor.worldY, logicalWorldY, "cancel restores logical anchor")
+end
+
+function T.gesture_draw_records_clear_stale_state_after_neutral_commit()
+  local visual = FieldActorFixture.visual(99, { frameCount = 8 })
+  local h = harness({ visual = visual })
+  assert(h.mgr:getById(ACTOR_ID))
+  h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "warp_in", durationTicks = 20 })
+  h.mgr:advanceScriptedAction(ACTOR_ID, 20, 20)
+  h.mgr:commitScriptedAction(ACTOR_ID)
+  local first = h.mgr:drawRecords()[1]
+  Assert.isNil(first.gesturePose, "neutral commit clears gesturePose")
+  Assert.isNil(first.gestureTick, "neutral commit clears gestureTick")
+  local second = h.mgr:drawRecords()[1]
+  Assert.isNil(second.gesturePose, "reused record stays cleared")
+end
+
+function T.gesture_literal_progression_oracle_independent_of_calibration()
+  -- Independent oracle for the five progressions, not derived from MovementCalibration output.
+  local cases = {
+    { name = "warp_out", duration = 20, progress = 1, expectedOffset = 1, pose = nil },
+    { name = "warp_out", duration = 20, progress = 20, expectedOffset = 20, pose = nil },
+    { name = "warp_in", duration = 20, progress = 1, expectedOffset = 19, pose = nil },
+    { name = "warp_in", duration = 20, progress = 20, expectedOffset = 0, pose = nil },
+    { name = "nurse_bow", duration = 10, progress = 1, expectedOffset = 0, pose = "nurse_bow", tick = 0 },
+    { name = "nurse_bow", duration = 10, progress = 8, expectedOffset = 0, pose = "nurse_bow", tick = 7 },
+    { name = "nurse_bow", duration = 10, progress = 9, expectedOffset = 0, pose = nil },
+    { name = "give", duration = 22, progress = 1, expectedOffset = 0, pose = "give", tick = 0 },
+    { name = "give", duration = 22, progress = 22, expectedOffset = 0, pose = "give", tick = 21 },
+    { name = "receive", duration = 22, progress = 1, expectedOffset = 0, pose = "receive", tick = 0 },
+  }
+  for _, case in ipairs(cases) do
+    local presentation = MovementCalibration.gesturePresentationAt(case.name, case.progress, case.duration)
+    Assert.equal(presentation.offsetY, case.expectedOffset, case.name .. " progress " .. case.progress .. " offset")
+    Assert.equal(presentation.pose, case.pose, case.name .. " progress " .. case.progress .. " pose")
+    if case.tick ~= nil then
+      Assert.equal(presentation.poseTick, case.tick, case.name .. " tick")
+    end
+  end
+  Assert.equal(MovementCalibration.gestureFacingAt("nurse_bow", 8), nil, "bow before 9 has no facing")
+  Assert.equal(MovementCalibration.gestureFacingAt("nurse_bow", 9), "south", "bow at 9 faces south")
+  Assert.equal(MovementCalibration.gestureFacingAt("give", 9), nil, "give never faces")
+  local heldWarp = MovementCalibration.gesturePresentationAfterCommit("warp_out", 20)
+  Assert.equal(heldWarp.offsetY, 20, "warp_out held offset")
+  Assert.isNil(heldWarp.pose, "warp_out held pose nil")
+  local heldGive = MovementCalibration.gesturePresentationAfterCommit("give", 22)
+  Assert.equal(heldGive.pose, "give", "give held pose")
+  Assert.equal(heldGive.poseTick, 21, "give held tick")
 end
 
 return { tests = T }

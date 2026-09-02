@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-field
 -- The player visual adapter must read FieldPlayer and never write it: pose from
 -- motion, facing from the player, interpolated world position from the shared
 -- render position, and a deterministic clock that only advances mid-step.
@@ -319,6 +320,66 @@ function T.changing_facing_during_continuous_movement_resets_the_phase()
   end
   Assert.equal(subject.fieldZ, 5, "the south tile committed")
   Assert.equal(presentation.poseTick, 8)
+end
+
+function T.gesture_does_not_force_walk_pose_and_draw_record_carries_gesture_offset()
+  local subject = movingPlayer()
+  local presentation = visual(subject)
+  subject:beginScriptedAction({ action = "gesture", name = "warp_out" })
+  subject:advanceScriptedAction(5, 20)
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "idle", "gesture does not force walk pose")
+  Assert.equal(presentation.poseTick, 0, "gesture keeps idle tick")
+  local record = presentation:drawRecord(1)
+  Assert.equal(record.gesturePose, nil, "warp has no clip")
+  Assert.near(record.world.y, subject.worldY + 5, 1e-9, "warp offset added to draw Y only")
+  Assert.equal(subject.worldY, subject.from.worldY, "logical worldY unchanged during warp")
+  subject:advanceScriptedAction(20, 20)
+  subject:commitScriptedAction()
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "idle", "held warp does not force walk")
+  local held = presentation:drawRecord(1)
+  Assert.near(held.world.y, subject.worldY + 20, 1e-9, "held warp offset persists in draw")
+end
+
+function T.give_uses_clip_and_fixed_offset_while_walk_remains_distinct()
+  local subject = movingPlayer()
+  local presentation = visual(subject)
+  subject:beginScriptedAction({ action = "gesture", name = "give" })
+  subject:advanceScriptedAction(1, 22)
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "idle", "give is not walking")
+  local record = presentation:drawRecord(1)
+  Assert.equal(record.gesturePose, "give", "give publishes gesturePose")
+  Assert.equal(record.gestureTick, 0, "give tick 0")
+  subject:advanceScriptedAction(22, 22)
+  subject:commitScriptedAction()
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "idle", "held give stays idle")
+  local held = presentation:drawRecord(1)
+  Assert.equal(held.gesturePose, "give", "held give persists")
+  Assert.equal(held.gestureTick, 21, "held give tick final")
+  -- scripted walk still uses walk pose
+  subject:beginScriptedAction({ action = "walk", direction = "east", speed = "normal" })
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "walk", "scripted walk does use walk pose")
+  presentation:updateFixed(true)
+  Assert.equal(presentation.pose, "walk", "scripted walk keeps walk pose")
+end
+
+function T.avatar_replacement_clears_held_gesture()
+  local subject = movingPlayer()
+  local presentation = visual(subject)
+  subject:beginScriptedAction({ action = "gesture", name = "give" })
+  subject:advanceScriptedAction(22, 22)
+  subject:commitScriptedAction()
+  Assert.equal(subject._gesturePose, "give", "give held before avatar change")
+  presentation:setAvatar(42)
+  Assert.isNil(subject._gesturePose, "avatar replacement clears held gesture")
+  Assert.isNil(subject._gestureTick, "avatar replacement clears held tick")
+  Assert.equal(subject._gestureOffsetY, 0, "avatar replacement clears offset")
+  local record = presentation:drawRecord(1)
+  Assert.isNil(record.gesturePose, "draw record cleared after avatar change")
 end
 
 return { tests = T }

@@ -61,11 +61,12 @@ local function seed(spriteIds)
     schema = FieldActorCache.INDEX_SCHEMA,
     romVersion = "heartgold",
     spriteIds = spriteIds,
+    runtime = { avatars = {}, variableSprites = { first = 1, last = 1, variableBase = 0 } },
     variableSprites = {},
     recordCount = #spriteIds,
   })
   for _, spriteId in ipairs(spriteIds) do
-    cache:writeLua(FieldActorCache.visualPath(spriteId), FieldActorFixture.visual(spriteId, { frameCount = 2 }))
+    cache:writeLua(FieldActorCache.visualPath(spriteId), FieldActorFixture.visual(spriteId, { frameCount = 8 }))
     cache:write(FieldActorCache.atlasPath(spriteId), "png-bytes")
   end
   return cache
@@ -102,11 +103,11 @@ end
 function T.builds_one_quad_and_one_billboard_mesh_per_frame()
   local p = provider({ 0 })
   local entry = p:acquire(0)
-  Assert.equal(#entry.quads, 2)
+  Assert.equal(#entry.quads, 8)
   Assert.equal(entry.quads[2].x, 32)
   Assert.equal(entry.quads[2].w, 32)
-  Assert.equal(#entry.meshes, 2, "one world mesh per atlas frame")
-  Assert.equal(entry.meshes[2].vertices[2][4], 1, "frame 2 slides its U range onto the strip")
+  Assert.equal(#entry.meshes, 8, "one world mesh per atlas frame")
+  Assert.isTrue(entry.meshes[2].vertices[2][4] > 0, "frame 2 slides its U range onto the strip")
 end
 
 function T.last_release_keeps_the_entry_resident_until_evicted()

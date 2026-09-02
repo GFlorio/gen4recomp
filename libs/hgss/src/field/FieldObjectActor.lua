@@ -33,6 +33,9 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field private _idlePresentation { mode: "static"|"animated", cadence: integer }
 ---@field private _scriptedPresentationAdvanced boolean
 ---@field presentationOffset { x: number, y: number } render-only action or idle display offset
+---@field private _gesturePose string?
+---@field private _gestureTick integer?
+---@field private _gestureOffsetY number
 ---@field activeEmoteKind string? the active semantic emote (e.g. "exclamation") while an emote action is live, else nil
 ---@field visible boolean
 ---@field solid boolean
@@ -159,6 +162,9 @@ function FieldObjectActor.new(opts)
     -- Render-only locomotion presentation offset (walk-in-place bob); never
     -- mutates worldX/worldY/worldZ, which stay the logical/committed anchor.
     presentationOffset = { x = 0, y = 0 },
+    _gesturePose = nil,
+    _gestureTick = nil,
+    _gestureOffsetY = 0,
     activeEmoteKind = nil,
     visible = true,
     -- Solid unless the source/generated event explicitly says otherwise; a
@@ -258,6 +264,10 @@ function FieldObjectActor:beginAction(descriptor, owner)
     destResident = dest.resident == true,
     startPose = self.pose,
     startPoseTick = self.poseTick,
+    gestureName = descriptor.name,
+    startGesturePose = self._gesturePose,
+    startGestureTick = self._gestureTick,
+    startGestureOffsetY = self._gestureOffsetY,
   }
   -- Every action transaction starts from a zero presentation offset; only
   -- walk_in_place's advance re-populates it while it is the active action.
@@ -270,11 +280,23 @@ function FieldObjectActor:beginAction(descriptor, owner)
   -- Locomotion pose is true while a locomotion action is active. Face and
   -- gesture are explicit static presentation transitions; delays and emotes
   -- leave the current idle presentation unchanged.
-  if isLocomotionAction(descriptor.action) then
+  if descriptor.action == "gesture" then
+    self._gesturePose = nil
+    self._gestureTick = nil
+    self._gestureOffsetY = 0
+    self.pose = "idle"
+    self.poseTick = 0
+  elseif isLocomotionAction(descriptor.action) then
+    self._gesturePose = nil
+    self._gestureTick = nil
+    self._gestureOffsetY = 0
     if not self.animationPaused then
       self.pose = "walk"
     end
-  elseif descriptor.action == "face" or descriptor.action == "gesture" then
+  elseif descriptor.action == "face" then
+    self._gesturePose = nil
+    self._gestureTick = nil
+    self._gestureOffsetY = 0
     self.pose = "idle"
     self.poseTick = 0
   end
@@ -322,6 +344,12 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldZ = m.startWorldZ
     self.worldY = m.startWorldY
   end
+  if m.action == "gesture" then
+    local presentation = MovementCalibration.gesturePresentationAt(m.gestureName, progressTicks, durationTicks)
+    self._gesturePose = presentation.pose
+    self._gestureTick = presentation.poseTick
+    self._gestureOffsetY = presentation.offsetY
+  end
   -- Advance pose clock once per eligible tick for active locomotion. A delay
   -- or emote owns its tick without inheriting a prior action: its presentation
   -- comes from the visual idle profile instead.
@@ -364,6 +392,12 @@ function FieldObjectActor:commitAction()
     worldZ = m.destWorldZ,
     resident = m.destResident,
   }
+  if m.action == "gesture" then
+    local held = MovementCalibration.gesturePresentationAfterCommit(m.gestureName, m.durationTicks)
+    self._gesturePose = held.pose
+    self._gestureTick = held.poseTick
+    self._gestureOffsetY = held.offsetY
+  end
   -- The transaction settles into the visual's idle semantics; action-owned
   -- render-only state never survives the action boundary.
   self.presentationOffset.x = 0
@@ -391,6 +425,9 @@ function FieldObjectActor:cancelAction()
     self.pose = m.startPose
     self.poseTick = m.startPoseTick
   end
+  self._gesturePose = m.startGesturePose
+  self._gestureTick = m.startGestureTick
+  self._gestureOffsetY = m.startGestureOffsetY or 0
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
   self.activeEmoteKind = nil
@@ -424,6 +461,9 @@ function FieldObjectActor:settlePresentation()
   self.poseTick = 0
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self._gesturePose = nil
+  self._gestureTick = nil
+  self._gestureOffsetY = 0
   self.activeEmoteKind = nil
   applyIdlePresentation(self, false)
   self._scriptedPresentationAdvanced = false

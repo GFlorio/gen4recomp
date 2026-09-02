@@ -11,33 +11,10 @@ local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter"
 
 local T = {}
 
-local function idlePose()
-  return {
-    frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } },
-    loop = true,
-    durationTicks = 1,
-  }
-end
+local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local function visual(spriteId)
-  return {
-    schema = FieldActorCache.SCHEMA,
-    spriteId = spriteId,
-    render = {
-      kind = "atlas",
-      image = FieldActorCache.atlasPath(spriteId),
-      frameWidth = 2,
-      frameHeight = 1,
-      frameCount = 2,
-      billboardMode = "cameraFacingFull",
-      mirrorEastWest = false,
-    },
-    frames = { { textureSlot = 0, paletteSlot = 0 }, { textureSlot = 1, paletteSlot = 0 } },
-    directions = {
-      south = { idle = idlePose(), walk = idlePose() },
-    },
-    idlePresentation = { mode = "static", cadence = 0 },
-  }
+  return FieldActorFixture.visual(spriteId, { frameCount = 8 })
 end
 
 local function bundle(spriteIds)

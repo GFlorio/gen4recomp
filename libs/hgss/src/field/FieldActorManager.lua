@@ -198,6 +198,8 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field facing FieldDirection
 ---@field pose string
 ---@field poseTick integer
+---@field gesturePose string?
+---@field gestureTick integer?
 ---@field activeEmoteKind string?
 ---@field visible boolean
 local FieldActorManager = {}
@@ -1588,14 +1590,17 @@ function FieldActorManager:drawRecords()
       -- worldX/worldY/worldZ (read by terrain, collision, and save) never
       -- carry it.
       local offset = actor.presentationOffset
+      local gestureOffsetY = actor._gestureOffsetY or 0
       record.actorId = actor.actorId
       record.spriteId = actor.spriteId
       record.world.x = actor.worldX + (offset and offset.x or 0)
-      record.world.y = actor.worldY + (offset and offset.y or 0)
+      record.world.y = actor.worldY + (offset and offset.y or 0) + gestureOffsetY
       record.world.z = actor.worldZ
       record.facing = actor.facing
       record.pose = actor.pose
       record.poseTick = actor.poseTick
+      record.gesturePose = actor._gesturePose
+      record.gestureTick = actor._gestureTick
       record.activeEmoteKind = actor.activeEmoteKind
       record.visible = actor.visible
       records[count] = record

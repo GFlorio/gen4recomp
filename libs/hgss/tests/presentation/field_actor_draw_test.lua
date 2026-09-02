@@ -240,4 +240,67 @@ function T.a_frame_the_visual_cannot_provide_is_fatal()
   end)
 end
 
+function T.gesture_draw_selects_strict_clip_and_applies_fixed_offset_once()
+  local visual = FieldActorFixture.visual(99, { frameCount = 16 })
+  visual.gestures = {
+    give = {
+      pose = {
+        frames = { { frameIndex = 13, ticks = 22 } },
+        loop = false,
+        durationTicks = 22,
+      },
+      displayOffset = { x = 0, y = 0, z = 1 / 32 },
+    },
+    nurse_bow = {
+      pose = {
+        frames = { { frameIndex = 9, ticks = 8 } },
+        loop = false,
+        durationTicks = 8,
+      },
+      displayOffset = { x = 0, y = 0, z = 0 },
+    },
+  }
+  local asset = {
+    spriteId = 99,
+    visual = visual,
+    image = { id = 99 },
+    meshes = {},
+    billboardScales = { [visual.render.geometry] = { 1, 1, 1 } },
+  }
+  for index = 1, visual.render.frameCount do
+    asset.meshes[index] = { frameIndex = index }
+  end
+  local gestureRecord = record({ gesturePose = "give", gestureTick = 5 })
+  local item = FieldActorDraw.item(gestureRecord, asset)
+  Assert.equal(item.frameIndex, 13, "gesture selects its own frame")
+  Assert.isFalse(item.poseFellBack, "strict gesture never falls back")
+  Assert.near(item.billboardBase[15], -4 + 1 / 32 + 0, 1e-9, "fixed z offset applied before anchor")
+  Assert.equal(item.billboardBase[13], 3, "fixed x offset not doubled")
+  -- dynamic warp offset is already in record.world, not applied again
+  local warpRecord = record({ world = { x = 3, y = 1.5 + 5, z = -4 }, gesturePose = nil })
+  local warpItem = FieldActorDraw.item(warpRecord, asset)
+  Assert.near(warpItem.billboardBase[14], 1.5 + 5 + 6 / 16, 1e-9, "dynamic Y offset stays in world, not doubled")
+end
+
+function T.missing_gesture_clip_in_draw_is_fatal_and_warp_needs_no_clip()
+  local visual = FieldActorFixture.visual(99, { frameCount = 8 })
+  visual.gestures = {}
+  local asset = {
+    spriteId = 99,
+    visual = visual,
+    image = { id = 99 },
+    meshes = {},
+    billboardScales = { [visual.render.geometry] = { 1, 1, 1 } },
+  }
+  for index = 1, visual.render.frameCount do
+    asset.meshes[index] = { frameIndex = index }
+  end
+  throwsCode("ACTOR_POSE_MISSING", function()
+    FieldActorDraw.item(record({ gesturePose = "give", gestureTick = 0 }), asset)
+  end)
+  -- warp works without clip
+  local warpOk = FieldActorDraw.item(record({ world = { x = 3, y = 6.5, z = -4 } }), asset)
+  Assert.equal(warpOk.frameIndex, 2, "warp uses regular idle frame")
+end
+
 return { tests = T }

@@ -15,12 +15,13 @@ local function cache()
   local result = CacheFs.forVersion("heartgold", FakeCache.new())
   result:writeLua(FieldActorCache.indexPath(), {
     schema = FieldActorCache.INDEX_SCHEMA,
-    romVersion = "heartgold",
     spriteIds = { 0 },
+    runtime = { avatars = {}, variableSprites = { first = 1, last = 1, variableBase = 0 } },
+    romVersion = "heartgold",
     variableSprites = {},
     recordCount = 1,
   })
-  result:writeLua(FieldActorCache.visualPath(0), FieldActorFixture.visual(0, { frameCount = 2 }))
+  result:writeLua(FieldActorCache.visualPath(0), FieldActorFixture.visual(0, { frameCount = 8 }))
   return result
 end
 
