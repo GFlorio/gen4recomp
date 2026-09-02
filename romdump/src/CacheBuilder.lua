@@ -181,7 +181,7 @@ function CacheBuilder.buildVersions(versionIds, options)
       if not fontBundle then
         return versionFailure(fontErr)
       end
-      if forced or not FieldFontCacheWriter.isReady(cacheFs, fontBundle.fontId, fontBundle.marker) then
+      if forced or not FieldFontCacheWriter.isReady(cacheFs, fontBundle.marker) then
         FieldFontCacheWriter.write(cacheFs, fontBundle)
         log(string.format("build-cache: %s field font compiled", version))
       else

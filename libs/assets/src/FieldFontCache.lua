@@ -13,6 +13,7 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 FieldFontCache.FORMAT = Contract.font.cacheFormat
 FieldFontCache.SCHEMA = Contract.font.schema
+FieldFontCache.REQUIRED_FONT_IDS = { 0, 4 }
 
 -- The source focus-indicator frames are 24x32 (the text printer's YESNO
 -- screen-focus graphic); the compiled definition's frame rects must match.
@@ -58,21 +59,23 @@ function FieldFontCache.marker(romSha1, depHash)
   return string.format("%s:%s:%s", FieldFontCache.FORMAT, romSha1, depHash)
 end
 
-function FieldFontCache.isReady(cacheFs, fontId, expectedMarker)
+function FieldFontCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(FieldFontCache.markerPath()) ~= expectedMarker then
     return false
   end
-  if not cacheFs:exists(FieldFontCache.defPath(fontId), "file") then
-    return false
-  end
-  if not cacheFs:exists(FieldFontCache.atlasPath(fontId), "file") then
-    return false
-  end
-  if not cacheFs:exists(FieldFontCache.maskAtlasPath(fontId), "file") then
-    return false
-  end
-  if not cacheFs:exists(FieldFontCache.focusIndicatorsPath(fontId), "file") then
-    return false
+  for _, fontId in ipairs(FieldFontCache.REQUIRED_FONT_IDS) do
+    if not cacheFs:exists(FieldFontCache.defPath(fontId), "file") then
+      return false
+    end
+    if not cacheFs:exists(FieldFontCache.atlasPath(fontId), "file") then
+      return false
+    end
+    if not cacheFs:exists(FieldFontCache.maskAtlasPath(fontId), "file") then
+      return false
+    end
+    if not cacheFs:exists(FieldFontCache.focusIndicatorsPath(fontId), "file") then
+      return false
+    end
   end
   return true
 end

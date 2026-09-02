@@ -1,4 +1,4 @@
--- Compiles the HGSS field font (font 0) into a private glyph atlas PNG, a
+-- Compiles the HGSS field fonts (font IDs 0 and 4) into private glyph atlas PNGs, a
 -- semantic glyph mask atlas PNG, a focus-indicator PNG, and the
 -- g4-field-font-v3 definition. The mask atlas repeats the composited atlas's
 -- base-band glyph geometry once, encoding each glyph pixel's raw 0..3 class
@@ -119,10 +119,11 @@ local function concatRgba(chars)
 end
 
 ---@param source { archive: RomFs.Narc, archiveInfo: RomFs.NarcInfo, archiveSha1: string }
+---@param glyphMemberId integer
 ---@param sha1hex fun(bytes: string): string
 ---@return table
-local function decodeFontSource(source, sha1hex)
-  local glyphMember = must(source.archive:readMember(manifest.fontGlyphMember))
+local function decodeFontSource(source, glyphMemberId, sha1hex)
+  local glyphMember = must(source.archive:readMember(glyphMemberId))
   local focusMember = must(source.archive:readMember(manifest.fontFocusIndicatorMember))
   local paletteMember = must(source.archive:readMember(manifest.fontPaletteMember))
   local glyphMemberSha1 = sha1hex(glyphMember)
@@ -344,14 +345,13 @@ local function buildCharmap()
   return textToCode
 end
 
----@param romFs RomFs
 ---@param source { archive: RomFs.Narc, archiveInfo: RomFs.NarcInfo, archiveSha1: string }
+---@param fontId integer
+---@param glyphMemberId integer
 ---@param sha1hex fun(bytes: string): string
----@param hashLua fun(value: any): string
----@return FieldFontCompiler.Bundle
-local function compileFont(romFs, source, sha1hex, hashLua)
-  local fontId = manifest.fontId
-  local data = decodeFontSource(source, sha1hex)
+---@return table, table
+local function compileFont(source, fontId, glyphMemberId, sha1hex)
+  local data = decodeFontSource(source, glyphMemberId, sha1hex)
   local font, palette = data.font, data.palette
   local atlasBytes, maskAtlasBytes, width, baseHeight = buildGlyphAtlases(font, palette.colors)
   local focusIndicators, focusIndicatorsBytes = buildFocusIndicators(data.focusChars, palette.colors, fontId)
@@ -391,6 +391,43 @@ local function compileFont(romFs, source, sha1hex, hashLua)
     palette = palette.colors,
   } ---@type FieldFontDef
 
+  local bundle = {
+    fontId = fontId,
+    font = fontDef,
+    atlas = atlasBytes,
+    maskAtlas = maskAtlasBytes,
+    focusIndicators = focusIndicatorsBytes,
+  }
+  return bundle,
+    {
+      fontId = fontId,
+      memberId = glyphMemberId,
+      sha1 = data.glyphMemberSha1,
+      focusIndicatorMemberSha1 = data.focusIndicatorMemberSha1,
+      paletteMemberSha1 = data.paletteMemberSha1,
+    }
+end
+
+---@param romFs RomFs
+---@param sha1hex fun(bytes: string): string?
+---@param hashLua fun(value: any): string?
+---@return FieldFontCompiler.Bundle
+local function _compile(romFs, sha1hex, hashLua)
+  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
+  sha1hex = sha1hex or Hashing.sha1hex
+  hashLua = hashLua or Hashing.hashLua
+  local source = loadSource(romFs, sha1hex)
+  local fonts = {}
+  local glyphMembers = {}
+  local firstSourceData
+  for _, fontId in ipairs(manifest.fontIds) do
+    local glyphMemberId = assert(manifest.fontGlyphMembers[fontId], "font glyph member is not configured")
+    local font, sourceData = compileFont(source, fontId, glyphMemberId, sha1hex)
+    fonts[fontId] = font
+    glyphMembers[#glyphMembers + 1] = sourceData
+    firstSourceData = firstSourceData or sourceData
+  end
+  assert(firstSourceData, "field font configuration must contain a required font")
   local dependencies = {
     cacheFormat = FieldFontCache.FORMAT,
     charmapVersion = FieldMessageCompiler.CHARMAP_VERSION,
@@ -404,36 +441,17 @@ local function compileFont(romFs, source, sha1hex, hashLua)
       path = source.archiveInfo.path,
       sha1 = source.archiveSha1,
     },
-    glyphMemberId = manifest.fontGlyphMember,
-    glyphMemberSha1 = data.glyphMemberSha1,
+    glyphMembers = glyphMembers,
     focusIndicatorMemberId = manifest.fontFocusIndicatorMember,
-    focusIndicatorMemberSha1 = data.focusIndicatorMemberSha1,
+    focusIndicatorMemberSha1 = firstSourceData.focusIndicatorMemberSha1,
     paletteMemberId = manifest.fontPaletteMember,
-    paletteMemberSha1 = data.paletteMemberSha1,
+    paletteMemberSha1 = firstSourceData.paletteMemberSha1,
   }
-
-  local marker = FieldFontCache.marker(romFs:metadata().sha1, hashLua(dependencies))
-  local bundle = {
-    fontId = fontId,
-    marker = marker,
-    font = fontDef,
-    atlas = atlasBytes,
-    maskAtlas = maskAtlasBytes,
-    focusIndicators = focusIndicatorsBytes,
+  return {
+    fonts = fonts,
+    marker = FieldFontCache.marker(romFs:metadata().sha1, hashLua(dependencies)),
     dependencies = dependencies,
-  }
-  return bundle --[[@as FieldFontCompiler.Bundle]]
-end
-
----@param romFs RomFs
----@param sha1hex fun(bytes: string): string?
----@param hashLua fun(value: any): string?
----@return FieldFontCompiler.Bundle
-local function _compile(romFs, sha1hex, hashLua)
-  assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
-  sha1hex = sha1hex or Hashing.sha1hex
-  hashLua = hashLua or Hashing.hashLua
-  return compileFont(romFs, loadSource(romFs, sha1hex), sha1hex, hashLua)
+  } --[[@as FieldFontCompiler.Bundle]]
 end
 
 ---@param romFs RomFs
@@ -457,12 +475,8 @@ end
 -- cache marker derived from every source dependency.
 
 ---@class FieldFontCompiler.Bundle
----@field fontId integer
 ---@field marker string
----@field font FieldFontDef
----@field atlas string
----@field maskAtlas string
----@field focusIndicators string
+---@field fonts table<integer, { fontId: integer, font: FieldFontDef, atlas: string, maskAtlas: string, focusIndicators: string }>
 ---@field dependencies table
 
 -- The g4-field-font-v3 runtime definition consumed by the dialogue layout and

@@ -312,6 +312,40 @@ function FieldTextRenderer:drawText(text, x, y)
   end
 end
 
+-- Draws a plain UTF-8 string through the semantic mask atlas and caller
+-- palette, using the same glyph fallback and advances as drawText.
+---@param text string
+---@param x number
+---@param y number
+---@param palette { foreground: {r:number,g:number,b:number}, shadow: {r:number,g:number,b:number}, background: {r:number,g:number,b:number} }
+function FieldTextRenderer:drawTextWithPalette(text, x, y, palette)
+  local lg = assert(self._graphics)
+  local atlas = assert(self._maskAtlas)
+  local shader = assert(self._paletteShader)
+  local def = self.fontDef
+
+  local function norm(c)
+    return { c.r / 255, c.g / 255, c.b / 255, 1 }
+  end
+
+  shader:send("u_foreground", norm(palette.foreground))
+  shader:send("u_shadow", norm(palette.shadow))
+  shader:send("u_background", norm(palette.background))
+
+  lg.setShader(shader)
+  lg.setColor(1, 1, 1, 1)
+  for char in Utf8Glyphs.iter(text) do
+    local code = def.charmap[char]
+    if not code then
+      code = 0
+    end
+    local glyph = def.glyphs[code] or def.glyphs[0]
+    lg.draw(atlas, self:_maskQuad(code), x, y)
+    x = x + glyph.advance + (def.letterSpacing or 0)
+  end
+  lg.setShader()
+end
+
 -- The measured width of one text string in the generated field font (the
 -- source's FontID_String_GetWidth equivalent): the sum of the glyph advances.
 ---@param text string

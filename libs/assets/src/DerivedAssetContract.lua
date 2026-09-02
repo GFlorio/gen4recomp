@@ -127,12 +127,13 @@ DerivedAssetContract.messages = {
   provenanceSchema = "g4-field-message-provenance-v1",
 }
 
+-- v4: the font class requires font IDs 0 and 4 in one atomic publication;
 -- v3: the font class gains a required semantic glyph mask atlas (categorical
 -- foreground/shadow/background classes, distinct from the composited RGB
 -- atlas) so palette-driven presentation can recolor glyphs against an
 -- arbitrary runtime palette instead of the font's own baked color bands.
 DerivedAssetContract.font = {
-  cacheFormat = "field-font-cache-v3",
+  cacheFormat = "field-font-cache-v4",
   schema = "g4-field-font-v3",
 }
 

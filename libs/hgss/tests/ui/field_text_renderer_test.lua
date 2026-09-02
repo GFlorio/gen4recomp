@@ -35,6 +35,14 @@ local function textRenderer(lg)
   return FieldTextRenderer.new({ cacheFs = FieldDialogueFixture.cacheWithFont(), graphics = lg })
 end
 
+local function textRendererWithFont(lg, fontId)
+  return FieldTextRenderer.new({
+    cacheFs = FieldDialogueFixture.cacheWithFontId(fontId),
+    fontId = fontId,
+    graphics = lg,
+  })
+end
+
 local function glyphToken(code, colorIndex)
   return { kind = "glyph", code = code, text = "x", raw = { code }, colorIndex = colorIndex } --[[@as MessageToken]]
 end
@@ -317,6 +325,40 @@ function T.draw_line_with_palette_ignores_token_color_index()
     return { quad.x, quad.y, quad.w, quad.h }
   end
   Assert.deepEqual(drawAt(0), drawAt(6), "colorIndex never changes the sampled quad on the palette path")
+end
+
+function T.draw_text_with_palette_uses_utf8_glyphs_fallback_and_palette_shader()
+  local lg = fakeGraphics({ imageSizes = imageSizes() })
+  local text = textRenderer(lg)
+  local palette = {
+    foreground = { r = 255, g = 0, b = 0 },
+    shadow = { r = 0, g = 128, b = 0 },
+    background = { r = 0, g = 0, b = 255 },
+  }
+  text:drawTextWithPalette("AB?", 10, 20, palette)
+
+  Assert.equal(#lg.draws, 3)
+  Assert.equal(lg.draws[1].image, lg.images[2], "plain palette text uses the semantic mask atlas")
+  Assert.equal(lg.draws[1].x, 10)
+  Assert.equal(lg.draws[2].x, 16, "the second glyph uses the font advance")
+  Assert.equal(lg.draws[3].x, 22, "the fallback glyph follows the preceding glyph advance")
+  Assert.equal(lg.draws[3].quad.x, lg.draws[1].quad.x, "unknown glyphs use the existing fallback glyph")
+  Assert.equal(lg.draws[3].quad.y, lg.draws[1].quad.y)
+  Assert.deepEqual(lg.shaders[1].sends[1].value, { 1, 0, 0, 1 })
+  Assert.equal(lg.getShader(), nil, "plain palette text restores the existing shader postcondition")
+  text:release()
+end
+
+function T.font_four_renderer_uses_the_parameterized_cache_assets()
+  local lg = fakeGraphics({ imageSizes = imageSizes() })
+  local text = textRendererWithFont(lg, 4)
+  text:drawTextWithPalette("A", 10, 20, {
+    foreground = { r = 255, g = 0, b = 0 },
+    shadow = { r = 0, g = 255, b = 0 },
+    background = { r = 0, g = 0, b = 255 },
+  })
+  Assert.equal(#lg.draws, 1)
+  text:release()
 end
 
 return { tests = T }

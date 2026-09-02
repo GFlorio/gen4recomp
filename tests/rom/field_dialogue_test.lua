@@ -149,14 +149,15 @@ end
 -- producer (not the shared dialogue layout/mapping) is the failing owner.
 function T.leading_glyph_local_ink_matches_between_raw_decode_and_the_generated_atlas(romFs, _)
   local bundle = assert(FieldFontCompiler.compile(romFs))
-  local code = assert(bundle.font.charmap["A"], "the font charmap must resolve 'A' for this corpus")
-  local glyph = assert(bundle.font.glyphs[code])
+  local font = bundle.fonts[0].font
+  local code = assert(font.charmap["A"], "the font charmap must resolve 'A' for this corpus")
+  local glyph = assert(font.glyphs[code])
 
   -- Decode straight from the source NARC member, bypassing the atlas
   -- compositor entirely: compileFont's own glyph-to-index mapping is
   -- glyphIndex = code - 1 for every in-range charcode (font.glyphIndexForCode).
   local archive = assert(romFs:openNarc(bundle.dependencies.fontNarc.alias))
-  local glyphMember = assert(archive:readMember(bundle.dependencies.glyphMemberId))
+  local glyphMember = assert(archive:readMember(bundle.dependencies.glyphMembers[1].memberId))
   local rawFont = assert(FieldFontDecoder.decodeMember(glyphMember, { label = "field-font-glyphs" }))
   local rawGlyph = rawFont.glyphPixels(code - 1)
 
@@ -180,7 +181,7 @@ function T.leading_glyph_local_ink_matches_between_raw_decode_and_the_generated_
   local rawMinX = localOpaqueMinX(rawGlyph.values, rawGlyph.width, rawGlyph.height)
   Assert.notNil(rawMinX, "'A' must decode at least one non-transparent pixel")
 
-  local atlasWidth, _, atlasRgba = PngReader.rgba(bundle.atlas)
+  local atlasWidth, _, atlasRgba = PngReader.rgba(bundle.fonts[0].atlas)
   local atlasMinX
   for x = 0, glyph.w - 1 do
     for y = 0, glyph.h - 1 do
