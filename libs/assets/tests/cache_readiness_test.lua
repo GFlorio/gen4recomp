@@ -33,11 +33,24 @@ local function writeActorIndex(c, spriteIds)
   c:write(FieldActorCache.markerPath(), "m")
 end
 
-local function validIdlePose()
+local function validPose()
   return {
     frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } },
     loop = true,
     durationTicks = 1,
+  }
+end
+
+local function validIdlePose()
+  return validPose()
+end
+
+local function validDirections()
+  return {
+    north = { idle = validIdlePose(), walk = validIdlePose() },
+    south = { idle = validIdlePose(), walk = validIdlePose() },
+    west = { idle = validIdlePose(), walk = validIdlePose() },
+    east = { idle = validIdlePose(), walk = validIdlePose() },
   }
 end
 
@@ -50,9 +63,21 @@ local function writeActorVisual(c, spriteId)
       mode = "static",
       cadence = 0,
     },
-    directions = {
-      south = { idle = validIdlePose(), walk = validIdlePose() },
+    directions = validDirections(),
+  })
+  c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
+end
+
+local function writeActorVisualWithDirections(c, spriteId, directions, frameCount)
+  c:writeLua(FieldActorCache.visualPath(spriteId), {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = spriteId,
+    render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId), frameCount = frameCount or 1 },
+    idlePresentation = {
+      mode = "static",
+      cadence = 0,
     },
+    directions = directions,
   })
   c:write(FieldActorCache.atlasPath(spriteId), "atlas-bytes")
 end
@@ -130,9 +155,7 @@ function T.actor_visual_without_frame_count_is_not_ready()
       mode = "static",
       cadence = 0,
     },
-    directions = {
-      south = { idle = validIdlePose(), walk = validIdlePose() },
-    },
+    directions = validDirections(),
   })
   c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "runtime frame count is required by the actor visual contract")
@@ -153,9 +176,7 @@ function T.actor_visual_with_malformed_idle_presentation_is_not_ready()
       spriteId = 0,
       render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
       idlePresentation = { mode = idlePresentation.mode, cadence = idlePresentation.cadence },
-      directions = {
-        south = { idle = validIdlePose(), walk = validIdlePose() },
-      },
+      directions = validDirections(),
     })
     c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
     Assert.isFalse(FieldActorCache.isReady(c, "m"), "malformed idle presentation must fail readiness")
@@ -168,37 +189,18 @@ function T.actor_visual_with_malformed_idle_display_offset_is_not_ready()
   -- missing displayOffsetY
   c = cache()
   writeActorIndex(c, { 0 })
-  c:writeLua(FieldActorCache.visualPath(0), {
-    schema = FieldActorCache.SCHEMA,
-    spriteId = 0,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
-    idlePresentation = { mode = "static", cadence = 0 },
-    directions = {
-      south = {
-        idle = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 },
-        walk = validIdlePose(),
-      },
-    },
-  })
-  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  local directions = validDirections()
+  directions.south.idle = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 }
+  writeActorVisualWithDirections(c, 0, directions, 1)
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "idle segment without displayOffsetY must fail")
 
   -- string displayOffsetY
   c = cache()
   writeActorIndex(c, { 0 })
-  c:writeLua(FieldActorCache.visualPath(0), {
-    schema = FieldActorCache.SCHEMA,
-    spriteId = 0,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
-    idlePresentation = { mode = "static", cadence = 0 },
-    directions = {
-      south = {
-        idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = "0" } }, loop = true, durationTicks = 1 },
-        walk = validIdlePose(),
-      },
-    },
-  })
-  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  directions = validDirections()
+  directions.south.idle =
+    { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = "0" } }, loop = true, durationTicks = 1 }
+  writeActorVisualWithDirections(c, 0, directions, 1)
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "string displayOffsetY must fail")
 
   -- NaN
@@ -210,7 +212,7 @@ function T.actor_visual_with_malformed_idle_display_offset_is_not_ready()
       .. FieldActorCache.SCHEMA
       .. '", spriteId = 0, render = { kind = "atlas", image = "'
       .. FieldActorCache.atlasPath(0)
-      .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0/0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } } } }'
+      .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { north = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } }, south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0/0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } }, west = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } }, east = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } } } }'
   )
   c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "NaN displayOffsetY must fail")
@@ -224,7 +226,7 @@ function T.actor_visual_with_malformed_idle_display_offset_is_not_ready()
       .. FieldActorCache.SCHEMA
       .. '", spriteId = 0, render = { kind = "atlas", image = "'
       .. FieldActorCache.atlasPath(0)
-      .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = math.huge } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } } } }'
+      .. '", frameCount = 1 }, idlePresentation = { mode = "static", cadence = 0 }, directions = { north = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } }, south = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = math.huge } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } }, west = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } }, east = { idle = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }, walk = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 } } } }'
   )
   c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "infinite displayOffsetY must fail")
@@ -232,20 +234,166 @@ function T.actor_visual_with_malformed_idle_display_offset_is_not_ready()
   -- old shape with only frameOffsets and no displayOffsetY on segments
   c = cache()
   writeActorIndex(c, { 0 })
+  directions = validDirections()
+  directions.south.idle = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 }
   c:writeLua(FieldActorCache.visualPath(0), {
     schema = FieldActorCache.SCHEMA,
     spriteId = 0,
     render = { kind = "atlas", image = FieldActorCache.atlasPath(0), frameCount = 1 },
     idlePresentation = { mode = "static", cadence = 0, frameOffsets = { 0 } },
-    directions = {
-      south = {
-        idle = { frames = { { frameIndex = 1, ticks = 1 } }, loop = true, durationTicks = 1 },
-        walk = validIdlePose(),
-      },
-    },
+    directions = directions,
   })
   c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "old frameOffsets-only visual must fail")
+end
+
+function T.actor_visual_missing_a_facing_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  local directions = validDirections()
+  directions.north = nil
+  writeActorVisualWithDirections(c, 0, directions, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "a visual missing a required facing must fail")
+  Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
+end
+
+function T.actor_visual_with_extra_direction_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  local directions = validDirections()
+  directions.extra = { idle = validPose(), walk = validPose() }
+  writeActorVisualWithDirections(c, 0, directions, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "unknown direction keys must fail")
+end
+
+function T.actor_visual_with_malformed_pose_frames_is_not_ready()
+  local cases = {
+    { pose = { frames = {}, loop = true, durationTicks = 1 }, label = "empty frames" },
+    { pose = { frames = nil, loop = true, durationTicks = 1 }, label = "missing frames" },
+    {
+      pose = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = "true", durationTicks = 1 },
+      label = "non-boolean loop",
+    },
+    {
+      pose = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 0 },
+      label = "zero duration",
+    },
+    {
+      pose = { frames = { { frameIndex = 1, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 2 },
+      label = "duration mismatch",
+    },
+    {
+      pose = {
+        frames = {
+          { frameIndex = 1, ticks = 2, displayOffsetY = 0 },
+          { frameIndex = 1, ticks = 1, displayOffsetY = 0 },
+        },
+        loop = true,
+        durationTicks = 2,
+      },
+      label = "sum mismatch",
+    },
+  }
+  for _, case in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local directions = validDirections()
+    directions.south.idle = case.pose
+    writeActorVisualWithDirections(c, 0, directions, 1)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), case.label .. " must fail")
+  end
+end
+
+function T.actor_visual_with_malformed_frame_index_is_not_ready()
+  local cases = {
+    { frameIndex = 0, label = "zero frameIndex" },
+    { frameIndex = 2, label = "out of range frameIndex" },
+    { frameIndex = 1.5, label = "fractional frameIndex" },
+    { frameIndex = "1", label = "string frameIndex" },
+  }
+  for _, case in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local directions = validDirections()
+    directions.south.idle =
+      { frames = { { frameIndex = case.frameIndex, ticks = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }
+    writeActorVisualWithDirections(c, 0, directions, 1)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), case.label .. " must fail")
+  end
+end
+
+function T.actor_visual_with_malformed_ticks_is_not_ready()
+  local cases = {
+    { ticks = 0, label = "zero ticks" },
+    { ticks = 1.5, label = "fractional ticks" },
+    { ticks = "1", label = "string ticks" },
+    { ticks = nil, label = "missing ticks" },
+  }
+  for _, case in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local directions = validDirections()
+    local frame = { frameIndex = 1, displayOffsetY = 0 }
+    if case.ticks ~= nil then
+      frame.ticks = case.ticks
+    end
+    if case.ticks == nil then
+      -- missing ticks case
+      directions.south.idle = { frames = { { frameIndex = 1, displayOffsetY = 0 } }, loop = true, durationTicks = 1 }
+    else
+      directions.south.idle = { frames = { frame }, loop = true, durationTicks = case.ticks == 1 and 1 or 1 }
+      -- duration must match ticks or mismatch will also fail; for zero/fractional we keep duration 1 to force ticks invalid
+      if case.label == "zero ticks" or case.label == "fractional ticks" or case.label == "string ticks" then
+        directions.south.idle.durationTicks = 1
+      end
+    end
+    writeActorVisualWithDirections(c, 0, directions, 1)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), case.label .. " must fail")
+  end
+end
+
+function T.actor_visual_with_malformed_present_walk_is_not_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  local directions = validDirections()
+  directions.south.walk = {}
+  writeActorVisualWithDirections(c, 0, directions, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "empty walk table must fail")
+
+  c = cache()
+  writeActorIndex(c, { 0 })
+  directions = validDirections()
+  directions.south.walk = { frames = { { frameIndex = 2, ticks = 1 } }, loop = true, durationTicks = 1 }
+  writeActorVisualWithDirections(c, 0, directions, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "walk with out-of-range frame must fail")
+
+  c = cache()
+  writeActorIndex(c, { 0 })
+  directions = validDirections()
+  directions.south.walk = { frames = { { frameIndex = 1, ticks = 0 } }, loop = true, durationTicks = 1 }
+  writeActorVisualWithDirections(c, 0, directions, 1)
+  Assert.isFalse(FieldActorCache.isReady(c, "m"), "walk with zero ticks must fail")
+end
+
+function T.actor_visual_without_walk_is_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  local directions = validDirections()
+  directions.north.walk = nil
+  directions.south.walk = nil
+  directions.west.walk = nil
+  directions.east.walk = nil
+  writeActorVisualWithDirections(c, 0, directions, 1)
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "absent walk must remain valid")
+  Assert.isTrue(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
+end
+
+function T.actor_visual_with_valid_four_facings_is_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisual(c, 0)
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "complete four-facing visual must pass")
+  Assert.isTrue(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0))
 end
 
 function T.actor_valid_artifact_is_ready()

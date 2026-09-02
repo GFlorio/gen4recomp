@@ -57,17 +57,43 @@ local function isFiniteNumber(value)
   return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
 end
 
--- Validate the source-independent presentation data needed by every runtime
--- actor. Idle display offsets are carried on ordered pose segments, so each
--- idle segment must have a finite displayOffsetY.
-local function isValidIdlePose(pose)
-  if type(pose) ~= "table" or not Validate.isArray(pose.frames) or #pose.frames == 0 then
+local REQUIRED_DIRECTIONS = { north = true, south = true, west = true, east = true }
+
+local function isValidPose(pose, frameCount, requireDisplayOffsetY)
+  if type(pose) ~= "table" then
     return false
   end
+  if type(pose.loop) ~= "boolean" then
+    return false
+  end
+  if not Validate.isNonNegativeInteger(pose.durationTicks) or pose.durationTicks == 0 then
+    return false
+  end
+  if not Validate.isArray(pose.frames) or #pose.frames == 0 then
+    return false
+  end
+  local tickTotal = 0
   for _, segment in ipairs(pose.frames) do
-    if type(segment) ~= "table" or not isFiniteNumber(segment.displayOffsetY) then
+    if type(segment) ~= "table" then
       return false
     end
+    if
+      not Validate.isNonNegativeInteger(segment.frameIndex)
+      or segment.frameIndex == 0
+      or segment.frameIndex > frameCount
+    then
+      return false
+    end
+    if not Validate.isNonNegativeInteger(segment.ticks) or segment.ticks == 0 then
+      return false
+    end
+    if requireDisplayOffsetY and not isFiniteNumber(segment.displayOffsetY) then
+      return false
+    end
+    tickTotal = tickTotal + segment.ticks
+  end
+  if tickTotal ~= pose.durationTicks then
+    return false
   end
   return true
 end
@@ -106,18 +132,27 @@ function FieldActorCache.isValidVisual(visual, spriteId)
   if type(visual.directions) ~= "table" then
     return false
   end
-  local hasIdle = false
-  for _, set in pairs(visual.directions) do
-    if type(set) ~= "table" or type(set.idle) ~= "table" then
+  local count = 0
+  for key in pairs(visual.directions) do
+    if not REQUIRED_DIRECTIONS[key] then
       return false
     end
-    if not isValidIdlePose(set.idle) then
-      return false
-    end
-    hasIdle = true
+    count = count + 1
   end
-  if not hasIdle then
+  if count ~= 4 then
     return false
+  end
+  for direction in pairs(REQUIRED_DIRECTIONS) do
+    local set = visual.directions[direction]
+    if type(set) ~= "table" then
+      return false
+    end
+    if not isValidPose(set.idle, render.frameCount, true) then
+      return false
+    end
+    if set.walk ~= nil and not isValidPose(set.walk, render.frameCount, false) then
+      return false
+    end
   end
   return true
 end
