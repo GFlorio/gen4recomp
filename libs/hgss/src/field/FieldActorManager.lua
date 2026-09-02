@@ -323,12 +323,9 @@ local function candidateForActor(actor)
   }
 end
 
-local function occupancyTop(entry, key)
+local function occupancyWinner(entry, key)
   local bucket = entry.occupancy[key]
-  if bucket == nil or #bucket == 0 then
-    return nil
-  end
-  return bucket[#bucket]
+  return bucket and bucket[1] or nil
 end
 
 local function bucketContains(bucket, actor)
@@ -347,15 +344,39 @@ local function occupancyContains(entry, key, actor)
   return bucketContains(entry.occupancy[key], actor)
 end
 
+local function orderIndex(entry, actor)
+  for index, candidate in ipairs(entry.order) do
+    if candidate == actor then
+      return index
+    end
+  end
+  return nil
+end
+
 local function occupancyAdd(entry, key, actor)
   local bucket = entry.occupancy[key]
   if bucket == nil then
     entry.occupancy[key] = { actor }
     return
   end
-  if not bucketContains(bucket, actor) then
-    bucket[#bucket + 1] = actor
+  if bucketContains(bucket, actor) then
+    return
   end
+  local actorOrder = orderIndex(entry, actor)
+  if actorOrder == nil then
+    assert(actor.mapId == entry.runtimeMap.mapId, "actor map mismatch for ordered insertion")
+    actorOrder = #entry.order + 1
+  end
+  local insertPos = #bucket + 1
+  for index, occupant in ipairs(bucket) do
+    local occupantOrder = orderIndex(entry, occupant)
+    assert(occupantOrder ~= nil, "occupancy bucket occupant not in Entry.order")
+    if occupantOrder > actorOrder then
+      insertPos = index
+      break
+    end
+  end
+  table.insert(bucket, insertPos, actor)
 end
 
 local function occupancyRemove(entry, key, actor)
@@ -588,7 +609,7 @@ function FieldActorManager:_instantiate(entry, event, eventState)
 
     if actor.resident then
       local key = occupancyKey(runtimeMap, runtimeMap.mapId, candidateForActor(actor))
-      local occupant = occupancyTop(entry, key)
+      local occupant = occupancyWinner(entry, key)
       if actor.solid and occupant then
         Errors.raise(
           FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
@@ -1381,7 +1402,7 @@ function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
   local oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
   local newKey = occupancyKey(entry.runtimeMap, actor.mapId, reservation.candidate)
   if actor.solid then
-    assert(occupancyTop(entry, newKey) == nil, "autonomous destination became occupied")
+    assert(occupancyWinner(entry, newKey) == nil, "autonomous destination became occupied")
     assert(occupancyContains(entry, oldKey, actor), "autonomous departure occupancy is missing")
   end
   assert(
@@ -1635,7 +1656,7 @@ function FieldActorManager:getAt(mapId, candidate)
   if not entry then
     return nil
   end
-  return occupancyTop(entry, occupancyKey(entry.runtimeMap, mapId, candidate))
+  return occupancyWinner(entry, occupancyKey(entry.runtimeMap, mapId, candidate))
 end
 
 -- Motion collision sees committed occupants and autonomous destinations. The
@@ -1649,7 +1670,7 @@ function FieldActorManager:getCollisionAt(mapId, candidate)
     return nil
   end
   local key = occupancyKey(entry.runtimeMap, mapId, candidate)
-  local actor = occupancyTop(entry, key)
+  local actor = occupancyWinner(entry, key)
   if actor then
     return actor
   end
@@ -1732,8 +1753,24 @@ end
 ---@return boolean
 ---@param self FieldActorManager
 function FieldActorManager:isOccupied(mapId, candidate, exceptActorId)
-  local actor = self:getCollisionAt(mapId, candidate)
-  return actor ~= nil and actor.actorId ~= exceptActorId
+  local entry = self.maps[mapId]
+  if not entry then
+    return false
+  end
+  local key = occupancyKey(entry.runtimeMap, mapId, candidate)
+  local bucket = entry.occupancy[key]
+  if bucket == nil or #bucket == 0 then
+    return false
+  end
+  if exceptActorId == nil then
+    return true
+  end
+  for _, occupant in ipairs(bucket) do
+    if occupant.actorId ~= exceptActorId then
+      return true
+    end
+  end
+  return false
 end
 
 ---@param mapId integer
@@ -1850,7 +1887,7 @@ function FieldActorManager:setPosition(actorId, position, options)
   end
   local scripted = options ~= nil and options.scripted == true
   if resident and actor.solid and newKey and oldKey ~= newKey then
-    local occupant = occupancyTop(entry, newKey)
+    local occupant = occupancyWinner(entry, newKey)
     if occupant ~= nil and not scripted then
       Errors.raise(
         FieldErrors.ACTOR_OCCUPANCY_CONFLICT,

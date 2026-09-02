@@ -2074,7 +2074,51 @@ function T.same_key_publication_is_idempotent()
   mgr:dispose()
 end
 
-function T.reconcile_preserves_overlap_deterministic_top()
+function T.overlapping_winner_is_first_in_creation_order_regardless_of_publication_order()
+  -- First direction: earlier-ordered A moves onto B's cell.
+  local mgr1 = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local actorA1 = assert(mgr1:getById("map:61:object:0"))
+  local actorB1 = assert(mgr1:getById("map:61:object:1"))
+  mgr1:setPosition(actorA1.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local keyB1 = { fieldX = 8, fieldZ = 3, surfaceId = actorA1.surfaceId }
+  if actorA1.cellKey then
+    keyB1.cellKey = actorA1.cellKey
+    keyB1.sourceSurfaceId = actorA1.sourceSurfaceId
+  end
+  Assert.equal(mgr1:getAt(61, keyB1), actorA1, "first publication order must still select earliest actor")
+  Assert.equal(mgr1:getCollisionAt(61, keyB1), actorA1)
+  Assert.notNil(mgr1:getById(actorA1.actorId))
+  Assert.notNil(mgr1:getById(actorB1.actorId))
+  Assert.equal(actorA1.fieldX, 8)
+  Assert.equal(actorB1.fieldX, 8)
+  mgr1:dispose()
+
+  -- Second direction: later-ordered B moves onto A's cell — earliest actor still wins.
+  local mgr2 = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local actorA2 = assert(mgr2:getById("map:61:object:0"))
+  local actorB2 = assert(mgr2:getById("map:61:object:1"))
+  mgr2:setPosition(actorB2.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
+  local keyA2 = { fieldX = 2, fieldZ = 3, surfaceId = actorA2.surfaceId }
+  if actorA2.cellKey then
+    keyA2.cellKey = actorA2.cellKey
+    keyA2.sourceSurfaceId = actorA2.sourceSurfaceId
+  end
+  Assert.equal(mgr2:getAt(61, keyA2), actorA2, "reverse publication order must still select earliest actor")
+  Assert.equal(mgr2:getCollisionAt(61, keyA2), actorA2)
+  Assert.notNil(mgr2:getById(actorA2.actorId))
+  Assert.notNil(mgr2:getById(actorB2.actorId))
+  Assert.equal(actorA2.fieldX, 2)
+  Assert.equal(actorB2.fieldX, 2)
+  mgr2:dispose()
+end
+
+function T.reconcile_preserves_stable_overlap_winner()
   local mgr = manager({
     object({ objectEventId = 0, x = 2, z = 3 }),
     object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
@@ -2087,23 +2131,23 @@ function T.reconcile_preserves_overlap_deterministic_top()
     keyB.cellKey = actorA.cellKey
     keyB.sourceSurfaceId = actorA.sourceSurfaceId
   end
-  Assert.equal(mgr:getAt(61, keyB), actorA)
+  local winnerBefore = assert(mgr:getAt(61, keyB))
+  Assert.equal(winnerBefore.actorId, actorA.actorId, "live winner is earliest actor before rebuild")
   mgr:reconcilePhysicalWorld()
   local reconciledTop = mgr:getAt(61, keyB)
   Assert.notNil(reconciledTop, "reconcile must retain the overlapping bucket")
-  Assert.isTrue(
-    reconciledTop == actorA or reconciledTop == actorB,
-    "reconcile top must be one of the overlapping actors"
-  )
+  assert(reconciledTop ~= nil)
   Assert.notNil(mgr:getById(actorA.actorId))
   Assert.notNil(mgr:getById(actorB.actorId))
   Assert.isTrue(isOccupied(mgr, 61, 8, 3, actorA.surfaceId))
-  -- Deterministic ordering is by stable manager order (entry.order), so top is the last actor in that order.
-  Assert.equal(mgr:getAt(61, keyB), actorB, "reconcile deterministic top follows stable actor order")
+  Assert.equal(reconciledTop.actorId, actorA.actorId, "reconcile must preserve stable earliest-actor winner")
+  local collisionTop = mgr:getCollisionAt(61, keyB)
+  assert(collisionTop ~= nil)
+  Assert.equal(collisionTop.actorId, actorA.actorId)
   mgr:dispose()
 end
 
-function T.restore_preserves_overlap_deterministic_top()
+function T.restore_preserves_stable_overlap_winner()
   local objects = {
     object({ objectEventId = 0, x = 2, z = 3 }),
     object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
@@ -2116,8 +2160,14 @@ function T.restore_preserves_overlap_deterministic_top()
   local actorA = assert(mgr:getById("map:61:object:0"))
   assert(mgr:getById("map:61:object:1"))
   mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorA.surfaceId }
+  if actorA.cellKey then
+    keyB.cellKey = actorA.cellKey
+    keyB.sourceSurfaceId = actorA.sourceSurfaceId
+  end
+  local winnerBefore = assert(mgr:getAt(61, keyB))
+  Assert.equal(winnerBefore.actorId, actorA.actorId)
   local captured = mgr:captureObjects()
-  -- Both actors now share 8,3; capture preserves the overlap via positions.
   local validated, validationErr = FieldObjectSave.validate(captured)
   Assert.notNil(validated, tostring(validationErr))
   mgr:dispose()
@@ -2130,23 +2180,54 @@ function T.restore_preserves_overlap_deterministic_top()
   restoredMgr:enterMap(restoredMap, FieldEventState.new(), validated)
   local restoredA = assert(restoredMgr:getById("map:61:object:0"))
   local restoredB = assert(restoredMgr:getById("map:61:object:1"))
-  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = restoredA.surfaceId }
+  local restoredKey = { fieldX = 8, fieldZ = 3, surfaceId = restoredA.surfaceId }
   if restoredA.cellKey then
-    keyB.cellKey = restoredA.cellKey
-    keyB.sourceSurfaceId = restoredA.sourceSurfaceId
+    restoredKey.cellKey = restoredA.cellKey
+    restoredKey.sourceSurfaceId = restoredA.sourceSurfaceId
   end
   Assert.notNil(restoredMgr:getById(restoredA.actorId))
   Assert.notNil(restoredMgr:getById(restoredB.actorId))
-  local restoredTop = restoredMgr:getAt(61, keyB)
-  Assert.notNil(restoredTop, "restore must retain the overlapping bucket")
-  Assert.isTrue(
-    restoredTop == restoredA or restoredTop == restoredB,
-    "restore top must be one of the overlapping actors"
-  )
-  -- Deterministic ordering is by stable manager order (entry.order sorted), last wins.
-  Assert.equal(restoredTop, restoredB, "restore deterministic top follows stable actor order")
+  local restoredTop = assert(restoredMgr:getAt(61, restoredKey), "restore must retain the overlapping bucket")
+  Assert.equal(restoredTop.actorId, restoredA.actorId, "restore must preserve stable earliest-actor winner")
+  Assert.equal(restoredMgr:getCollisionAt(61, restoredKey).actorId, restoredA.actorId)
   Assert.isTrue(isOccupied(restoredMgr, 61, 8, 3, restoredA.surfaceId))
   restoredMgr:dispose()
+end
+
+function T.occupancy_exclusion_considers_all_members_of_shared_bucket()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local surfaceId = actorA.surfaceId
+  -- Shared bucket contains both actors; every exclusion variant remains occupied.
+  Assert.isTrue(isOccupied(mgr, 61, 8, 3, surfaceId), "shared bucket without exclusion is occupied")
+  Assert.isTrue(
+    isOccupied(mgr, 61, 8, 3, surfaceId, actorA.actorId),
+    "excluding the winner must still report occupied when another occupant remains"
+  )
+  Assert.isTrue(
+    isOccupied(mgr, 61, 8, 3, surfaceId, actorB.actorId),
+    "excluding the non-winner must still report occupied"
+  )
+  Assert.equal(mgr:getAt(61, candidate(8, 3, surfaceId)).actorId, actorA.actorId)
+
+  -- Singleton buckets: excluding the sole occupant is unoccupied, no exclusion is occupied.
+  mgr:setPosition(actorA.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
+  Assert.isTrue(isOccupied(mgr, 61, 8, 3, surfaceId), "singleton B bucket is occupied without exclusion")
+  Assert.isFalse(
+    isOccupied(mgr, 61, 8, 3, surfaceId, actorB.actorId),
+    "singleton bucket excluding its sole occupant is unoccupied"
+  )
+  Assert.isTrue(isOccupied(mgr, 61, 2, 3, surfaceId), "singleton A bucket is occupied without exclusion")
+  Assert.isFalse(
+    isOccupied(mgr, 61, 2, 3, surfaceId, actorA.actorId),
+    "singleton bucket excluding its sole occupant is unoccupied"
+  )
+  mgr:dispose()
 end
 
 return { tests = T }
