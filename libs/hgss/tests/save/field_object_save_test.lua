@@ -18,6 +18,7 @@ local function actor(overrides)
     cellKey = "0:0",
     sourceSurfaceId = 3,
     facing = "east",
+    managerOrder = 0,
     controller = {
       kind = "wander",
       timer = 16,
@@ -103,6 +104,66 @@ function T.source_surface_identity_is_required_for_actors_and_actions()
   valid, err = FieldObjectSave.validate(record({ actors = { [invalidAction.actorId] = invalidAction } }))
   Assert.isNil(valid)
   Assert.isTrue(Errors.is(err))
+end
+
+function T.malformed_manager_order_is_rejected()
+  local missing = actor()
+  missing.managerOrder = nil
+  local valid, err = FieldObjectSave.validate(record({ actors = { [missing.actorId] = missing } }))
+  Assert.isNil(valid)
+  Assert.isTrue(Errors.is(err))
+
+  local negative = actor({ managerOrder = -1 })
+  valid, err = FieldObjectSave.validate(record({ actors = { [negative.actorId] = negative } }))
+  Assert.isNil(valid)
+  Assert.isTrue(Errors.is(err))
+
+  local fractional = actor({ managerOrder = 0.5 })
+  valid, err = FieldObjectSave.validate(record({ actors = { [fractional.actorId] = fractional } }))
+  Assert.isNil(valid)
+  Assert.isTrue(Errors.is(err))
+
+  local duplicate = {
+    schema = FieldObjectSave.SCHEMA,
+    rng = { state = 7, calls = 3 },
+    actors = {
+      ["map:60:object:7"] = actor({ actorId = "map:60:object:7", objectEventId = 7, mapId = 60, managerOrder = 0 }),
+      ["map:60:object:8"] = actor({ actorId = "map:60:object:8", objectEventId = 8, mapId = 60, managerOrder = 0 }),
+    },
+  }
+  valid, err = FieldObjectSave.validate(duplicate)
+  Assert.isNil(valid)
+  Assert.isTrue(Errors.is(err))
+
+  local gap = {
+    schema = FieldObjectSave.SCHEMA,
+    rng = { state = 7, calls = 3 },
+    actors = {
+      ["map:60:object:7"] = actor({ actorId = "map:60:object:7", objectEventId = 7, mapId = 60, managerOrder = 0 }),
+      ["map:60:object:8"] = actor({ actorId = "map:60:object:8", objectEventId = 8, mapId = 60, managerOrder = 2 }),
+    },
+  }
+  valid, err = FieldObjectSave.validate(gap)
+  Assert.isNil(valid)
+  Assert.isTrue(Errors.is(err))
+
+  local perMapZero = {
+    schema = FieldObjectSave.SCHEMA,
+    rng = { state = 7, calls = 3 },
+    actors = {
+      ["map:60:object:7"] = actor({ actorId = "map:60:object:7", mapId = 60, objectEventId = 7, managerOrder = 0 }),
+      ["map:61:object:7"] = actor({ actorId = "map:61:object:7", mapId = 61, objectEventId = 7, managerOrder = 0 }),
+    },
+  }
+  valid, err = FieldObjectSave.validate(perMapZero)
+  Assert.notNil(valid, tostring(err))
+  Assert.equal(valid.actors["map:60:object:7"].managerOrder, 0)
+  Assert.equal(valid.actors["map:61:object:7"].managerOrder, 0)
+
+  local validRecord = record()
+  valid, err = FieldObjectSave.validate(validRecord)
+  Assert.notNil(valid, tostring(err))
+  Assert.equal(valid.actors["map:60:object:7"].managerOrder, 0)
 end
 
 return { tests = T }

@@ -168,6 +168,8 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field autonomousPresentationCarry table<string, boolean>
 ---@field byFlag table<integer, FieldActorEvent[]>
 ---@field byIndex table<integer, string>
+---@field managerSlots table<integer, FieldActorManager.Actor>
+---@field managerSlotByActorId table<string, integer>
 
 ---@class FieldActorManager.Position
 ---@field fieldX integer
@@ -343,39 +345,78 @@ local function occupancyContains(entry, key, actor)
   return bucketContains(entry.occupancy[key], actor)
 end
 
-local function orderIndex(entry, actor)
-  for index, candidate in ipairs(entry.order) do
-    if candidate == actor then
-      return index
-    end
+local function firstFreeManagerSlot(entry)
+  local slot = 0
+  while entry.managerSlots[slot] ~= nil do
+    slot = slot + 1
   end
-  return nil
+  return slot
 end
 
-local function occupancyAdd(entry, key, actor)
-  local bucket = entry.occupancy[key]
+local function managerSlot(entry, actor)
+  local slot = entry.managerSlotByActorId[actor.actorId]
+  assert(slot ~= nil, "actor manager slot is missing for " .. tostring(actor.actorId))
+  assert(entry.managerSlots[slot] == actor, "actor manager slot forward map disagrees")
+  return slot
+end
+
+local function assignManagerSlot(entry, actor, requestedSlot)
+  assert(entry.managerSlotByActorId[actor.actorId] == nil, "actor already has a manager slot")
+  local slot
+  if requestedSlot ~= nil then
+    assert(type(requestedSlot) == "number" and requestedSlot % 1 == 0 and requestedSlot >= 0, "requested manager slot is invalid")
+    assert(entry.managerSlots[requestedSlot] == nil, "requested manager slot is occupied")
+    slot = requestedSlot
+  else
+    slot = firstFreeManagerSlot(entry)
+  end
+  entry.managerSlots[slot] = actor
+  entry.managerSlotByActorId[actor.actorId] = slot
+  return slot
+end
+
+local function releaseManagerSlot(entry, actor)
+  local slot = entry.managerSlotByActorId[actor.actorId]
+  assert(slot ~= nil, "actor manager slot is missing on release for " .. tostring(actor.actorId))
+  assert(entry.managerSlots[slot] == actor, "actor manager slot forward map disagrees on release")
+  entry.managerSlots[slot] = nil
+  entry.managerSlotByActorId[actor.actorId] = nil
+end
+
+local function insertOccupant(entry, occupancy, key, actor)
+  local bucket = occupancy[key]
   if bucket == nil then
-    entry.occupancy[key] = { actor }
+    occupancy[key] = { actor }
     return
   end
   if bucketContains(bucket, actor) then
     return
   end
-  local actorOrder = orderIndex(entry, actor)
-  if actorOrder == nil then
-    assert(actor.mapId == entry.runtimeMap.mapId, "actor map mismatch for ordered insertion")
-    actorOrder = #entry.order + 1
-  end
+  local actorSlot = managerSlot(entry, actor)
   local insertPos = #bucket + 1
   for index, occupant in ipairs(bucket) do
-    local occupantOrder = orderIndex(entry, occupant)
-    assert(occupantOrder ~= nil, "occupancy bucket occupant not in Entry.order")
-    if occupantOrder > actorOrder then
+    local occupantSlot = managerSlot(entry, occupant)
+    if occupantSlot > actorSlot then
       insertPos = index
       break
     end
   end
   table.insert(bucket, insertPos, actor)
+end
+
+local function occupancyAdd(entry, key, actor)
+  insertOccupant(entry, entry.occupancy, key, actor)
+end
+
+local function actorsByManagerSlot(entry)
+  local list = {}
+  for _, actor in pairs(entry.actors) do
+    list[#list + 1] = actor
+  end
+  table.sort(list, function(a, b)
+    return managerSlot(entry, a) < managerSlot(entry, b)
+  end)
+  return list
 end
 
 local function occupancyRemove(entry, key, actor)
@@ -606,6 +647,7 @@ function FieldActorManager:_instantiate(entry, event, eventState)
       idlePresentation = idlePresentation,
     }) --[[@as FieldActorManager.Actor]]
 
+    assignManagerSlot(entry, actor)
     if actor.resident then
       local key = occupancyKey(runtimeMap, runtimeMap.mapId, candidateForActor(actor))
       local occupant = occupancyWinner(entry, key)
@@ -642,6 +684,9 @@ function FieldActorManager:_instantiate(entry, event, eventState)
         local key = occupancyKey(runtimeMap, actor.mapId, candidateForActor(actor))
         occupancyRemove(entry, key, actor)
       end
+      if entry.managerSlotByActorId[actor.actorId] ~= nil then
+        releaseManagerSlot(entry, actor)
+      end
       entry.actors[actorId] = nil
       entry.byIndex[actor.objectEventId] = nil
       for index, candidate in ipairs(entry.order) do
@@ -675,8 +720,6 @@ function FieldActorManager:_destroy(entry, actor)
   end
   self.autonomy:detach(actor.actorId)
   actor:clearFacingOverride()
-  entry.actors[actor.actorId] = nil
-  entry.byIndex[actor.objectEventId] = nil
   -- Only solid actors ever occupy a cell, and only the exact occupant may
   -- vacate it: a non-solid or stale actor must never erase another actor's
   -- occupancy entry by coordinate.
@@ -684,6 +727,11 @@ function FieldActorManager:_destroy(entry, actor)
     local key = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
     occupancyRemove(entry, key, actor)
   end
+  if entry.managerSlotByActorId[actor.actorId] ~= nil then
+    releaseManagerSlot(entry, actor)
+  end
+  entry.actors[actor.actorId] = nil
+  entry.byIndex[actor.objectEventId] = nil
   for index, candidate in ipairs(entry.order) do
     if candidate == actor then
       table.remove(entry.order, index)
@@ -740,6 +788,8 @@ local function newEntry(runtimeMap)
     autonomousPresentationCarry = {},
     byFlag = {},
     byIndex = {},
+    managerSlots = {},
+    managerSlotByActorId = {},
   } ---@type FieldActorManager.Entry
 end
 
@@ -879,7 +929,23 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
       records[#records + 1] = actorId
     end
   end
-  table.sort(records)
+  table.sort(records, function(a, b)
+    return plans[a].record.managerOrder < plans[b].record.managerOrder
+  end)
+
+  if #records > 0 then
+    local previousOrdered = actorsByManagerSlot(entry)
+    entry.managerSlots = {}
+    entry.managerSlotByActorId = {}
+    for index, actorId in ipairs(records) do
+      assignManagerSlot(entry, plans[actorId].actor, index - 1)
+    end
+    for _, actor in ipairs(previousOrdered) do
+      if not plans[actor.actorId] then
+        assignManagerSlot(entry, actor)
+      end
+    end
+  end
 
   local occupancy = {}
   for _, actor in ipairs(entry.order) do
@@ -902,12 +968,7 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
     }
     if actor.solid and projection.resident ~= false and occupancyKey(entry.runtimeMap, actor.mapId, candidate) then
       local key = occupancyKey(entry.runtimeMap, actor.mapId, candidate)
-      local bucket = occupancy[key]
-      if bucket == nil then
-        occupancy[key] = { actor }
-      elseif not bucketContains(bucket, actor) then
-        bucket[#bucket + 1] = actor
-      end
+      insertOccupant(entry, occupancy, key, actor)
     end
   end
 
@@ -1096,7 +1157,8 @@ function FieldActorManager:captureObjects()
   table.sort(mapIds)
   for _, mapId in ipairs(mapIds) do
     local entry = assert(self.maps[mapId])
-    for _, actor in ipairs(entry.order) do
+    local orderedActors = actorsByManagerSlot(entry)
+    for ordinal, actor in ipairs(orderedActors) do
       local sourceEvent = actor.sourceEvent
       if sourceEvent and actor.objectEventId ~= nil then
         local controller = self.autonomy:capture(actor.actorId)
@@ -1110,6 +1172,8 @@ function FieldActorManager:captureObjects()
           fieldZ = actor.fieldZ,
           facing = actor.facing,
           controller = controller,
+          -- Serialized actor ordering is dense relative active order, never a raw slot.
+          managerOrder = ordinal - 1,
         }
         if actor.cellKey ~= nil and actor.sourceSurfaceId ~= nil then
           record.cellKey = actor.cellKey
@@ -1527,12 +1591,7 @@ function FieldActorManager:reconcilePhysicalWorld()
             })
           or nil
         if key then
-          local bucket = stagedOccupancy[key]
-          if bucket == nil then
-            stagedOccupancy[key] = { actor }
-          elseif not bucketContains(bucket, actor) then
-            bucket[#bucket + 1] = actor
-          end
+          insertOccupant(entry, stagedOccupancy, key, actor)
         end
         staged[#staged + 1] = { actor = actor, projection = projection }
       end

@@ -73,6 +73,7 @@ local function fieldObjectActor(overrides)
     cellKey = "0:0",
     sourceSurfaceId = 3,
     facing = "east",
+    managerOrder = 0,
     controller = { kind = "pattern", timer = 0, sequenceIndex = 1 },
   }
   for key, value in pairs(overrides or {}) do

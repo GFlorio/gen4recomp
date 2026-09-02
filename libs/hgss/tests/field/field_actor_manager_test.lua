@@ -290,6 +290,7 @@ function T.restored_effective_movement_type_is_applied_to_the_actor()
           fieldX = 2,
           fieldZ = 3,
           facing = "south",
+          managerOrder = 0,
           controller = { kind = "wander", timer = 4 },
         },
       },
@@ -336,6 +337,7 @@ function T.nonresident_restore_is_explicit_and_not_replayed_on_reentry()
         fieldX = 34,
         fieldZ = 3,
         facing = "north",
+        managerOrder = 0,
         controller = { kind = "wander", timer = 0 },
       },
     },
@@ -2186,6 +2188,154 @@ function T.restore_preserves_stable_overlap_winner()
   Assert.equal(restoredTop.actorId, restoredA.actorId, "restore must preserve stable earliest-actor winner")
   Assert.equal(restoredMgr:getCollisionAt(61, restoredKey).actorId, restoredA.actorId)
   Assert.notNil(restoredMgr:getAt(61, restoredKey))
+  restoredMgr:dispose()
+end
+
+function T.flag_recreation_follows_first_free_slot_priority()
+  local objects = {
+    object({ objectEventId = 0, x = 2, z = 3, eventFlag = 401, spriteId = 99 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+    object({ objectEventId = 2, x = 10, z = 3, spriteId = 29, eventFlag = 402 }),
+  }
+  local eventState = FieldEventState.new({ flags = { [402] = true } })
+  local mgr = manager(objects, { eventState = eventState })
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  Assert.isNil(mgr:getById("map:61:object:2"))
+  eventState:setFlag(401)
+  mgr:step(1)
+  Assert.isNil(mgr:getById("map:61:object:0"))
+  eventState:clearFlag(401)
+  mgr:step(2)
+  actorA = assert(mgr:getById("map:61:object:0"))
+  actorB = assert(mgr:getById("map:61:object:1"))
+  local entry = assert(mgr.maps[61])
+  Assert.equal(entry.order[1].actorId, actorB.actorId)
+  Assert.equal(entry.order[2].actorId, actorA.actorId)
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorA.surfaceId }
+  if actorA.cellKey then
+    keyB.cellKey = actorA.cellKey
+    keyB.sourceSurfaceId = actorA.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, keyB).actorId, actorA.actorId, "recreated A must win despite dense order placing B first")
+  Assert.equal(mgr:getCollisionAt(61, keyB).actorId, actorA.actorId)
+  mgr:setPosition(actorA.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
+  eventState:setFlag(401)
+  mgr:step(3)
+  Assert.isNil(mgr:getById("map:61:object:0"))
+  eventState:clearFlag(402)
+  mgr:step(4)
+  local actorC = assert(mgr:getById("map:61:object:2"))
+  eventState:clearFlag(401)
+  mgr:step(5)
+  actorA = assert(mgr:getById("map:61:object:0"))
+  mgr:setPosition(actorA.actorId, { fieldX = 10, fieldZ = 3 }, { scripted = true })
+  local keyC = { fieldX = 10, fieldZ = 3, surfaceId = actorA.surfaceId }
+  if actorA.cellKey then
+    keyC.cellKey = actorA.cellKey
+    keyC.sourceSurfaceId = actorA.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, keyC).actorId, actorC.actorId, "C must win after claiming the freed low slot before A")
+  Assert.equal(mgr:getCollisionAt(61, keyC).actorId, actorC.actorId)
+  Assert.notNil(mgr:getById(actorA.actorId))
+  Assert.notNil(mgr:getById(actorC.actorId))
+  mgr:dispose()
+end
+
+function T.reconcile_preserves_manager_slot_winner_after_flag_recreation()
+  local objects = {
+    object({ objectEventId = 0, x = 2, z = 3, eventFlag = 401, spriteId = 99 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+    object({ objectEventId = 2, x = 10, z = 3, spriteId = 29, eventFlag = 402 }),
+  }
+  local eventState = FieldEventState.new({ flags = { [402] = true } })
+  local mgr = manager(objects, { eventState = eventState })
+  eventState:setFlag(401)
+  mgr:step(1)
+  eventState:clearFlag(401)
+  mgr:step(2)
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorA.surfaceId }
+  if actorA.cellKey then
+    keyB.cellKey = actorA.cellKey
+    keyB.sourceSurfaceId = actorA.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, keyB).actorId, actorA.actorId)
+  local entry = assert(mgr.maps[61])
+  Assert.equal(entry.order[1].actorId, actorB.actorId)
+  mgr:reconcilePhysicalWorld()
+  Assert.equal(mgr:getAt(61, keyB).actorId, actorA.actorId, "reconcile must preserve manager-slot winner despite dense order mismatch")
+  Assert.equal(mgr:getCollisionAt(61, keyB).actorId, actorA.actorId)
+  mgr:setPosition(actorA.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
+  eventState:setFlag(401)
+  mgr:step(3)
+  eventState:clearFlag(402)
+  mgr:step(4)
+  local actorC = assert(mgr:getById("map:61:object:2"))
+  eventState:clearFlag(401)
+  mgr:step(5)
+  actorA = assert(mgr:getById("map:61:object:0"))
+  mgr:setPosition(actorA.actorId, { fieldX = 10, fieldZ = 3 }, { scripted = true })
+  local keyC = { fieldX = 10, fieldZ = 3, surfaceId = actorA.surfaceId }
+  if actorA.cellKey then
+    keyC.cellKey = actorA.cellKey
+    keyC.sourceSurfaceId = actorA.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, keyC).actorId, actorC.actorId)
+  mgr:reconcilePhysicalWorld()
+  Assert.equal(mgr:getAt(61, keyC).actorId, actorC.actorId, "reconcile must preserve C winning after slot reuse")
+  Assert.equal(mgr:getCollisionAt(61, keyC).actorId, actorC.actorId)
+  mgr:dispose()
+end
+
+function T.save_restore_compacts_holes_but_preserves_active_lookup_order()
+  local objects = {
+    object({ objectEventId = 0, x = 2, z = 3, spriteId = 99 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34, eventFlag = 401 }),
+    object({ objectEventId = 2, x = 10, z = 3, spriteId = 29 }),
+  }
+  local eventState = FieldEventState.new()
+  local assets = fakeAssets({ [99] = true, [34] = true, [29] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  local map = runtimeMap(objects)
+  mgr:enterMap(map, eventState)
+  Assert.notNil(mgr:getById("map:61:object:0"))
+  Assert.notNil(mgr:getById("map:61:object:1"))
+  Assert.notNil(mgr:getById("map:61:object:2"))
+  eventState:setFlag(401)
+  mgr:step(1)
+  Assert.isNil(mgr:getById("map:61:object:1"))
+  local captured = mgr:captureObjects()
+  local validated, validationErr = FieldObjectSave.validate(captured)
+  Assert.notNil(validated, tostring(validationErr))
+  Assert.equal(validated.actors["map:61:object:0"].managerOrder, 0)
+  Assert.equal(validated.actors["map:61:object:2"].managerOrder, 1)
+  Assert.isNil(validated.actors["map:61:object:1"])
+  Assert.isNil(captured.actors["map:61:object:0"].managerSlots)
+  local restoredEventState = FieldEventState.new({ flags = { [401] = true } })
+  local restoredAssets = fakeAssets({ [99] = true, [34] = true, [29] = true })
+  local restoredMgr = FieldActorManager.new({ assets = restoredAssets, policy = POLICY })
+  local restoredMap = runtimeMap(objects)
+  restoredMgr:enterMap(restoredMap, restoredEventState, validated)
+  Assert.notNil(restoredMgr:getById("map:61:object:0"))
+  Assert.isNil(restoredMgr:getById("map:61:object:1"))
+  Assert.notNil(restoredMgr:getById("map:61:object:2"))
+  restoredEventState:clearFlag(401)
+  restoredMgr:step(1)
+  local actorB = assert(restoredMgr:getById("map:61:object:1"))
+  local actorC = assert(restoredMgr:getById("map:61:object:2"))
+  restoredMgr:setPosition(actorB.actorId, { fieldX = 10, fieldZ = 3 }, { scripted = true })
+  local keyC = { fieldX = 10, fieldZ = 3, surfaceId = actorB.surfaceId }
+  if actorB.cellKey then
+    keyC.cellKey = actorB.cellKey
+    keyC.sourceSurfaceId = actorB.sourceSurfaceId
+  end
+  Assert.equal(restoredMgr:getAt(61, keyC).actorId, actorC.actorId, "C must win after restore compaction gives B the highest slot")
+  Assert.equal(restoredMgr:getCollisionAt(61, keyC).actorId, actorC.actorId)
+  mgr:dispose()
   restoredMgr:dispose()
 end
 

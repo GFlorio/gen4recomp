@@ -25,6 +25,7 @@ local ACTOR_FIELDS = {
   facing = true,
   controller = true,
   action = true,
+  managerOrder = true,
 }
 local CONTROLLER_FIELDS = {
   kind = true,
@@ -261,6 +262,9 @@ local function validateActor(actor, key)
   if not FACINGS[actor.facing] then
     return fail("actor facing is invalid")
   end
+  if not integer(actor.managerOrder) or actor.managerOrder < 0 then
+    return fail("actor manager order is invalid")
+  end
   local hasCell = actor.cellKey ~= nil
   local hasSurface = actor.sourceSurfaceId ~= nil
   if hasCell ~= hasSurface then
@@ -325,12 +329,35 @@ function FieldObjectSave.validate(record)
     return fail("field object actors must be a table")
   end
   local actors = {}
+  local ordersByMap = {}
   for key, value in pairs(record.actors) do
     local validated, actorErr = validateActor(value, key)
     if not validated then
       return nil, actorErr
     end
     actors[key] = validated
+    local mapId = validated.mapId
+    local order = validated.managerOrder
+    local byMap = ordersByMap[mapId]
+    if not byMap then
+      byMap = {}
+      ordersByMap[mapId] = byMap
+    end
+    if byMap[order] then
+      return fail("actor manager order duplicates in map " .. tostring(mapId), { mapId = mapId, managerOrder = order })
+    end
+    byMap[order] = true
+  end
+  for mapId, byMap in pairs(ordersByMap) do
+    local count = 0
+    for _ in pairs(byMap) do
+      count = count + 1
+    end
+    for order = 0, count - 1 do
+      if not byMap[order] then
+        return fail("actor manager order gap in map " .. tostring(mapId), { mapId = mapId, managerOrder = order })
+      end
+    end
   end
   return { schema = FieldObjectSave.SCHEMA, rng = rng, actors = actors }
 end
