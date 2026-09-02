@@ -54,11 +54,90 @@ local function validDirections()
   }
 end
 
+local function validPolygon()
+  return {
+    cullMode = "back",
+    polygonMode = "modulation",
+    polygonId = 1,
+    polygonAlpha = 31,
+    lightMask = 0,
+    translucentDepthWrite = false,
+    depthEqual = false,
+    fogEnabled = false,
+  }
+end
+
+local function validVertices()
+  return {
+    { x = -1, y = 0, z = 0, u = 0, v = 0, nx = 0, ny = 1, nz = 0, r = 255, g = 0, b = 0, a = 255, colorSource = 0 },
+    { x = 1, y = 0, z = 0, u = 1, v = 0, nx = 0, ny = 1, nz = 0, r = 0, g = 255, b = 0, colorSource = 1 },
+    { x = 1, y = 2, z = 0, u = 1, v = 1, nx = 0, ny = 1, nz = 0, r = 0, g = 0, b = 255, colorSource = 2 },
+    { x = -1, y = 2, z = 0, u = 0, v = 1, nx = 0, ny = 1, nz = 0, r = 255, g = 255, b = 255, a = 128, colorSource = 0 },
+  }
+end
+
+local function validIndices()
+  return { 0, 1, 2, 0, 2, 3 }
+end
+
+local function validAtlasGeometry()
+  return {
+    vertices = validVertices(),
+    indices = validIndices(),
+    anchorTiles = { x = 0, y = 0, z = 0 },
+    bounds = { width = 2, height = 2, depth = 0 },
+    baseTransform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 },
+  }
+end
+
+local function validStaticGeometry()
+  return {
+    vertices = validVertices(),
+    indices = validIndices(),
+    anchorTiles = { x = 0, y = 0, z = 0 },
+    bounds = { width = 2, height = 2, depth = 0 },
+    center = { 0, 1, 0 },
+  }
+end
+
+local function validAtlasRender(spriteId, frameCount)
+  return {
+    kind = "atlas",
+    image = FieldActorCache.atlasPath(spriteId),
+    frameWidth = 32,
+    frameHeight = 32,
+    frameCount = frameCount or 1,
+    alphaClass = "opaque",
+    polygon = validPolygon(),
+    geometry = validAtlasGeometry(),
+  }
+end
+
+local function validStaticPart()
+  return {
+    textured = true,
+    alphaClass = "opaque",
+    polygon = validPolygon(),
+    geometry = validStaticGeometry(),
+  }
+end
+
+local function validStaticRender(spriteId, frameCount, parts)
+  return {
+    kind = "staticModel",
+    image = FieldActorCache.atlasPath(spriteId),
+    frameWidth = 64,
+    frameHeight = 64,
+    frameCount = frameCount or 1,
+    parts = parts or { validStaticPart() },
+  }
+end
+
 local function writeActorVisual(c, spriteId)
   c:writeLua(FieldActorCache.visualPath(spriteId), {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId), frameCount = 1 },
+    render = validAtlasRender(spriteId, 1),
     idlePresentation = {
       mode = "static",
       cadence = 0,
@@ -73,7 +152,7 @@ local function writeActorVisualWithDirections(c, spriteId, directions, frameCoun
   c:writeLua(FieldActorCache.visualPath(spriteId), {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId), frameCount = frameCount or 1 },
+    render = validAtlasRender(spriteId, frameCount or 1),
     idlePresentation = {
       mode = "static",
       cadence = 0,
@@ -96,7 +175,7 @@ local function writeActorVisualWithGestures(c, spriteId, gestures, frameCount)
   c:writeLua(FieldActorCache.visualPath(spriteId), {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    render = { kind = "atlas", image = FieldActorCache.atlasPath(spriteId), frameCount = frameCount or 1 },
+    render = validAtlasRender(spriteId, frameCount or 1),
     idlePresentation = {
       mode = "static",
       cadence = 0,
@@ -111,7 +190,7 @@ local function writeStaticModelVisual(c, spriteId, gestures, frameCount)
   c:writeLua(FieldActorCache.visualPath(spriteId), {
     schema = FieldActorCache.SCHEMA,
     spriteId = spriteId,
-    render = { kind = "staticModel", image = FieldActorCache.atlasPath(spriteId), frameCount = frameCount or 1 },
+    render = validStaticRender(spriteId, frameCount or 1, nil),
     idlePresentation = {
       mode = "static",
       cadence = 0,
@@ -1078,6 +1157,456 @@ function T.script_valid_artifact_is_ready()
     'local S = require("gen4.script")\nreturn S.script { api = 1, id = "a.b", steps = { S.stop() } }\n'
   )
   Assert.isTrue(ScriptCache.isReady(c, "m"))
+end
+
+function T.actor_valid_atlas_and_static_renders_are_ready()
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  writeActorVisual(c, 0)
+  local visual = c:loadLua(FieldActorCache.visualPath(0))
+  Assert.isTrue(FieldActorCache.isValidVisual(visual, 0))
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "valid atlas with geometry/polygon/dimensions must be ready")
+
+  c = cache()
+  writeActorIndex(c, { 1 })
+  writeStaticModelVisual(c, 1, {})
+  visual = c:loadLua(FieldActorCache.visualPath(1))
+  Assert.isTrue(FieldActorCache.isValidVisual(visual, 1))
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "valid static with parts/geometry/polygon must be ready")
+
+  -- direct validation of helpers without cache
+  Assert.isTrue(FieldActorCache.isValidVisual({
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = validAtlasRender(0, 2),
+    idlePresentation = { mode = "static", cadence = 0 },
+    directions = validDirections(),
+    gestures = {},
+  }, 0))
+  Assert.isTrue(FieldActorCache.isValidVisual({
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = validStaticRender(0, 1, { validStaticPart(), validStaticPart() }),
+    idlePresentation = { mode = "static", cadence = 0 },
+    directions = validDirections(),
+    gestures = {},
+  }, 0))
+end
+
+function T.actor_visual_with_unknown_render_kind_is_not_ready()
+  local cases = {
+    { kind = "unknown", label = "unknown kind" },
+    { kind = nil, label = "missing kind" },
+    { kind = "ATLAS", label = "wrong case" },
+    { kind = 1, label = "numeric kind" },
+  }
+  for _, case in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validAtlasRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    visual.render.kind = case.kind
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), case.label .. " must fail")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), case.label .. " must fail readiness")
+  end
+end
+
+function T.actor_visual_with_malformed_atlas_render_is_not_ready()
+  local function mutateAtlas(mutator, label)
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validAtlasRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    mutator(visual.render)
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0), label .. " must fail")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), label .. " must fail readiness")
+  end
+
+  mutateAtlas(function(r)
+    r.frameWidth = nil
+  end, "missing frameWidth")
+  mutateAtlas(function(r)
+    r.frameHeight = nil
+  end, "missing frameHeight")
+  mutateAtlas(function(r)
+    r.frameWidth = 0
+  end, "zero frameWidth")
+  mutateAtlas(function(r)
+    r.frameHeight = -1
+  end, "negative frameHeight")
+  mutateAtlas(function(r)
+    r.frameWidth = "32"
+  end, "string frameWidth")
+  mutateAtlas(function(r)
+    r.frameCount = 0
+  end, "zero frameCount")
+  mutateAtlas(function(r)
+    r.image = "assets/generated/field/actors/0001.png"
+  end, "wrong image path")
+  mutateAtlas(function(r)
+    r.image = nil
+  end, "missing image")
+  mutateAtlas(function(r)
+    r.alphaClass = "translucent"
+  end, "atlas translucent alphaClass")
+  mutateAtlas(function(r)
+    r.alphaClass = "mixed"
+  end, "atlas mixed alphaClass")
+  mutateAtlas(function(r)
+    r.alphaClass = nil
+  end, "missing atlas alphaClass")
+  mutateAtlas(function(r)
+    r.alphaClass = "unknown"
+  end, "unknown atlas alphaClass")
+  mutateAtlas(function(r)
+    r.polygon = nil
+  end, "missing polygon")
+  mutateAtlas(function(r)
+    r.geometry = nil
+  end, "missing geometry")
+  mutateAtlas(function(r)
+    r.geometry.baseTransform = nil
+  end, "missing baseTransform")
+  mutateAtlas(function(r)
+    r.geometry.baseTransform = { 1, 0, 0 }
+  end, "short baseTransform")
+  mutateAtlas(function(r)
+    r.geometry.baseTransform = "nope"
+  end, "string baseTransform")
+  -- NaN / infinite baseTransform cannot be serialized via writeLua; test directly
+  do
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validAtlasRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    visual.render.geometry.baseTransform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0 / 0 }
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), "NaN baseTransform must fail")
+    visual.render.geometry.baseTransform = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, math.huge }
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), "infinite baseTransform must fail")
+  end
+end
+
+function T.actor_visual_with_malformed_static_render_is_not_ready()
+  local function mutateStatic(mutator, label)
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validStaticRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    mutator(visual.render)
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0), label .. " must fail")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), label .. " must fail readiness")
+  end
+
+  mutateStatic(function(r)
+    r.frameCount = 2
+  end, "static frameCount 2")
+  mutateStatic(function(r)
+    r.frameCount = 0
+  end, "static frameCount 0")
+  mutateStatic(function(r)
+    r.parts = nil
+  end, "missing parts")
+  mutateStatic(function(r)
+    r.parts = {}
+  end, "empty parts")
+  mutateStatic(function(r)
+    r.parts = { named = 1 }
+  end, "hash parts")
+  mutateStatic(function(r)
+    r.frameWidth = nil
+  end, "static missing frameWidth")
+  mutateStatic(function(r)
+    r.frameHeight = nil
+  end, "static missing frameHeight")
+  mutateStatic(function(r)
+    r.image = nil
+  end, "static missing image")
+end
+
+function T.actor_visual_with_malformed_static_part_is_not_ready()
+  local function mutatePart(mutator, label)
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validStaticRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    mutator(visual.render.parts[1])
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0), label .. " must fail")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), label .. " must fail readiness")
+  end
+
+  mutatePart(function(p)
+    p.textured = nil
+  end, "missing textured")
+  mutatePart(function(p)
+    p.textured = "true"
+  end, "string textured")
+  mutatePart(function(p)
+    p.alphaClass = "unknown"
+  end, "unknown part alphaClass")
+  mutatePart(function(p)
+    p.alphaClass = nil
+  end, "missing part alphaClass")
+  mutatePart(function(p)
+    p.polygon = nil
+  end, "missing part polygon")
+  mutatePart(function(p)
+    p.geometry = nil
+  end, "missing part geometry")
+  local c = cache()
+  writeActorIndex(c, { 0 })
+  local visual = {
+    schema = FieldActorCache.SCHEMA,
+    spriteId = 0,
+    render = validStaticRender(
+      0,
+      1,
+      { { textured = true, alphaClass = "cutout", polygon = validPolygon(), geometry = validStaticGeometry() } }
+    ),
+    idlePresentation = { mode = "static", cadence = 0 },
+    directions = validDirections(),
+    gestures = {},
+  }
+  c:writeLua(FieldActorCache.visualPath(0), visual)
+  c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+  Assert.isTrue(
+    FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0),
+    "cutout static part must be valid"
+  )
+end
+
+function T.actor_visual_with_malformed_geometry_is_not_ready()
+  local function mutateGeometry(isAtlas, mutator, label)
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = isAtlas and validAtlasRender(0, 1) or validStaticRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    local geom = isAtlas and visual.render.geometry or visual.render.parts[1].geometry
+    mutator(geom, visual)
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0), label .. " must fail")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), label .. " must fail readiness")
+  end
+
+  mutateGeometry(true, function(g)
+    g.vertices = nil
+  end, "atlas missing vertices")
+  mutateGeometry(true, function(g)
+    g.vertices = {}
+  end, "atlas empty vertices")
+  mutateGeometry(true, function(g)
+    g.vertices = { named = 1 }
+  end, "atlas hash vertices")
+  mutateGeometry(true, function(g)
+    g.vertices[1].r = 256
+  end, "atlas vertex r out of range")
+  mutateGeometry(true, function(g)
+    g.vertices[1].r = -1
+  end, "atlas vertex r negative")
+  mutateGeometry(true, function(g)
+    g.vertices[1].r = 1.5
+  end, "atlas vertex r fractional")
+  mutateGeometry(true, function(g)
+    g.vertices[1].a = 512
+  end, "atlas vertex a out of range")
+  mutateGeometry(true, function(g)
+    g.vertices[1].colorSource = 3
+  end, "atlas vertex colorSource out of range")
+  mutateGeometry(true, function(g)
+    g.vertices[1].colorSource = "0"
+  end, "atlas vertex colorSource string")
+  mutateGeometry(true, function(g)
+    g.indices = nil
+  end, "atlas missing indices")
+  mutateGeometry(true, function(g)
+    g.indices = {}
+  end, "atlas empty indices")
+  mutateGeometry(true, function(g)
+    g.indices[1] = 99
+  end, "atlas index out of range")
+  mutateGeometry(true, function(g)
+    g.indices[1] = -1
+  end, "atlas negative index")
+  mutateGeometry(true, function(g)
+    g.indices[1] = 1.5
+  end, "atlas fractional index")
+  mutateGeometry(true, function(g)
+    g.indices[1] = "0"
+  end, "atlas string index")
+  mutateGeometry(true, function(g)
+    g.anchorTiles = nil
+  end, "atlas missing anchorTiles")
+  mutateGeometry(true, function(g)
+    g.anchorTiles = { x = 0, y = 0 }
+  end, "atlas anchor missing z")
+  mutateGeometry(true, function(g)
+    g.anchorTiles = { x = "0", y = 0, z = 0 }
+  end, "atlas anchor string x")
+  mutateGeometry(true, function(g)
+    g.bounds = nil
+  end, "atlas missing bounds")
+  mutateGeometry(true, function(g)
+    g.bounds = { width = -1, height = 1, depth = 0 }
+  end, "atlas negative bounds width")
+  mutateGeometry(true, function(g)
+    g.bounds = { width = "1", height = 1, depth = 0 }
+  end, "atlas string bounds")
+  mutateGeometry(true, function(g)
+    g.center = { 0, 0 }
+  end, "atlas bad center length")
+  mutateGeometry(false, function(g)
+    g.vertices = nil
+  end, "static missing vertices")
+  mutateGeometry(false, function(g)
+    g.indices = { 0, 99 }
+  end, "static index out of range")
+  mutateGeometry(false, function(g)
+    g.bounds = { width = 1, height = 1, depth = -1 }
+  end, "static negative depth")
+  do
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validAtlasRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    visual.render.geometry.vertices[1].x = 0 / 0
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), "atlas NaN vertex x must fail")
+    visual.render.geometry.vertices[1].x = math.huge
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), "atlas infinite vertex x must fail")
+    visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validAtlasRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    visual.render.geometry.anchorTiles = { x = 0 / 0, y = 0, z = 0 }
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), "atlas anchor NaN must fail")
+    visual.render.geometry.anchorTiles = { x = 0, y = 0, z = 0 }
+    visual.render.geometry.bounds = { width = 0 / 0, height = 1, depth = 0 }
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), "atlas NaN bounds must fail")
+    visual.render.geometry.bounds = { width = 2, height = 2, depth = 0 }
+    visual.render.geometry.center = { 0, 0, 0 / 0 }
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), "atlas NaN center must fail")
+  end
+end
+
+function T.actor_visual_with_malformed_polygon_is_not_ready()
+  local function mutatePolygon(mutator, label)
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validAtlasRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    mutator(visual.render.polygon)
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0), label .. " must fail")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), label .. " must fail readiness")
+    -- also ensure static part polygon fails
+    local c2 = cache()
+    writeActorIndex(c2, { 0 })
+    local visual2 = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = validStaticRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    mutator(visual2.render.parts[1].polygon)
+    c2:writeLua(FieldActorCache.visualPath(0), visual2)
+    c2:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(
+      FieldActorCache.isValidVisual(c2:loadLua(FieldActorCache.visualPath(0)), 0),
+      label .. " static must fail"
+    )
+  end
+
+  mutatePolygon(function(p)
+    p.cullMode = "invalid"
+  end, "invalid cullMode")
+  mutatePolygon(function(p)
+    p.polygonMode = "invalid"
+  end, "invalid polygonMode")
+  mutatePolygon(function(p)
+    p.polygonId = 64
+  end, "polygonId out of range")
+  mutatePolygon(function(p)
+    p.polygonId = -1
+  end, "polygonId negative")
+  mutatePolygon(function(p)
+    p.polygonId = 1.5
+  end, "polygonId fractional")
+  mutatePolygon(function(p)
+    p.polygonAlpha = 32
+  end, "polygonAlpha out of range")
+  mutatePolygon(function(p)
+    p.lightMask = 16
+  end, "lightMask out of range")
+  mutatePolygon(function(p)
+    p.translucentDepthWrite = true
+  end, "translucentDepthWrite true unsupported")
+  mutatePolygon(function(p)
+    p.depthEqual = true
+  end, "depthEqual true unsupported")
+  mutatePolygon(function(p)
+    p.fogEnabled = "true"
+  end, "fogEnabled not boolean")
+  mutatePolygon(function(p)
+    p.cullMode = nil
+  end, "missing cullMode")
 end
 
 return { tests = T }
