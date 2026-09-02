@@ -30,8 +30,6 @@ local REQUIRED = {
   "shrink_male",
   "shrink_female",
   "ball_open",
-  "confirmation_yes",
-  "confirmation_no",
   "gender_male",
   "gender_female",
 }
@@ -164,9 +162,8 @@ end
 manifest = function()
   local widgets = {}
   for index, id in ipairs(REQUIRED) do
-    local confirmation = id == "confirmation_yes" or id == "confirmation_no"
-    local widgetWidth = confirmation and 115 or 32 + index
-    local widgetHeight = confirmation and (id == "confirmation_yes" and 57 or 56) or 48 + index
+    local widgetWidth = 32 + index
+    local widgetHeight = 48 + index
     local isAnimated = id == "ball_open"
       or id == "marill_appear"
       or id == "marill"
@@ -177,10 +174,10 @@ manifest = function()
       width = widgetWidth,
       height = widgetHeight,
       sampling = "nearest",
-      anchor = { x = confirmation and 0 or widgetWidth / 2, y = confirmation and 0 or widgetHeight },
+      anchor = { x = widgetWidth / 2, y = widgetHeight },
       sourceBounds = {
-        x = confirmation and 0 or index,
-        y = confirmation and 0 or index,
+        x = index,
+        y = index,
         width = widgetWidth,
         height = widgetHeight,
       },
@@ -190,7 +187,7 @@ manifest = function()
           width = widgetWidth,
           height = widgetHeight,
           duration = 1,
-          anchor = { x = confirmation and 0 or widgetWidth / 2, y = confirmation and 0 or widgetHeight },
+          anchor = { x = widgetWidth / 2, y = widgetHeight },
           element = isAnimated and "none" or nil,
           translateX = isAnimated and 0 or nil,
           translateY = isAnimated and 0 or nil,
@@ -206,14 +203,10 @@ manifest = function()
       widgets[id].sourceCenter = { x = 64, y = 104 }
     elseif id == "gender_female" then
       widgets[id].sourceCenter = { x = 192, y = 104 }
-    elseif id == "confirmation_yes" then
-      widgets[id].contentRect = { x = 6, y = 22, width = 104, height = 24 }
-    elseif id == "confirmation_no" then
-      widgets[id].contentRect = { x = 6, y = 20, width = 104, height = 24 }
     end
   end
   return {
-    schemaVersion = 9,
+    schemaVersion = 10,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {

@@ -145,14 +145,7 @@ function T.critical_widget_geometry_and_centers_survive_palette_resolution(romFs
   Assert.isNil(bundle.manifest.profileConfirmation)
   Assert.isNil(bundle.manifest.genderSelector.buttons.male.hitBounds)
   for _, id in ipairs({ "confirmation_yes", "confirmation_no" }) do
-    local widget = assert(widgets[id], id .. " is present")
-    Assert.equal(widget.sampling, "nearest", id .. " uses nearest sampling")
-    Assert.equal(#widget.frames, 1, id .. " is one frame")
-    Assert.deepEqual(
-      widget.contentRect,
-      id == "confirmation_yes" and { x = 6, y = 22, width = 104, height = 24 }
-        or { x = 6, y = 20, width = 104, height = 24 }
-    )
+    Assert.isNil(widgets[id], id .. " is not a generated asset after TextButton migration")
   end
 end
 

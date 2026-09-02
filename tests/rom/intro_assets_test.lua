@@ -57,55 +57,14 @@ local function confirmationDependency(bundle, memberId)
 end
 
 local function assertConfirmationSource(bundle, versionId)
-  for _, expected in ipairs({
-    { id = "confirmation_yes", width = 120, height = 56, x = 8, y = 16 },
-    { id = "confirmation_no", width = 120, height = 56, x = 8, y = 16 },
-  }) do
-    local widget = assert(bundle.manifest.widgets[expected.id], expected.id .. " is present")
-    Assert.equal(widget.width, expected.width, expected.id .. " width is intrinsic")
-    Assert.equal(widget.height, expected.height, expected.id .. " height is intrinsic")
-    Assert.equal(widget.sampling, "nearest", expected.id .. " uses nearest sampling")
-    Assert.equal(#widget.frames, 1, expected.id .. " is one frame")
-    Assert.deepEqual(widget.contentRect, {
-      x = expected.x,
-      y = expected.y,
-      width = 104,
-      height = 24,
-    }, expected.id .. " exposes an asset-local text window")
-    local frame = widget.frames[1]
-    local decodedWidth, decodedHeight, rgba = PngReader.rgba(assert(bundle.assets[frame.image]))
-    Assert.equal(decodedWidth, expected.width, expected.id .. " PNG width matches the crop")
-    Assert.equal(decodedHeight, expected.height, expected.id .. " PNG height matches the crop")
-    local minX, minY, maxX, maxY = decodedWidth, decodedHeight, -1, -1
-    for y = 0, decodedHeight - 1 do
-      for x = 0, decodedWidth - 1 do
-        local _, _, _, a = PngReader.pixel(rgba, decodedWidth, x, y)
-        if a and a > 0 then
-          if x < minX then
-            minX = x
-          end
-          if x > maxX then
-            maxX = x
-          end
-          if y < minY then
-            minY = y
-          end
-          if y > maxY then
-            maxY = y
-          end
-        end
-      end
-    end
-    Assert.isTrue(maxX >= 0, expected.id .. " has generated backing pixels")
-    Assert.isTrue(minX <= 2, expected.id .. " preserves left backing edge")
-    Assert.isTrue(maxX >= 117, expected.id .. " preserves right backing edge")
-    Assert.isTrue(minY <= 2, expected.id .. " preserves top backing edge")
-    Assert.isTrue(maxY >= 53, expected.id .. " preserves bottom backing edge")
+  -- After TextButton migration, confirmation backing is no longer a generated asset.
+  for _, id in ipairs({ "confirmation_yes", "confirmation_no" }) do
+    Assert.isNil(bundle.manifest.widgets[id], id .. " is not a generated asset")
   end
   for _, memberId in ipairs({ 48, 37, 33 }) do
-    Assert.notNil(
+    Assert.isNil(
       confirmationDependency(bundle, memberId),
-      versionId .. " confirmation backing provenance includes intro member " .. memberId
+      versionId .. " confirmation backing provenance must not include intro member " .. memberId
     )
   end
 end
@@ -126,7 +85,7 @@ local function assertBallSource(bundle)
 end
 
 local function assertVariant(bundle, versionId, paletteMember)
-  Assert.equal(bundle.manifest.schemaVersion, 9)
+  Assert.equal(bundle.manifest.schemaVersion, 10)
   Assert.equal(bundle.manifest.variant, versionId)
   Assert.equal(sourceMember(bundle, "background:char"), 0)
   Assert.equal(sourceMember(bundle, "background:screen"), 3)
@@ -212,7 +171,7 @@ function T.compiled_visuals_are_stable_semantic_widgets(romFs)
   local bundle = assert(compiler().compile(romFs))
   Assert.keySet(
     bundle.manifest.widgets,
-    "ball_open,confirmation_no,confirmation_yes,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+    "ball_open,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
   )
   for id, widget in pairs(bundle.manifest.widgets) do
     Assert.equal(widget.sampling, "nearest", id .. " uses nearest sampling")
