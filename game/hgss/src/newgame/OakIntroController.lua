@@ -636,9 +636,15 @@ function OakIntroController:press(action)
   if self._disposed or not self._started or self._phase == "complete" then
     return false
   end
+  if self._message ~= nil then
+    return false
+  end
   if self._confirmationChoice then
-    if action == "up" or action == "down" then
-      local index = action == "up" and 0 or 1
+    local kind = self._confirmationChoice.kind
+    local vertical = action == "up" or action == "down"
+    local horizontal = action == "left" or action == "right"
+    if (kind == "gender" and vertical) or (kind == "name" and horizontal) then
+      local index = (action == "up" or action == "left") and 0 or 1
       local changed = self._confirmationChoice.selected ~= index
       self._confirmationChoice.selected = assertSelectionIndex(index)
       if changed then
@@ -710,12 +716,6 @@ function OakIntroController:press(action)
     end
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
     return self:_activateGender(self._genderSelection)
-  elseif (action == "cancel" or action == "no") and self._phase == "gender_confirm" then
-    self._phase = "gender_question"
-    self:_setMessage("profile.gender_question")
-  elseif (action == "confirm" or action == "yes") and self._phase == "gender_confirm" then
-    self._phase = "name_prompt"
-    self:_setMessage("profile.name_prompt")
   elseif (action == "confirm" or action == "yes") and self._phase == "name_prompt" then
     self._phase = "name_launch_wait"
     self._timer = NAME_LAUNCH_WAIT
@@ -731,19 +731,11 @@ function OakIntroController:press(action)
         self:_setVisual("oak")
       end
     end
-  elseif (action == "cancel" or action == "no") and self._phase == "name_confirm" then
-    self._phase = "gender_question"
-    self:_setMessage("profile.gender_question")
-  elseif (action == "confirm" or action == "yes") and self._phase == "name_confirm" then
-    self._phase = "final_dialogue"
-    self:_setMessage("profile.final")
   elseif (action == "confirm" or action == "yes") and self._phase == "final_dialogue" then
     self._phase = "final_fade_out"
     self._timer = FINAL_FADE_FRAMES
     self._finalFadeAlpha = 0
     self:_setVisual("background")
-    self._message = nil
-    self._messageKey = nil
     self:_event("final_handoff_started", "player")
   else
     return false

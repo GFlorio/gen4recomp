@@ -484,6 +484,11 @@ local function shrinkFrames(duration, count)
   return { frames = frames }
 end
 
+local function completeActiveMessage(controller)
+  local key = assert(controller:view().messageKey, "Oak state test expected an active message")
+  return controller:messageCompleted(key)
+end
+
 -- Builds a real controller/state pair and drives it through the semantic
 -- confirm presses used by production input mapping to the instant
 -- `final_full_art_hold` is freshly entered with its 30-source-tick timer
@@ -526,30 +531,32 @@ local function stateAtFreshFullArtHold(frameDuration, frameCount)
   })
 
   state:tick(40)
-  controller:press("confirm")
+  completeActiveMessage(controller)
   state:tick(6 + 30)
-  controller:press("confirm")
+  completeActiveMessage(controller)
   state:tick(26)
-  controller:press("confirm")
+  completeActiveMessage(controller)
   while controller:view().phase ~= "oak_live_alongside" do
     state:tick(1)
   end
-  controller:press("confirm")
+  completeActiveMessage(controller)
   while controller:view().phase ~= "oak_tell_about_yourself" do
     state:tick(1)
   end
-  controller:press("confirm")
-  controller:press("confirm")
+  completeActiveMessage(controller)
+  completeActiveMessage(controller)
   state:tick(26)
   controller:press("confirm")
+  completeActiveMessage(controller)
   controller:press("confirm")
-  controller:press("confirm")
+  completeActiveMessage(controller)
   state:tick(40)
   controller:inputText("GOLD")
   controller:press("submit")
   state:tick(26)
+  completeActiveMessage(controller)
   controller:press("confirm")
-  controller:press("confirm")
+  completeActiveMessage(controller)
   Assert.equal(controller:view().phase, "final_fade_out")
   state:tick(1)
   Assert.equal(controller:view().phase, "final_full_art_fade_in")
