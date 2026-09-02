@@ -47,6 +47,53 @@ local function sourceArchive(bundle, role)
   error("missing dependency role " .. role, 2)
 end
 
+local function confirmationDependency(bundle, memberId)
+  for _, item in ipairs(bundle.dependencies.dependencies) do
+    if item.archive == "intro" and item.memberId == memberId and item.role:find("confirmation", 1, true) then
+      return item
+    end
+  end
+  return nil
+end
+
+local function assertConfirmationSource(bundle, versionId)
+  for _, expected in ipairs({
+    { id = "confirmation_yes", width = 115, height = 57, x = 6, y = 22 },
+    { id = "confirmation_no", width = 115, height = 56, x = 6, y = 20 },
+  }) do
+    local widget = assert(bundle.manifest.widgets[expected.id], expected.id .. " is present")
+    Assert.equal(widget.width, expected.width, expected.id .. " width is intrinsic")
+    Assert.equal(widget.height, expected.height, expected.id .. " height is intrinsic")
+    Assert.equal(widget.sampling, "nearest", expected.id .. " uses nearest sampling")
+    Assert.equal(#widget.frames, 1, expected.id .. " is one frame")
+    Assert.deepEqual(widget.contentRect, {
+      x = expected.x,
+      y = expected.y,
+      width = 104,
+      height = 24,
+    }, expected.id .. " exposes an asset-local text window")
+    local frame = widget.frames[1]
+    local decodedWidth, decodedHeight, rgba = PngReader.rgba(assert(bundle.assets[frame.image]))
+    Assert.equal(decodedWidth, expected.width, expected.id .. " PNG width matches the crop")
+    Assert.equal(decodedHeight, expected.height, expected.id .. " PNG height matches the crop")
+    local visible = false
+    for offset = 1, #rgba, 4 do
+      local alpha = string.byte(rgba, offset + 3)
+      if alpha and alpha > 0 then
+        visible = true
+        break
+      end
+    end
+    Assert.isTrue(visible, expected.id .. " has generated backing pixels")
+  end
+  for _, memberId in ipairs({ 48, 37, 33 }) do
+    Assert.notNil(
+      confirmationDependency(bundle, memberId),
+      versionId .. " confirmation backing provenance includes intro member " .. memberId
+    )
+  end
+end
+
 local function assertBallSource(bundle)
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
     for role, memberId in pairs({
@@ -63,7 +110,7 @@ local function assertBallSource(bundle)
 end
 
 local function assertVariant(bundle, versionId, paletteMember)
-  Assert.equal(bundle.manifest.schemaVersion, 8)
+  Assert.equal(bundle.manifest.schemaVersion, 9)
   Assert.equal(bundle.manifest.variant, versionId)
   Assert.equal(sourceMember(bundle, "background:char"), 0)
   Assert.equal(sourceMember(bundle, "background:screen"), 3)
@@ -112,12 +159,8 @@ local function assertGenderSource(bundle)
     width = 93,
     height = 148,
   })
-  Assert.deepEqual(bundle.manifest.profileConfirmation.buttons.female.no.textBounds, {
-    x = 16,
-    y = 128,
-    width = 104,
-    height = 24,
-  })
+  Assert.isNil(bundle.manifest.profileConfirmation, "screen-space confirmation records are not published")
+  Assert.isNil(bundle.manifest.genderSelector.buttons.male.hitBounds, "touch hit bounds are not published")
   for _, id in ipairs({ "gender_male", "gender_female" }) do
     for role, memberId in pairs({
       ["resdat-header"] = 78,
@@ -139,6 +182,7 @@ function T.both_variants_compile_the_correct_gradient(romFs, versionId)
   local second = assert(compiler().compile(romFs))
   assertVariant(first, versionId, versionId == "heartgold" and 1 or 2)
   assertGenderSource(first)
+  assertConfirmationSource(first, versionId)
   assertBallSource(first)
   Assert.equal(first.manifest.widgets.ball_open.sourceCenter.x, 160)
   Assert.equal(first.manifest.widgets.ball_open.sourceCenter.y, 80)
@@ -152,7 +196,7 @@ function T.compiled_visuals_are_stable_semantic_widgets(romFs)
   local bundle = assert(compiler().compile(romFs))
   Assert.keySet(
     bundle.manifest.widgets,
-    "ball_open,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+    "ball_open,confirmation_no,confirmation_yes,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
   )
   for id, widget in pairs(bundle.manifest.widgets) do
     Assert.equal(widget.sampling, "nearest", id .. " uses nearest sampling")

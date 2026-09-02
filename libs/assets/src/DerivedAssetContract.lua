@@ -170,8 +170,8 @@ DerivedAssetContract.fieldUi = {
 }
 
 DerivedAssetContract.intro = {
-  cacheFormat = "intro-cache-v8",
-  schema = "g4-intro-assets-v8",
+  cacheFormat = "intro-cache-v9",
+  schema = "g4-intro-assets-v9",
   provenanceSchema = "g4-intro-provenance-v1",
 }
 

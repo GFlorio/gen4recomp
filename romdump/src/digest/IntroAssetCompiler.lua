@@ -165,6 +165,48 @@ local function renderScreen(char, palette, screen, paletteBankOverride)
   return { width = screen.width, height = screen.height, rgba = concatBytes(rgba) }
 end
 
+local function cropSurface(surface, crop, id)
+  if
+    type(crop) ~= "table"
+    or type(crop.x) ~= "number"
+    or type(crop.y) ~= "number"
+    or type(crop.width) ~= "number"
+    or type(crop.height) ~= "number"
+    or crop.x % 1 ~= 0
+    or crop.y % 1 ~= 0
+    or crop.width % 1 ~= 0
+    or crop.height % 1 ~= 0
+    or crop.width <= 0
+    or crop.height <= 0
+    or crop.x < 0
+    or crop.y < 0
+    or crop.x + crop.width > surface.width
+    or crop.y + crop.height > surface.height
+  then
+    sourceError("intro confirmation crop is outside the rendered source surface", { asset = id })
+  end
+  local rows = {}
+  local visible = false
+  for y = crop.y, crop.y + crop.height - 1 do
+    local offset = (y * surface.width + crop.x) * 4 + 1
+    local row = surface.rgba:sub(offset, offset + crop.width * 4 - 1)
+    if #row ~= crop.width * 4 then
+      sourceError("intro confirmation crop is truncated", { asset = id })
+    end
+    for pixel = 4, #row, 4 do
+      if string.byte(row, pixel) ~= 0 then
+        visible = true
+        break
+      end
+    end
+    rows[#rows + 1] = row
+  end
+  if not visible then
+    sourceError("intro confirmation crop contains no visible pixels", { asset = id })
+  end
+  return { width = crop.width, height = crop.height, rgba = table.concat(rows) }
+end
+
 local function cellBounds(cell, bounds)
   for _, object in ipairs(cell.objs) do
     bounds.minX = math.min(bounds.minX, object.x)
@@ -615,6 +657,20 @@ local function addAsset(manifest, assets, id, image, frames, sourceBounds, ancho
   manifest.widgets[id] = widget
 end
 
+local function addConfirmationAsset(manifest, assets, id, image, contentRect, provenance)
+  addAsset(
+    manifest,
+    assets,
+    id,
+    image,
+    { { width = image.width, height = image.height, rgba = image.rgba, duration = 1 } },
+    { x = 0, y = 0, width = image.width, height = image.height },
+    { x = 0, y = 0 },
+    provenance
+  )
+  manifest.widgets[id].contentRect = contentRect
+end
+
 local loadCharPalette
 
 local function effectivePalette(archive, dependencies, layout, id, spec)
@@ -826,14 +882,13 @@ function IntroAssetCompiler.compile(romFs)
     })
   end
   local manifest = {
-    schemaVersion = 8,
+    schemaVersion = 9,
     variant = variant,
     sourceReference = { width = 256, height = 192 },
     genderSelector = {
       defaultTone = { r = defaultTone.r, g = defaultTone.g, b = defaultTone.b },
       buttons = config.genderSelector.buttons,
     },
-    profileConfirmation = config.profileConfirmation,
     widgets = {},
   }
 
@@ -872,6 +927,63 @@ function IntroAssetCompiler.compile(romFs)
   end
   compileShrink(archive, dependencies, manifest, assets, "shrink_male", config.shrink.male)
   compileShrink(archive, dependencies, manifest, assets, "shrink_female", config.shrink.female)
+
+  local confirmationSpec = config.confirmation
+  local confirmationArchive = sourceArchive(romFs, confirmationSpec.archive)
+  local confirmationCharBytes =
+    decodeMember(confirmationArchive, confirmationSpec.char, "confirmation char", confirmationSpec.archive)
+  local confirmationPaletteBytes =
+    decodeMember(confirmationArchive, confirmationSpec.palette, "confirmation palette", confirmationSpec.archive)
+  local confirmationScreenBytes =
+    decodeMember(confirmationArchive, confirmationSpec.screen, "confirmation screen", confirmationSpec.archive)
+  addDependency(
+    dependencies,
+    confirmationSpec.archive,
+    confirmationSpec.char,
+    confirmationCharBytes,
+    "confirmation:char"
+  )
+  addDependency(
+    dependencies,
+    confirmationSpec.archive,
+    confirmationSpec.palette,
+    confirmationPaletteBytes,
+    "confirmation:palette"
+  )
+  addDependency(
+    dependencies,
+    confirmationSpec.archive,
+    confirmationSpec.screen,
+    confirmationScreenBytes,
+    "confirmation:screen"
+  )
+  local confirmationChar =
+    decode("decodeChar", confirmationCharBytes, "confirmation char", confirmationSpec.char, confirmationSpec.archive)
+  local confirmationPalette = decode(
+    "decodePalette",
+    confirmationPaletteBytes,
+    "confirmation palette",
+    confirmationSpec.palette,
+    confirmationSpec.archive
+  )
+  local confirmationScreen = decode(
+    "decodeScreen",
+    confirmationScreenBytes,
+    "confirmation screen",
+    confirmationSpec.screen,
+    confirmationSpec.archive
+  )
+  local confirmationSurface = renderScreen(confirmationChar, confirmationPalette.colors, confirmationScreen)
+  for _, id in ipairs({ "confirmation_yes", "confirmation_no" }) do
+    local choice = id:gsub("confirmation_", "")
+    local image = cropSurface(confirmationSurface, confirmationSpec.crops[choice], id)
+    addConfirmationAsset(manifest, assets, id, image, confirmationSpec.contentRects[choice], {
+      rule = "source-confirmation-backing",
+      charMember = confirmationSpec.char,
+      paletteMember = confirmationSpec.palette,
+      screenMember = confirmationSpec.screen,
+    })
+  end
   local ballArchive = sourceArchive(romFs, config.ball_open.archive)
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
     local spec = assert(config[id])
