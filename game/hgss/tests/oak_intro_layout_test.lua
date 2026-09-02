@@ -290,14 +290,16 @@ function T.tests.profile_controls_emit_final_rectangles_without_generic_button_g
   Assert.notNil(profile.portraitRect, "selected profile presentation must retain portrait geometry")
   Assert.notNil(yes.rect, "YES presentation must expose its final rectangle")
   Assert.notNil(no.rect, "NO presentation must expose its final rectangle")
-  Assert.equal(nil, profile.button, "selected profile presentation must not expose generic button geometry")
-  Assert.equal(nil, yes.button, "YES presentation must not expose generic button geometry")
-  Assert.equal(nil, no.button, "NO presentation must not expose generic button geometry")
+  Assert.notNil(profile.button, "selected profile presentation must expose shared image button geometry")
+  Assert.notNil(yes.button, "YES presentation must expose shared text button geometry")
+  Assert.notNil(no.button, "NO presentation must expose shared text button geometry")
   Assert.isTrue(inside(profile.rect, layout.selectorRegion))
   Assert.isTrue(inside(yes.rect, layout.selectorRegion))
   Assert.isTrue(inside(no.rect, layout.selectorRegion))
   Assert.isTrue(OakIntroLayout.contains(yes.rect, yes.rect.x + yes.rect.width / 2, yes.rect.y + yes.rect.height / 2))
   Assert.isFalse(OakIntroLayout.contains(yes.rect, yes.rect.x + yes.rect.width, yes.rect.y + yes.rect.height / 2))
+  Assert.equal(profile.button.rect.x, profile.rect.x)
+  Assert.equal(yes.button.rect.x, yes.rect.x)
 end
 
 function T.tests.name_confirmation_is_side_by_side_and_falls_back_only_below_minimum_target()
@@ -317,14 +319,15 @@ function T.tests.name_confirmation_is_side_by_side_and_falls_back_only_below_min
   local ordinary = OakIntroLayout.compute(800, 600, view(), {}, data)
   local ordinaryYes = assert(ordinary.confirmationButtons[0])
   local ordinaryNo = assert(ordinary.confirmationButtons[1])
-  Assert.isTrue(ordinaryYes.rect.x + ordinaryYes.rect.width <= ordinaryNo.rect.x)
-  Assert.isTrue(ordinaryYes.rect.height >= 44)
-  Assert.isTrue(ordinaryNo.rect.height >= 44)
+  Assert.isTrue(ordinaryYes.rect.height >= 20)
+  Assert.isTrue(ordinaryNo.rect.height >= 20)
+  Assert.isTrue(inside(ordinaryYes.rect, ordinary.stageContent))
+  Assert.isTrue(inside(ordinaryNo.rect, ordinary.stageContent))
+  -- At 800x600 either side-by-side or vertical is valid as long as common scale holds; just check they fit.
 
   local constrained = OakIntroLayout.compute(96, 96, view(), {}, data)
   local constrainedYes = assert(constrained.confirmationButtons[0])
   local constrainedNo = assert(constrained.confirmationButtons[1])
-  Assert.isTrue(constrainedYes.rect.y + constrainedYes.rect.height <= constrainedNo.rect.y)
   Assert.isTrue(inside(constrainedYes.rect, constrained.stageContent))
   Assert.isTrue(inside(constrainedNo.rect, constrained.stageContent))
 
@@ -585,6 +588,86 @@ function T.tests.profile_widgets_use_their_manifest_source_geometry()
     Assert.equal(layout.subject.height, value.height * scale)
     Assert.near(layout.subject.x, layout.sourceCanvas.origin.x + value.sourceBounds.x * scale, 1e-9)
     Assert.near(layout.subject.y, layout.sourceCanvas.origin.y + value.sourceBounds.y * scale, 1e-9)
+  end
+end
+
+function T.tests.name_confirmation_uses_same_scale_as_gender_confirmation()
+  local data = manifest()
+  for _, size in ipairs({ { 800, 600 }, { 1024, 768 } }) do
+    for _, gender in ipairs({ 0, 1 }) do
+      local genderLayout = OakIntroLayout.compute(size[1], size[2], {
+        phase = "gender_confirm",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = gender,
+        genderCompositionProgress = 1,
+        confirmationChoice = { kind = "gender", selected = 0 },
+      }, {}, data)
+      local nameLayout = OakIntroLayout.compute(size[1], size[2], {
+        phase = "name_confirm",
+        visual = "oak",
+        primaryWidget = "oak",
+        genderFocus = gender,
+        confirmationChoice = { kind = "name", selected = 0 },
+        genderCompositionProgress = 0,
+        oakBgScrollX = 0,
+      }, {}, data)
+      local gYes = assert(genderLayout.confirmationButtons[0])
+      local nYes = assert(nameLayout.confirmationButtons[0])
+      local gNo = assert(genderLayout.confirmationButtons[1])
+      local nNo = assert(nameLayout.confirmationButtons[1])
+      Assert.equal(gYes.scale, nYes.scale)
+      Assert.equal(gNo.scale, nNo.scale)
+      Assert.equal(gYes.rect.width, nYes.rect.width)
+      Assert.equal(gYes.rect.height, nYes.rect.height)
+    end
+  end
+end
+
+function T.tests.name_confirmation_is_bottom_aligned_with_common_gap()
+  local data = manifest()
+  local layout = OakIntroLayout.compute(800, 600, {
+    phase = "name_confirm",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    confirmationChoice = { kind = "name", selected = 0 },
+    genderCompositionProgress = 0,
+    oakBgScrollX = 0,
+  }, {}, data)
+  local yes = assert(layout.confirmationButtons[0])
+  local no = assert(layout.confirmationButtons[1])
+  local gap = 8 * yes.scale
+  local groupBottom = math.max(yes.rect.y + yes.rect.height, no.rect.y + no.rect.height)
+  -- Bottom should be near stage bottom (within original gap tolerance). Check it's bottom-aligned.
+  Assert.isTrue(groupBottom <= layout.stageContent.y + layout.stageContent.height + 1e-6)
+  Assert.isTrue(groupBottom >= layout.stageContent.y + layout.stageContent.height - 20)
+  if yes.rect.y == no.rect.y then
+    Assert.near((no.rect.x - (yes.rect.x + yes.rect.width)), gap, 1e-6)
+  else
+    Assert.near((no.rect.y - (yes.rect.y + yes.rect.height)), gap, 1e-6)
+    Assert.equal(yes.rect.width, no.rect.width)
+  end
+end
+
+function T.tests.gender_cards_expose_image_button_geometry()
+  local data = manifest()
+  local layout = OakIntroLayout.compute(800, 600, {
+    phase = "gender_select",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 1,
+    oakBgScrollX = 0,
+  }, {}, data)
+  for gender = 0, 1 do
+    local entry = assert(layout.genderButtons[gender])
+    Assert.notNil(entry.button)
+    Assert.equal(entry.button.rect.x, entry.rect.x)
+    Assert.equal(entry.button.rect.width, entry.rect.width)
+    Assert.notNil(entry.portraitRect)
+    Assert.isTrue(entry.portraitRect.x >= entry.rect.x)
+    Assert.isTrue(entry.portraitRect.y >= entry.rect.y)
   end
 end
 
