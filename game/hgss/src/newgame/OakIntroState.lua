@@ -327,7 +327,7 @@ function OakIntroState:_stepDialogue(snapshot)
     local view = self.controller:view()
     if view.phase == "name_confirm" then
       local status = dialogue:status()
-      if status.state == "WAITING_CLOSE" then
+      if status.state == "CLOSING" then
         candidate = copyFrozenStatus(status)
       end
     end
@@ -403,9 +403,9 @@ function OakIntroState:update(dt)
       self:_stepDialogue()
     end
     local phaseAfterDialogue = self.controller:view().phase
-    local genderCompositionStarted = phaseBeforeDialogue == "gender_question"
-      and phaseAfterDialogue == "gender_composition_transition"
-    if not genderCompositionStarted then
+    local compositionStarted = phaseBeforeDialogue == "gender_question"
+      and (phaseAfterDialogue == "gender_composition_transition" or phaseAfterDialogue == "name_composition_return")
+    if not compositionStarted then
       self.controller:tick(1)
     end
     if self.controller:view().phase == "complete" then
@@ -426,9 +426,9 @@ function OakIntroState:tick(frames)
       self:_stepDialogue()
     end
     local phaseAfterDialogue = self.controller:view().phase
-    local genderCompositionStarted = phaseBeforeDialogue == "gender_question"
-      and phaseAfterDialogue == "gender_composition_transition"
-    if not genderCompositionStarted then
+    local compositionStarted = phaseBeforeDialogue == "gender_question"
+      and (phaseAfterDialogue == "gender_composition_transition" or phaseAfterDialogue == "name_composition_return")
+    if not compositionStarted then
       self.controller:tick(1)
     end
   end

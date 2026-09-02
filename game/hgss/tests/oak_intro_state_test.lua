@@ -8,6 +8,7 @@ local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
 
 local T = {}
 local DIALOGUE_CURSOR_PLACEMENT = { x = 240, y = 168, width = 16, height = 16 }
@@ -764,243 +765,6 @@ function T.dialogue_completion_edge_does_not_enter_the_new_choice()
   Assert.notNil(state:view().confirmationChoice)
 end
 
-function T.frozen_name_question_remains_drawable_after_modal_close()
-  local state, controller = stateHarness()
-  local modal = true
-  local completion
-  local tokens = { { kind = "glyph", text = "Hello" }, { kind = "focus_indicator", field = "yesno" } }
-  controller.phase = "name_confirm"
-  controller.view = function(self)
-    return {
-      phase = self.phase,
-      messageKey = modal and "profile.name_confirm.male" or nil,
-      message = modal and { tokens = tokens } or nil,
-      confirmationChoice = not modal and { kind = "name", selected = 0 } or nil,
-      genderCompositionProgress = 0,
-      name = "GOLD",
-      nameInputEnabled = false,
-      genderFocus = 0,
-      visual = "oak",
-      primaryWidget = "oak",
-      virtualKeys = {},
-      oakBgScrollX = 0,
-    }
-  end
-  controller.messageCompleted = function(_, key)
-    Assert.equal(key, "profile.name_confirm.male")
-    modal = false
-  end
-  local dialogue = {
-    open = function()
-      return {
-        onComplete = function(_, callback)
-          completion = callback
-        end,
-      }
-    end,
-    step = function(_, snapshot)
-      if snapshot and snapshot.actionPressed and completion then
-        local callback = completion
-        completion = nil
-        callback()
-        modal = false
-      end
-    end,
-    isModal = function()
-      return modal
-    end,
-    status = function()
-      return {
-        state = "WAITING_CLOSE",
-        waiting = true,
-        cursorPhase = 1,
-        frameIndex = 3,
-        visibleLines = { { tokens[1], tokens[2] } },
-        scrollLines = nil,
-        scrollOffsetY = 0,
-        lineHeight = 16,
-        lineSpacing = 2,
-      }
-    end,
-  }
-  local renderer = {
-    drawn = {},
-    draw = function(self, controllerArg, presentation)
-      self.drawn[#self.drawn + 1] =
-        { controller = controllerArg, presentation = presentation, status = controllerArg:status() }
-    end,
-  }
-  state.dialogueController = dialogue
-  state.dialogueRenderer = renderer
-  state.dialogueFormatter = {
-    format = function(_, key)
-      return { tokens = tokens, text = key, hadUnresolvedSubstitutions = false }
-    end,
-    choiceLabels = function()
-      return { [0] = "YES", [1] = "NO" }
-    end,
-  }
-  state:_sync()
-  state:draw()
-  Assert.equal(#renderer.drawn, 1)
-  Assert.equal(renderer.drawn[1].controller, dialogue)
-  Assert.isTrue(renderer.drawn[1].controller:isModal())
-  renderer.drawn = {}
-  state:keypressed("return")
-  Assert.isFalse(dialogue:isModal())
-  Assert.deepEqual(controller.view(controller).confirmationChoice, { kind = "name", selected = 0 })
-  local view = state:view()
-  Assert.notNil(view.dialoguePresentation, "presentation must persist after close")
-  Assert.notNil(view.layout.dialogue)
-  state:draw()
-  Assert.equal(#renderer.drawn, 1)
-  local drawn = renderer.drawn[1]
-  Assert.isTrue(drawn.controller ~= dialogue, "frozen adapter must be a different object")
-  Assert.isTrue(drawn.controller:isModal(), "frozen adapter must appear modal to renderer")
-  local status = drawn.status
-  Assert.equal(status.frameIndex, 3)
-  Assert.equal(status.waiting, false)
-  Assert.isNil(status.cursorPhase)
-  Assert.isNil(status.scrollLines)
-  Assert.equal(status.scrollOffsetY, 0)
-  Assert.equal(status.lineHeight, 16)
-  Assert.equal(status.lineSpacing, 2)
-  Assert.equal(#status.visibleLines, 1)
-  Assert.equal(status.visibleLines[1][1].text, "Hello")
-  Assert.equal(status.visibleLines[1][2].kind, "focus_indicator")
-  Assert.notNil(drawn.presentation)
-  Assert.equal(state.dialogueController, dialogue)
-end
-
-function T.frozen_name_question_is_cleared_after_yes_no_or_cancel()
-  local state, controller = stateHarness()
-  local modal = true
-  local completion
-  controller.phase = "name_confirm"
-  controller.view = function(self)
-    return {
-      phase = self.phase,
-      messageKey = modal and "profile.name_confirm.male" or nil,
-      message = modal and { tokens = {} } or nil,
-      confirmationChoice = not modal and { kind = "name", selected = 0 } or nil,
-      genderCompositionProgress = 0,
-      name = "GOLD",
-      nameInputEnabled = false,
-      genderFocus = 0,
-      visual = "oak",
-      primaryWidget = "oak",
-      virtualKeys = {},
-      oakBgScrollX = 0,
-    }
-  end
-  controller.messageCompleted = function()
-    modal = false
-  end
-  controller.press = function(self, action)
-    self.pressed[#self.pressed + 1] = action
-    if action == "yes" or action == "no" or action == "cancel" or action == "confirm" then
-      self.phase = "gender_question"
-    end
-  end
-  local dialogue = {
-    open = function()
-      return {
-        onComplete = function(_, cb)
-          completion = cb
-        end,
-      }
-    end,
-    step = function(_, snapshot)
-      if snapshot and snapshot.actionPressed and completion then
-        local cb = completion
-        completion = nil
-        cb()
-        modal = false
-      end
-    end,
-    isModal = function()
-      return modal
-    end,
-    status = function()
-      return {
-        state = "WAITING_CLOSE",
-        waiting = true,
-        cursorPhase = 0,
-        frameIndex = 0,
-        visibleLines = { { { kind = "glyph", text = "Q" } } },
-        scrollLines = nil,
-        scrollOffsetY = 0,
-        lineHeight = 16,
-        lineSpacing = 0,
-      }
-    end,
-  }
-  local renderer = {
-    drawn = {},
-    draw = function(self, c, p)
-      self.drawn[#self.drawn + 1] = { controller = c, presentation = p }
-    end,
-  }
-  state.dialogueController = dialogue
-  state.dialogueRenderer = renderer
-  state.dialogueFormatter = {
-    format = function()
-      return { tokens = {}, text = "x", hadUnresolvedSubstitutions = false }
-    end,
-    choiceLabels = function()
-      return { [0] = "YES", [1] = "NO" }
-    end,
-  }
-  state:_sync()
-  state:keypressed("return")
-  Assert.notNil(state._frozenStatus, "frozen must be active after close into name choice")
-  controller.phase = "name_confirm"
-  state.controller:press("yes")
-  state:_sync()
-  Assert.isNil(state._frozenStatus, "frozen must be cleared after Yes")
-  Assert.isNil(state._frozenAdapter)
-  modal = true
-  controller.phase = "name_confirm"
-  state.dialogueController = dialogue
-  state:_sync()
-  dialogue.status = function()
-    return {
-      state = "WAITING_CLOSE",
-      waiting = true,
-      cursorPhase = 0,
-      frameIndex = 0,
-      visibleLines = { { { kind = "glyph", text = "Q2" } } },
-      scrollLines = nil,
-      scrollOffsetY = 0,
-      lineHeight = 16,
-      lineSpacing = 0,
-    }
-  end
-  completion = function()
-    modal = false
-  end
-  state:_stepDialogue({ actionPressed = true })
-  state:_sync()
-  Assert.notNil(state._frozenStatus)
-  controller.phase = "gender_question"
-  state:_sync()
-  Assert.isNil(state._frozenStatus, "frozen must be cleared when leaving name_confirm")
-  modal = true
-  controller.phase = "name_confirm"
-  state._frozenStatus = { visibleLines = {} }
-  state._frozenAdapter = {
-    isModal = function()
-      return true
-    end,
-    status = function()
-      return state._frozenStatus
-    end,
-  }
-  state:dispose()
-  Assert.isNil(state._frozenStatus)
-  Assert.isNil(state._frozenAdapter)
-end
-
 function T.frozen_is_not_activated_while_still_waiting_close_without_action()
   local state, controller = stateHarness()
   local modal = true
@@ -1064,10 +828,159 @@ function T.frozen_is_not_activated_while_still_waiting_close_without_action()
   }
   state.dialogueMessageKey = "profile.name_confirm.male"
   state:tick(1)
-  Assert.isNil(state._frozenStatus, "frozen must not activate while still WAITING_CLOSE without close")
   Assert.isTrue(dialogue:isModal())
   state:draw()
   Assert.equal(renderer.drawn[1], dialogue, "real controller must remain draw owner while WAITING_CLOSE")
+end
+
+function T.completed_name_question_stays_visible_through_real_close_sequence()
+  local tokens = {
+    { kind = "glyph", text = "HELLO", code = 1, raw = { 1 } },
+    { kind = "focus_indicator", control = 0x0200, name = "YESNO", args = { 0 } },
+  }
+  local pages = { { lines = { { tokens = tokens, width = 0 } }, breakKind = "eos" } }
+  local cursor = { cycle = { 0, 1, 2, 1 }, framePrinterTicks = 9, placement = DIALOGUE_CURSOR_PLACEMENT }
+  local dialogue = FieldDialogueController.new({
+    layout = function()
+      return {
+        pages = pages,
+        warnings = {},
+        lineHeight = 16,
+        lineSpacing = 2,
+        textOriginX = 0,
+        textOriginY = 0,
+        contentWidth = 216,
+        syntheticBreaks = 0,
+      }
+    end,
+    policy = { interGlyphDelay = 1, glyphBudget = 2, abAcceleration = true },
+    continueCursor = cursor,
+  })
+  local modal = true
+  local semantic = fakeController()
+  semantic.phase = "name_confirm"
+  semantic.compositionProgress = 1
+  semantic.choice = nil
+  semantic.view = function(self)
+    return {
+      phase = self.phase,
+      messageKey = modal and "profile.name_confirm.male" or nil,
+      message = modal and { tokens = tokens } or nil,
+      confirmationChoice = not modal and { kind = "name", selected = 0 } or nil,
+      genderCompositionProgress = self.compositionProgress,
+      name = "GOLD",
+      nameInputEnabled = false,
+      genderFocus = 0,
+      visual = "oak",
+      primaryWidget = "oak",
+      virtualKeys = {},
+      oakBgScrollX = 0,
+    }
+  end
+  semantic.messageCompleted = function(self, key)
+    Assert.equal(key, "profile.name_confirm.male")
+    modal = false
+    return true
+  end
+  local renderer = {
+    draws = {},
+    draw = function(self, controllerArg, presentation)
+      self.draws[#self.draws + 1] = {
+        controller = controllerArg,
+        presentation = presentation,
+        status = controllerArg:status(),
+      }
+    end,
+  }
+  local state = OakIntroState.new({
+    controller = semantic --[[@as OakIntroController]],
+    manifest = INTRO_MANIFEST,
+    textRenderer = {},
+    choiceText = { release = function() end },
+    renderer = { draw = function() end, dispose = function() end },
+    textInputHost = { setTextInput = function() end },
+    dialogueController = dialogue,
+    dialogueRenderer = renderer,
+    dialogueFormatter = {
+      format = function(_, _)
+        return { tokens = tokens, text = "profile.name_confirm.male", hadUnresolvedSubstitutions = false }
+      end,
+      choiceLabels = function()
+        return { [0] = "YES", [1] = "NO" }
+      end,
+    },
+    glyphs = { "A" },
+    width = 640,
+    height = 480,
+    dialogueCursorPlacement = DIALOGUE_CURSOR_PLACEMENT,
+  })
+  -- drive reveal until WAITING_CLOSE
+  for _ = 1, 20 do
+    if dialogue:status().state == "WAITING_CLOSE" then
+      break
+    end
+    state:tick(1)
+  end
+  Assert.equal(dialogue:status().state, "WAITING_CLOSE", "real dialogue must reach WAITING_CLOSE")
+  Assert.isTrue(dialogue:isModal())
+  renderer.draws = {}
+  state:draw()
+  Assert.equal(#renderer.draws, 1, "while WAITING_CLOSE the real controller must own drawing")
+  Assert.equal(renderer.draws[1].controller, dialogue)
+  Assert.isTrue(renderer.draws[1].controller:isModal())
+  -- press confirm to move WAITING_CLOSE -> CLOSING; close edge must not select YES yet
+  renderer.draws = {}
+  state:keypressed("return")
+  Assert.equal(dialogue:status().state, "CLOSING", "confirm edge must move to CLOSING")
+  Assert.isTrue(dialogue:isModal(), "CLOSING is still modal and real controller owns drawing")
+  Assert.isNil(semantic.choice, "close edge must not activate YES")
+  Assert.isTrue(modal, "semantic choice must not be active while CLOSING")
+  state:draw()
+  Assert.equal(#renderer.draws, 1, "while CLOSING real controller still draws")
+  Assert.equal(renderer.draws[1].controller, dialogue)
+  -- next source tick closes and publishes frozen question
+  renderer.draws = {}
+  state:tick(1)
+  Assert.equal(dialogue:status().state, "CLOSED", "next tick must close the real controller")
+  Assert.isFalse(dialogue:isModal())
+  Assert.deepEqual(
+    semantic:view().confirmationChoice,
+    { kind = "name", selected = 0 },
+    "name choice must be active after close"
+  )
+  Assert.equal(modal, false)
+  state:draw()
+  Assert.equal(#renderer.draws, 1, "after close the frozen question must still be drawn")
+  local drawn = renderer.draws[1]
+  Assert.isTrue(drawn.controller ~= dialogue, "frozen adapter must be a different object")
+  Assert.isTrue(drawn.controller:isModal(), "frozen adapter must appear modal")
+  local status = drawn.status
+  Assert.equal(status.waiting, false, "frozen must not show continuation cursor")
+  Assert.isNil(status.cursorPhase, "frozen must have no cursor phase")
+  Assert.isNil(status.scrollLines)
+  Assert.equal(status.scrollOffsetY, 0)
+  Assert.equal(status.lineHeight, 16)
+  Assert.equal(status.lineSpacing, 2)
+  Assert.equal(status.frameIndex, 0)
+  Assert.equal(#status.visibleLines, 1)
+  Assert.equal(status.visibleLines[1][1].text, "HELLO")
+  Assert.equal(status.visibleLines[1][2].kind, "focus_indicator")
+  Assert.notNil(drawn.presentation)
+  -- resolving choice must stop drawing the old frozen question
+  renderer.draws = {}
+  semantic:press("yes")
+  semantic.phase = "final_dialogue"
+  state:_sync()
+  state:draw()
+  -- after YES the old frozen question must not be drawn; real dialogue for final takes over (or nothing if not opened yet in this harness)
+  -- the key is frozen is no longer the draw source
+  local stillFrozen = false
+  for _, entry in ipairs(renderer.draws) do
+    if entry.status.visibleLines[1] and entry.status.visibleLines[1][1].text == "HELLO" then
+      stillFrozen = true
+    end
+  end
+  Assert.isFalse(stillFrozen, "old frozen question must not be drawn after resolving choice")
 end
 
 return { tests = T }

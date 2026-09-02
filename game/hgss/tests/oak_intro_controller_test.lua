@@ -505,50 +505,6 @@ function T.gender_composition_uses_exactly_twenty_six_source_frames_and_does_not
   Assert.equal(state:view().genderCompositionProgress, 1)
 end
 
-function T.name_submission_starts_a_symmetric_exit_and_reaches_zero_before_name_confirm()
-  local state = advanceToNameEdit()
-  Assert.equal(state:view().genderCompositionProgress, 1)
-  state:inputText("GOLD")
-  state:press("submit")
-  Assert.isFalse(state:view().phase == "name_confirm", "name_confirm must not open before the exit completes")
-  Assert.equal(state:view().genderCompositionProgress, 1, "exit must begin at the entered composition progress")
-
-  local previous = 1
-  for _ = 1, 25 do
-    state:tick(1)
-    local view = state:view()
-    Assert.isFalse(view.phase == "name_confirm", "name_confirm must wait for the exit to finish")
-    Assert.isTrue(view.genderCompositionProgress < previous, "exit progress must strictly decrease each source frame")
-    previous = view.genderCompositionProgress
-  end
-  state:tick(1)
-  local finished = state:view()
-  Assert.equal(finished.genderCompositionProgress, 0)
-  Assert.equal(finished.phase, "name_confirm")
-  Assert.equal(finished.name, "GOLD")
-end
-
-function T.name_confirm_rejection_reenters_gender_composition_from_zero()
-  local state = advanceToNameEdit()
-  state:inputText("GOLD")
-  state:press("submit")
-  state:tick(26)
-  Assert.equal(state:view().phase, "name_confirm")
-  Assert.equal(state:view().genderCompositionProgress, 0)
-
-  completeActiveMessage(state)
-  state:press("cancel")
-  Assert.equal(state:view().phase, "gender_question")
-  Assert.equal(state:view().genderCompositionProgress, 0)
-
-  completeActiveMessage(state)
-  Assert.equal(state:view().phase, "gender_composition_transition")
-  Assert.equal(state:view().genderCompositionProgress, 0)
-  state:tick(26)
-  Assert.equal(state:view().phase, "gender_select")
-  Assert.equal(state:view().genderCompositionProgress, 1)
-end
-
 function T.confirmation_completion_activates_an_explicit_yes_choice()
   local state = controller()
   state:start()
@@ -1222,7 +1178,7 @@ function T.blank_name_default_survives_into_the_finalized_profile()
     state:press("confirm")
     local expected = female and "Lyra" or "Ethan"
     Assert.equal(state:view().name, expected)
-    state:tick(26) -- gender_composition_exit -> name_confirm
+    state:tick(26)
     completeActiveMessage(state) -- name_confirm -> confirmation choice
     state:press("confirm") -- confirmation choice -> final_dialogue
     completeActiveMessage(state) -- final_dialogue -> final_fade_out
@@ -1258,6 +1214,75 @@ function T.invalid_or_oversized_input_is_rejected_without_ever_defaulting()
   focusConfirmKey(state)
   state:press("confirm")
   Assert.equal(state:view().name, "ABCDEGO", "rejected input must never be silently replaced by a default")
+end
+
+function T.name_submission_advances_directly_to_name_placement_over_twenty_six_frames()
+  local state = advanceToNameEdit()
+  Assert.equal(state:view().genderCompositionProgress, 1)
+  state:inputText("GOLD")
+  state:press("submit")
+  Assert.equal(state:view().genderCompositionProgress, 1, "name submit must keep gender composition at 1")
+  local progress = state:view().nameCompositionProgress
+  Assert.notNil(progress, "name composition progress must be exposed")
+  Assert.equal(progress, 0)
+  local previous = 0
+  for _ = 1, 25 do
+    state:tick(1)
+    local view = state:view()
+    Assert.equal(view.genderCompositionProgress, 1)
+    local current = assert(view.nameCompositionProgress)
+    Assert.isTrue(current > previous, "name progress must strictly increase each tick")
+    Assert.isTrue(current > 0 and current < 1)
+    Assert.isTrue(view.phase ~= "name_confirm", "name_confirm must wait for forward transition")
+    previous = current
+  end
+  state:tick(1)
+  local finished = state:view()
+  Assert.equal(finished.genderCompositionProgress, 1)
+  Assert.equal(finished.nameCompositionProgress, 1)
+  Assert.equal(finished.phase, "name_confirm")
+  Assert.equal(finished.name, "GOLD")
+end
+
+function T.affirmative_name_answer_keeps_name_placement()
+  local state = nameConfirmation(false)
+  Assert.equal(state:view().genderCompositionProgress, 1)
+  local progressBefore = assert(state:view().nameCompositionProgress)
+  Assert.equal(progressBefore, 1)
+  state:press("yes")
+  local after = state:view()
+  Assert.equal(after.phase, "final_dialogue")
+  Assert.equal(after.messageKey, "profile.final")
+  Assert.equal(after.genderCompositionProgress, 1)
+  Assert.equal(assert(after.nameCompositionProgress), 1, "YES must keep name composition at 1")
+end
+
+function T.rejected_name_returns_to_gender_placement_over_twenty_six_frames()
+  local state = advanceToNameEdit()
+  state:inputText("GOLD")
+  state:press("submit")
+  state:tick(26)
+  Assert.equal(state:view().phase, "name_confirm")
+  completeActiveMessage(state)
+  state:press("cancel")
+  Assert.equal(state:view().phase, "gender_question")
+  Assert.equal(state:view().genderCompositionProgress, 1)
+  Assert.equal(assert(state:view().nameCompositionProgress), 1, "rejected question must keep name progress at 1")
+  completeActiveMessage(state)
+  local start = state:view()
+  -- closing gender_question must start return transition without consuming a frame
+  Assert.equal(assert(start.nameCompositionProgress), 1, "return must start at 1 before ticking")
+  Assert.isTrue(start.phase ~= "gender_select", "gender_select must wait for return transition")
+  state:tick(1)
+  Assert.isTrue(assert(state:view().nameCompositionProgress) < 1, "progress must decrease after first tick")
+  for _ = 1, 24 do
+    state:tick(1)
+  end
+  state:tick(1)
+  local finished = state:view()
+  Assert.equal(finished.phase, "gender_select")
+  Assert.equal(finished.genderCompositionProgress, 1)
+  Assert.equal(finished.nameCompositionProgress, 0)
 end
 
 return { tests = T }
