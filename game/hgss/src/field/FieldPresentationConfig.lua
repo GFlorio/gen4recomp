@@ -2,6 +2,6 @@
 
 local FieldPresentationConfig = {}
 
-FieldPresentationConfig.WORLD_3D_RASTER_SCALE = 2
+FieldPresentationConfig.WORLD_3D_RASTER_SCALE = 3
 
 return FieldPresentationConfig
