@@ -250,6 +250,17 @@ function FieldTextRenderer:_maskQuad(code)
   return quad
 end
 
+local function normalizePaletteColor(color)
+  local alpha = color.a
+  if alpha == nil then
+    alpha = 1
+  else
+    assert(type(alpha) == "number" and alpha == alpha and alpha > -math.huge and alpha < math.huge)
+    assert(alpha >= 0 and alpha <= 1)
+  end
+  return { color.r / 255, color.g / 255, color.b / 255, alpha }
+end
+
 -- Draws one line through the palette-driven path: the mask atlas recolored
 -- by the shader against the caller's exact foreground/shadow/background
 -- triple, at the same glyph advance/letterSpacing geometry as drawLine.
@@ -260,7 +271,7 @@ end
 ---@param tokens MessageToken[]
 ---@param x number
 ---@param y number
----@param palette { foreground: {r:number,g:number,b:number}, shadow: {r:number,g:number,b:number}, background: {r:number,g:number,b:number} }
+---@param palette { foreground: {r:number,g:number,b:number,a:number?}, shadow: {r:number,g:number,b:number,a:number?}, background: {r:number,g:number,b:number,a:number?} }
 function FieldTextRenderer:drawLineWithPalette(tokens, x, y, palette)
   local lg = assert(self._graphics)
   local atlas = assert(self._maskAtlas)
@@ -268,13 +279,9 @@ function FieldTextRenderer:drawLineWithPalette(tokens, x, y, palette)
   local def = self.fontDef
   local letterSpacing = def.letterSpacing or 0
 
-  local function norm(c)
-    return { c.r / 255, c.g / 255, c.b / 255, 1 }
-  end
-
-  shader:send("u_foreground", norm(palette.foreground))
-  shader:send("u_shadow", norm(palette.shadow))
-  shader:send("u_background", norm(palette.background))
+  shader:send("u_foreground", normalizePaletteColor(palette.foreground))
+  shader:send("u_shadow", normalizePaletteColor(palette.shadow))
+  shader:send("u_background", normalizePaletteColor(palette.background))
 
   lg.setShader(shader)
   lg.setColor(1, 1, 1, 1)
@@ -317,20 +324,16 @@ end
 ---@param text string
 ---@param x number
 ---@param y number
----@param palette { foreground: {r:number,g:number,b:number}, shadow: {r:number,g:number,b:number}, background: {r:number,g:number,b:number} }
+---@param palette { foreground: {r:number,g:number,b:number,a:number?}, shadow: {r:number,g:number,b:number,a:number?}, background: {r:number,g:number,b:number,a:number?} }
 function FieldTextRenderer:drawTextWithPalette(text, x, y, palette)
   local lg = assert(self._graphics)
   local atlas = assert(self._maskAtlas)
   local shader = assert(self._paletteShader)
   local def = self.fontDef
 
-  local function norm(c)
-    return { c.r / 255, c.g / 255, c.b / 255, 1 }
-  end
-
-  shader:send("u_foreground", norm(palette.foreground))
-  shader:send("u_shadow", norm(palette.shadow))
-  shader:send("u_background", norm(palette.background))
+  shader:send("u_foreground", normalizePaletteColor(palette.foreground))
+  shader:send("u_shadow", normalizePaletteColor(palette.shadow))
+  shader:send("u_background", normalizePaletteColor(palette.background))
 
   lg.setShader(shader)
   lg.setColor(1, 1, 1, 1)
