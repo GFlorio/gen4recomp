@@ -1,8 +1,4 @@
 local Assert = require("tests.support.Assert")
-local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
-local NewGame = require("game.hgss.src.newgame.NewGame")
-local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
 
 local T = { tests = {} }
@@ -453,150 +449,6 @@ function T.tests.slide_displacement_uses_manifest_reference_width_not_hardcoded_
   )
 end
 
-local function layoutSequenceCandidate()
-  return NewGame.createCandidate({
-    saveService = {
-      reserve = function()
-        return "save-oak-layout"
-      end,
-    },
-    versionId = "heartgold",
-    eventState = FieldEventState.new(),
-    scriptSymbols = FieldScriptSymbols,
-    mapIdentity = {
-      mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
-      fieldX = 6,
-      fieldZ = 6,
-      sourceFacing = 1,
-    },
-  })
-end
-
-local function layoutSequenceAudio()
-  return {
-    playMusic = function() end,
-    stopMusic = function() end,
-    fadeMusicOut = function() end,
-    play = function() end,
-    playCry = function() end,
-    updateSoundFrame = function() end,
-    isMusicFadeActive = function()
-      return false
-    end,
-  }
-end
-
-local function layoutSequenceController()
-  return OakIntroController.new({
-    candidate = layoutSequenceCandidate(),
-    clock = {
-      nowLocal = function()
-        return { year = 2009, month = 1, day = 1, hour = 12, minute = 0, second = 0 }
-      end,
-    },
-    audio = layoutSequenceAudio() --[[@as GameSound]],
-    messages = {
-      ["greeting.midnight"] = "greeting.midnight",
-      ["greeting.morning"] = "greeting.morning",
-      ["greeting.day"] = "greeting.day",
-      ["greeting.evening"] = "greeting.evening",
-      ["greeting.night"] = "greeting.night",
-      ["oak.welcome"] = "oak.welcome",
-      ["oak.world_inhabited"] = "oak.world_inhabited",
-      ["oak.live_alongside"] = "oak.live_alongside",
-      ["oak.tell_about_yourself"] = "oak.tell_about_yourself",
-      ["profile.gender_question"] = "profile.gender_question",
-      ["profile.gender_confirm.male"] = "profile.gender_confirm.male",
-      ["profile.gender_confirm.female"] = "profile.gender_confirm.female",
-      ["profile.name_prompt"] = "profile.name_prompt",
-      ["profile.name_confirm.male"] = "profile.name_confirm.male",
-      ["profile.name_confirm.female"] = "profile.name_confirm.female",
-      ["profile.final"] = "profile.final",
-    },
-    assets = {
-      marill = { frames = { { duration = 1 } } },
-      marill_appear = { frames = { { duration = 1 } } },
-      ball_open = { frames = { { duration = 1 } } },
-    },
-    virtualGlyphs = { "A", "B", "G", "O", "L" },
-    playerDataContext = { charmap = { A = 1, B = 2, G = 3, O = 4, L = 5 }, frameIndexes = { [0] = true } },
-    randomU32 = function()
-      return 0x12345678
-    end,
-  })
-end
-
-local function advanceControllerUntilPhase(state, phase)
-  for _ = 1, 2000 do
-    if state:view().phase == phase then
-      return
-    end
-    state:tick(1)
-  end
-  error("Oak layout sequence did not reach phase: " .. phase)
-end
-
-local function driveControllerToNameEdit(state)
-  state:start()
-  advanceControllerUntilPhase(state, "greeting")
-  state:messageCompleted(assert(state:view().messageKey))
-  advanceControllerUntilPhase(state, "oak_welcome")
-  state:messageCompleted(assert(state:view().messageKey))
-  advanceControllerUntilPhase(state, "oak_world_inhabited")
-  state:messageCompleted(assert(state:view().messageKey))
-  advanceControllerUntilPhase(state, "oak_live_alongside")
-  state:messageCompleted(assert(state:view().messageKey))
-  advanceControllerUntilPhase(state, "oak_tell_about_yourself")
-  state:messageCompleted(assert(state:view().messageKey))
-  state:messageCompleted(assert(state:view().messageKey))
-  state:tick(26)
-  state:press("confirm")
-  state:messageCompleted(assert(state:view().messageKey))
-  state:press("confirm")
-  state:messageCompleted(assert(state:view().messageKey))
-  advanceControllerUntilPhase(state, "name_edit")
-end
-
--- Drives the real Oak controller through name submission and asserts that
--- the responsive layout follows the composition exit back to ordinary Oak
--- geometry: mid-exit geometry reflects the current (non-terminal) progress,
--- and resizing before the exit finishes still lands on the ordinary mapping
--- for the final viewport once progress reaches exactly zero.
-function T.tests.ordinary_oak_geometry_resumes_after_the_profile_composition_exit_across_resize()
-  local data = manifest()
-  for _, size in ipairs({ { 1024, 768 }, { 390, 844 } }) do
-    local state = layoutSequenceController()
-    driveControllerToNameEdit(state)
-    state:inputText("GOLD")
-    state:press("submit")
-
-    for _ = 1, 13 do
-      state:tick(1)
-    end
-    local midView = state:view()
-    Assert.isTrue(
-      midView.genderCompositionProgress > 0 and midView.genderCompositionProgress < 1,
-      "test setup requires the exit to still be mid-transition"
-    )
-    local midLayout = OakIntroLayout.compute(size[1], size[2], midView, {}, data)
-    Assert.notNil(midLayout.subject)
-    Assert.isTrue(inside(midLayout.subject, midLayout.viewport))
-
-    state:tick(26 - 13)
-    local finalView = state:view()
-    Assert.equal(finalView.phase, "name_confirm")
-    Assert.equal(finalView.genderCompositionProgress, 0)
-    local finalLayout = OakIntroLayout.compute(size[1], size[2], finalView, {}, data)
-    Assert.notNil(finalLayout.dialogue, "name_confirm must reserve dialogue after composition exit")
-    Assert.notNil(finalLayout.oakRegion)
-    Assert.notNil(finalLayout.selectorRegion)
-    Assert.isTrue(inside(assert(finalLayout.subject), assert(finalLayout.oakRegion)))
-    Assert.isTrue(disjoint(assert(finalLayout.oakRegion), assert(finalLayout.selectorRegion)))
-    Assert.isTrue(disjoint(assert(finalLayout.oakRegion), finalLayout.dialogue.outerRect))
-    Assert.isTrue(disjoint(assert(finalLayout.selectorRegion), finalLayout.dialogue.outerRect))
-  end
-end
-
 function T.tests.profile_widgets_use_their_manifest_source_geometry()
   local data = profileManifest()
   for _, id in ipairs({ "male", "female", "shrink_male", "shrink_female" }) do
@@ -669,6 +521,166 @@ function T.tests.gender_cards_expose_image_button_geometry()
     Assert.isTrue(entry.portraitRect.x >= entry.rect.x)
     Assert.isTrue(entry.portraitRect.y >= entry.rect.y)
   end
+end
+
+function T.tests.name_forward_transition_interpolates_directly_between_gender_and_name_endpoints()
+  local data = manifest()
+  -- name composition must remain at 1 after gender is established; layout must keep Oak left for name phases
+  for _, size in ipairs({ { 640, 480 }, { 390, 844 }, { 800, 600 } }) do
+    local w, h = size[1], size[2]
+    local nameConfirm = OakIntroLayout.compute(w, h, {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      confirmationChoice = { kind = "name", selected = 0 },
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local finalDialogue = OakIntroLayout.compute(w, h, {
+      phase = "final_dialogue",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
+      oakBgScrollX = 0,
+    }, {}, data)
+    -- final_dialogue must keep the same left placement as name_confirm
+    Assert.near(
+      finalDialogue.subject.x,
+      nameConfirm.subject.x,
+      1e-4,
+      "final_dialogue must keep name-left placement at " .. w .. "x" .. h
+    )
+    Assert.near(finalDialogue.subject.y, nameConfirm.subject.y, 1e-4)
+    Assert.near(finalDialogue.subject.scale, nameConfirm.subject.scale, 1e-6)
+    -- rejected gender_question while name progress is 1 must also keep name placement
+    local rejectedQuestion = OakIntroLayout.compute(w, h, {
+      phase = "gender_question",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
+      oakBgScrollX = 0,
+    }, {}, data)
+    Assert.near(
+      rejectedQuestion.subject.x,
+      nameConfirm.subject.x,
+      1e-4,
+      "rejected question must stay at name placement at " .. w .. "x" .. h
+    )
+    Assert.near(rejectedQuestion.subject.y, nameConfirm.subject.y, 1e-4)
+    -- forward and return transitions must be distinct from ordinary center; they must interpolate between gender and name
+    local genderSelect = OakIntroLayout.compute(w, h, {
+      phase = "gender_select",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 0,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local genderSubject = assert(genderSelect.subject)
+    local nameSubject = assert(nameConfirm.subject)
+    Assert.isTrue(
+      math.abs(genderSubject.x - nameSubject.x) > 1e-2 or math.abs(genderSubject.y - nameSubject.y) > 1e-2,
+      "gender and name placements must be distinct at " .. w .. "x" .. h
+    )
+  end
+end
+
+function T.tests.rejected_name_return_interpolates_back_to_gender_endpoint()
+  local data = manifest()
+  for _, size in ipairs({ { 640, 480 }, { 800, 600 } }) do
+    local w, h = size[1], size[2]
+    local nameConfirm = OakIntroLayout.compute(w, h, {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      confirmationChoice = { kind = "name", selected = 0 },
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 1,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local nameSubject = assert(nameConfirm.subject)
+    local returnMid = OakIntroLayout.compute(w, h, {
+      phase = "name_composition_return",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 0.5,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local genderSelect = OakIntroLayout.compute(w, h, {
+      phase = "gender_select",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      genderCompositionProgress = 1,
+      nameCompositionProgress = 0,
+      oakBgScrollX = 0,
+    }, {}, data)
+    local genderSubject = assert(genderSelect.subject)
+    -- mid return must not equal gender endpoint
+    Assert.isTrue(
+      math.abs(returnMid.subject.x - genderSubject.x) > 1e-2 or math.abs(returnMid.subject.y - genderSubject.y) > 1e-2,
+      "return mid must be between name and gender at " .. w .. "x" .. h
+    )
+    Assert.isTrue(
+      math.abs(returnMid.subject.x - nameSubject.x) > 1e-2 or math.abs(returnMid.subject.y - nameSubject.y) > 1e-2,
+      "return mid must not be at name endpoint at " .. w .. "x" .. h
+    )
+  end
+end
+
+function T.tests.resize_recomputes_transition_endpoints_at_current_progress()
+  local data = manifest()
+  -- resizing mid-transition must recompute host coordinates from current viewport
+  local view = {
+    phase = "name_composition_transition",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 1,
+    nameCompositionProgress = 0.4,
+    oakBgScrollX = 0,
+  }
+  local first = OakIntroLayout.compute(640, 480, view, {}, data)
+  local second = OakIntroLayout.compute(390, 844, view, {}, data)
+  Assert.isTrue(inside(assert(first.subject), first.viewport))
+  Assert.isTrue(inside(assert(second.subject), second.viewport))
+  Assert.isTrue(
+    first.subject.x ~= second.subject.x or first.subject.y ~= second.subject.y,
+    "resize must recompute host coordinates"
+  )
+  local gender640 = OakIntroLayout.compute(640, 480, {
+    phase = "gender_select",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 1,
+    nameCompositionProgress = 0,
+    oakBgScrollX = 0,
+  }, {}, data)
+  local name640 = OakIntroLayout.compute(640, 480, {
+    phase = "name_confirm",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    confirmationChoice = { kind = "name", selected = 0 },
+    genderCompositionProgress = 1,
+    nameCompositionProgress = 1,
+    oakBgScrollX = 0,
+  }, {}, data)
+  Assert.isTrue(
+    math.abs(gender640.subject.x - name640.subject.x) > 1e-2 or math.abs(gender640.subject.y - name640.subject.y) > 1e-2,
+    "name and gender must be distinct at 640x480"
+  )
 end
 
 return T

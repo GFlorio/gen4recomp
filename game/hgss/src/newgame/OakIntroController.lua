@@ -32,6 +32,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field revealWidget string|nil
 ---@field oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
 ---@field genderCompositionProgress number normalized host composition progress
+---@field nameCompositionProgress number normalized host composition progress
 ---@field messageKey string|nil
 ---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field dialogue { message: string|table|nil, messageKey: string? }?
@@ -86,6 +87,8 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
 ---@field private _genderCompositionProgress number normalized host composition progress
 ---@field private _genderCompositionTimer integer
+---@field private _nameCompositionProgress number normalized host composition progress
+---@field private _nameCompositionTimer integer
 ---@field private _result table|nil
 ---@field private _events OakIntroEvent[]
 ---@field tick fun(self: OakIntroController, frames: integer)
@@ -251,6 +254,8 @@ function OakIntroController.new(options)
     _oakBgScrollX = 0,
     _genderCompositionProgress = 0,
     _genderCompositionTimer = 0,
+    _nameCompositionProgress = 0,
+    _nameCompositionTimer = 0,
     _result = nil,
     _events = {},
   }, OakIntroController)
@@ -392,14 +397,24 @@ function OakIntroController:_stepFrame()
       self._focusBlinkDelta = 0
     end
     return
-  elseif self._phase == "gender_composition_exit" then
-    self._genderCompositionTimer = self._genderCompositionTimer - 1
-    self._genderCompositionProgress = self._genderCompositionTimer / GENDER_COMPOSITION_FRAMES
-    if self._genderCompositionTimer == 0 then
-      self._genderCompositionProgress = 0
+  elseif self._phase == "name_composition_transition" then
+    self._nameCompositionTimer = self._nameCompositionTimer - 1
+    self._nameCompositionProgress = (GENDER_COMPOSITION_FRAMES - self._nameCompositionTimer) / GENDER_COMPOSITION_FRAMES
+    if self._nameCompositionTimer == 0 then
+      self._nameCompositionProgress = 1
       self._phase = "name_confirm"
       self:_setVisual("oak")
       self:_setMessage(self._genderSelection == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
+    end
+    return
+  elseif self._phase == "name_composition_return" then
+    self._nameCompositionTimer = self._nameCompositionTimer - 1
+    self._nameCompositionProgress = self._nameCompositionTimer / GENDER_COMPOSITION_FRAMES
+    if self._nameCompositionTimer == 0 then
+      self._nameCompositionProgress = 0
+      self._phase = "gender_select"
+      self._focusTimer = 0
+      self._focusBlinkDelta = 0
     end
     return
   end
@@ -708,7 +723,10 @@ function OakIntroController:press(action)
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_question" then
-    if self._genderCompositionProgress < 1 then
+    if self._nameCompositionProgress > 0 then
+      self._phase = "name_composition_return"
+      self._nameCompositionTimer = GENDER_COMPOSITION_FRAMES
+    elseif self._genderCompositionProgress < 1 then
       self._phase = "gender_composition_transition"
       self._genderCompositionTimer = GENDER_COMPOSITION_FRAMES
     else
@@ -728,8 +746,9 @@ function OakIntroController:press(action)
         self._name = assert(DEFAULT_PROFILE_NAMES[self._genderSelection])
       end
       if #appendGlyphs(self._name) >= 1 then
-        self._phase = "gender_composition_exit"
-        self._genderCompositionTimer = GENDER_COMPOSITION_FRAMES
+        self._phase = "name_composition_transition"
+        self._nameCompositionTimer = GENDER_COMPOSITION_FRAMES
+        self._nameCompositionProgress = 0
         self:_setVisual("oak")
       end
     end
@@ -821,6 +840,7 @@ function OakIntroController:view()
     revealFrameIndex = self._revealFrameIndex,
     oakBgScrollX = self._oakBgScrollX,
     genderCompositionProgress = self._genderCompositionProgress,
+    nameCompositionProgress = self._nameCompositionProgress,
     finalFadeAlpha = self._finalFadeAlpha,
   }
 end
