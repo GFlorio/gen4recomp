@@ -51,7 +51,7 @@ local function profileWidget(width, height, x, y)
 end
 
 local INTRO_MANIFEST = {
-  schemaVersion = 8,
+  schemaVersion = 9,
   variant = "heartgold",
   sourceReference = { width = 256, height = 192 },
   background = { width = 1, height = 192, sampling = "linear" },
@@ -60,35 +60,9 @@ local INTRO_MANIFEST = {
     buttons = {
       male = {
         bounds = { x = 18, y = 25, width = 93, height = 148 },
-        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
       },
       female = {
         bounds = { x = 144, y = 25, width = 95, height = 148 },
-        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
-      },
-    },
-  },
-  profileConfirmation = {
-    buttons = {
-      male = {
-        yes = {
-          bounds = { x = 138, y = 26, width = 115, height = 57 },
-          textBounds = { x = 136, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 138, y = 108, width = 115, height = 56 },
-          textBounds = { x = 136, y = 128, width = 104, height = 24 },
-        },
-      },
-      female = {
-        yes = {
-          bounds = { x = 10, y = 26, width = 115, height = 57 },
-          textBounds = { x = 16, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 10, y = 108, width = 115, height = 56 },
-          textBounds = { x = 16, y = 128, width = 104, height = 24 },
-        },
       },
     },
   },
@@ -138,6 +112,20 @@ local INTRO_MANIFEST = {
     female = profileWidget(88, 116, 48, 28),
     shrink_male = profileWidget(44, 68, 142, 70),
     shrink_female = profileWidget(40, 64, 150, 72),
+    confirmation_yes = {
+      width = 115,
+      height = 57,
+      anchor = { x = 0, y = 0 },
+      sourceBounds = { x = 138, y = 26, width = 115, height = 57 },
+      contentRect = { x = 6, y = 22, width = 104, height = 24 },
+    },
+    confirmation_no = {
+      width = 115,
+      height = 56,
+      anchor = { x = 0, y = 0 },
+      sourceBounds = { x = 138, y = 108, width = 115, height = 56 },
+      contentRect = { x = 6, y = 20, width = 104, height = 24 },
+    },
   },
 }
 
@@ -286,6 +274,8 @@ local function startFlow(options, fn)
     input.controller = controller
     input.manifest = INTRO_MANIFEST
     input.renderer = renderer
+    input.textRenderer = {}
+    input.choiceText = { release = function() end }
     input.textInputHost = inputHost
     input.glyphs = VIRTUAL_GLYPHS
     input.width = options.width or 960
@@ -347,8 +337,18 @@ local function advanceUntilPhase(phase)
   error("Oak flow did not reach phase: " .. phase)
 end
 
+local function completeMessage()
+  local state = assert(App.state).state
+  local key = assert(state:view().messageKey, "expected an active Oak message")
+  Assert.isTrue(state.controller:messageCompleted(key), "Oak message completion must advance the controller")
+end
+
 local function confirm()
-  App.keypressed("return")
+  if App.state.state:view().messageKey then
+    completeMessage()
+  else
+    App.keypressed("return")
+  end
 end
 
 -- Navigates keyboard focus onto the virtual Confirm key before activating
@@ -380,6 +380,7 @@ end
 
 local function reachNameEditor(audio)
   reachGenderSelect(audio)
+  confirm()
   confirm()
   confirm()
   confirm()
@@ -426,6 +427,7 @@ function T.tests.new_game_routes_through_the_core_oak_sequence()
     advance(26)
     confirm()
     confirm()
+    confirm()
     advance(1 + 1 + 30 + 9 * 4)
     Assert.equal(#context.fieldCalls, 1)
     Assert.equal(context.fieldCalls[1].game.playerData.profile.name, "GOLD")
@@ -470,12 +472,15 @@ function T.tests.gender_and_name_rejections_follow_the_source_backtrack()
     App.gamepadpressed({}, "dpright")
     App.gamepadpressed({}, "a")
     Assert.equal(App.state.state:view().phase, "gender_confirm")
+    completeMessage()
     App.gamepadpressed({}, "b")
     Assert.equal(App.state.state:view().phase, "gender_question")
     confirm()
+    advance(26)
     Assert.equal(App.state.state:view().phase, "gender_select")
     Assert.equal(App.state.state:view().genderFocus, 1)
 
+    confirm()
     confirm()
     confirm()
     confirm()
@@ -484,10 +489,12 @@ function T.tests.gender_and_name_rejections_follow_the_source_backtrack()
     submitName()
     advance(26)
     Assert.equal(App.state.state:view().phase, "name_confirm")
+    completeMessage()
     App.keypressed("escape")
     Assert.equal(App.state.state:view().phase, "gender_question")
     confirm()
     advance(26)
+    confirm()
     confirm()
     confirm()
     confirm()
@@ -521,6 +528,7 @@ function T.tests.name_submission_exits_composition_before_confirm_and_rejection_
     Assert.isNil(layout.oakRegion, "ordinary Oak name-confirm presentation must not retain a split region")
     Assert.isNil(layout.selectorRegion, "ordinary Oak name-confirm presentation must not retain a selector region")
 
+    completeMessage()
     App.keypressed("escape")
     Assert.equal(App.state.state:view().phase, "gender_question")
     Assert.equal(App.state.state:view().genderCompositionProgress, 0)
@@ -583,6 +591,7 @@ function T.tests.final_confirmation_hands_off_a_valid_unpublished_game()
     advance(26)
     Assert.equal(App.state.state:view().phase, "name_confirm")
     confirm()
+    confirm()
     Assert.equal(App.state.state:view().phase, "final_dialogue")
     confirm()
     Assert.equal(App.state.state:view().phase, "final_fade_out")
@@ -612,16 +621,18 @@ function T.tests.resize_and_all_input_modalities_share_oak_geometry_and_buffer()
     App.gamepadpressed({}, "dpright")
     App.gamepadpressed({}, "a")
     Assert.equal(App.state.state:view().phase, "gender_confirm")
+    completeMessage()
     App.keypressed("escape")
     confirm()
     Assert.equal(App.state.state:view().genderFocus, 1)
     App.resize(420, 800)
     Assert.equal(App.state.state:view().layout.viewport.width, 420)
     Assert.equal(App.state.state:view().genderFocus, 1)
-    local card = App.state.state:view().layout.genderButtons[App.state.state:view().genderFocus].button.rect
+    local card = App.state.state:view().layout.genderButtons[App.state.state:view().genderFocus].rect
     App.state.state:touchpressed("finger-1", card.x + 1, card.y + 1)
     Assert.equal(App.state.state:view().phase, "gender_confirm")
 
+    confirm()
     confirm()
     confirm()
     advance(40)

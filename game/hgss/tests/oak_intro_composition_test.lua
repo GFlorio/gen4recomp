@@ -2,7 +2,16 @@
 -- host-owned randomness boundary without embedding generated dialogue.
 
 local Assert = require("tests.support.Assert")
+local CacheFs = require("libs.storage.src.CacheFs")
+local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
+local FieldDialogueRenderer = require("libs.hgss.src.ui.FieldDialogueRenderer")
+local FieldFontLoader = require("libs.hgss.src.ui.FieldFontLoader")
+local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
+local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
+local GameAudio = require("game.hgss.src.audio.GameAudio")
 local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
+local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
+local OakIntroMessages = require("game.hgss.src.newgame.OakIntroMessages")
 
 local T = { tests = {} }
 
@@ -54,6 +63,104 @@ function T.tests.random_u32_provider_returns_nonconstant_uint32_values()
   local value = random()
   Assert.equal(value, 0x12345678)
   Assert.isTrue(value >= 0 and value <= 0xFFFFFFFF)
+end
+
+function T.tests.composition_releases_font_zero_when_font_four_acquisition_fails()
+  local modules = {
+    cache = CacheFs.forVersion,
+    introValidate = require("libs.assets.src.IntroAssetCache").validateManifest,
+    fieldUiValidate = require("libs.assets.src.FieldUiAssetCache").validateManifest,
+    fontLoad = FieldFontLoader.load,
+    providerNew = FieldMessageProvider.new,
+    audioCompose = GameAudio.compose,
+    textNew = FieldTextRenderer.new,
+    dialogueRendererNew = FieldDialogueRenderer.new,
+    dialogueControllerNew = FieldDialogueController.new,
+    controllerNew = OakIntroController.new,
+    messagesNew = OakIntroMessages.new,
+  }
+  local introCache = require("libs.assets.src.IntroAssetCache")
+  local fieldUiCache = require("libs.assets.src.FieldUiAssetCache")
+  local calls = {}
+  local fontZero = { releases = 0 }
+  function fontZero:release()
+    self.releases = self.releases + 1
+  end
+  local fakeCache = {
+    loadLua = function(_, path)
+      if path == introCache.manifestPath() then
+        return {}
+      end
+      if path == fieldUiCache.manifestPath() then
+        return { dialogueFrames = { count = 0, continueCursor = { placement = {} } } }
+      end
+      error("unexpected cache path " .. path)
+    end,
+  }
+  local provider = {
+    acquireBank = function()
+      return true
+    end,
+    get = function()
+      return {}
+    end,
+    releaseBank = function() end,
+  }
+  local sink = { releases = 0 }
+  function sink:release()
+    self.releases = self.releases + 1
+  end
+
+  rawset(CacheFs, "forVersion", function()
+    return fakeCache
+  end)
+  rawset(introCache, "validateManifest", function()
+    return true
+  end)
+  rawset(fieldUiCache, "validateManifest", function()
+    return true
+  end)
+  rawset(FieldFontLoader, "load", function()
+    return { charmap = {}, fontId = 0 }
+  end)
+  rawset(FieldMessageProvider, "new", function()
+    return provider
+  end)
+  rawset(GameAudio, "compose", function()
+    return { sound = {}, sink = sink }
+  end)
+  rawset(FieldTextRenderer, "new", function(options)
+    calls[#calls + 1] = options.fontId or 0
+    if options.fontId == 4 then
+      error("font 4 construction failed")
+    end
+    return fontZero
+  end)
+  rawset(OakIntroMessages, "new", function()
+    return {}
+  end)
+
+  local ok, failure = pcall(function()
+    OakIntroComposition.compose({ candidate = {}, versionId = "heartgold" })
+  end)
+
+  rawset(CacheFs, "forVersion", modules.cache)
+  rawset(introCache, "validateManifest", modules.introValidate)
+  rawset(fieldUiCache, "validateManifest", modules.fieldUiValidate)
+  rawset(FieldFontLoader, "load", modules.fontLoad)
+  rawset(FieldMessageProvider, "new", modules.providerNew)
+  rawset(GameAudio, "compose", modules.audioCompose)
+  rawset(FieldTextRenderer, "new", modules.textNew)
+  rawset(FieldDialogueRenderer, "new", modules.dialogueRendererNew)
+  rawset(FieldDialogueController, "new", modules.dialogueControllerNew)
+  rawset(OakIntroController, "new", modules.controllerNew)
+  rawset(OakIntroMessages, "new", modules.messagesNew)
+
+  Assert.isFalse(ok)
+  Assert.isTrue(tostring(failure):find("font 4 construction failed", 1, true) ~= nil)
+  Assert.deepEqual(calls, { 0, 4 })
+  Assert.equal(fontZero.releases, 1, "font 0 is released after font 4 construction fails")
+  Assert.equal(sink.releases, 1, "audio is released after partial Oak composition failure")
 end
 
 return T

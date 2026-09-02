@@ -4,7 +4,6 @@
 
 local OakIntroLayout = require("game.hgss.src.newgame.OakIntroLayout")
 local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
-local Button = require("libs.ui.src.Button")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentationLayout")
 
@@ -48,7 +47,6 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field dialogue { outerRect: OakIntroStateRectangle, scale: number }?
 ---@field sourceCanvas { scale: number, origin: { x: number, y: number } }?
 ---@field revealCanvas { scale: number, origin: { x: number, y: number } }?
----@field genderCanvas { scale: number, origin: { x: number, y: number } }?
 ---@field reveal OakIntroStateSubjectRectangle?
 ---@field stage OakIntroStateRectangle
 ---@field genderButtons table?
@@ -61,7 +59,6 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field scene OakIntroStateRectangle
 ---@field oakRegion OakIntroStateRectangle?
 ---@field selectorRegion OakIntroStateRectangle?
----@field confirmationScale number?
 
 ---@class OakIntroStateView: OakIntroControllerView
 ---@field phase string
@@ -94,6 +91,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field audioSink OakIntroStateAudioSink?
 ---@field audioLifetime table?
 ---@field textRenderer table
+---@field choiceText table
 ---@field dialogueController table?
 ---@field dialogueRenderer table?
 ---@field dialogueText table?
@@ -123,6 +121,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field dialogueFormatter table?
 ---@field choiceLabels table<integer, string>?
 ---@field dialogueText table?
+---@field choiceText table
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 ---@field disposed boolean
@@ -210,6 +209,8 @@ end
 function OakIntroState.new(options)
   assert(type(options) == "table" and options.controller, "Oak state requires a controller")
   assert(type(options.manifest) == "table", "Oak state requires generated intro assets")
+  assert(options.textRenderer, "Oak state requires the shared FieldTextRenderer")
+  assert(options.choiceText, "Oak state requires the font-4 FieldTextRenderer")
   if options.dialogueController then
     assert(options.dialogueFormatter, "Oak state requires its message formatter")
     assert(type(options.dialogueFormatter.format) == "function", "Oak message formatter is invalid")
@@ -226,6 +227,7 @@ function OakIntroState.new(options)
         graphics = options.graphics,
         imageLoader = options.imageLoader,
         text = assert(options.textRenderer, "Oak state requires the shared FieldTextRenderer"),
+        choiceText = assert(options.choiceText, "Oak state requires the font-4 FieldTextRenderer"),
       })
     self = setmetatable({
       controller = options.controller,
@@ -247,6 +249,7 @@ function OakIntroState.new(options)
       dialogueFormatter = options.dialogueFormatter,
       choiceLabels = options.dialogueFormatter and options.dialogueFormatter:choiceLabels() or nil,
       dialogueText = options.dialogueText,
+      choiceText = options.choiceText,
       dialoguePresentation = nil,
       dialogueMessageKey = nil,
       dialogueCursorPlacement = options.dialogueCursorPlacement,
@@ -438,7 +441,7 @@ function OakIntroState:_pointer(x, y)
   elseif layout.confirmationButtons then
     for choice = 0, 1 do
       local entry = layout.confirmationButtons[choice]
-      if entry and Button.contains(entry.button, x, y) then
+      if entry and OakIntroLayout.contains(entry.rect, x, y) then
         self.controller:press(entry.key)
         self:_sync()
         return
@@ -447,7 +450,7 @@ function OakIntroState:_pointer(x, y)
   elseif layout.genderButtons then
     for gender = 0, 1 do
       local entry = layout.genderButtons[gender]
-      if entry and Button.contains(entry.button, x, y) then
+      if entry and OakIntroLayout.contains(entry.rect, x, y) then
         self.controller:press(entry.key)
         self:_sync()
         return
@@ -500,6 +503,9 @@ function OakIntroState:dispose()
   end
   if self.dialogueText and self.dialogueText.release then
     self.dialogueText:release()
+  end
+  if self.choiceText and self.choiceText.release then
+    self.choiceText:release()
   end
   if self.dialogueController and self.dialogueController.dispose then
     self.dialogueController:dispose()

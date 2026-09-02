@@ -119,60 +119,6 @@ local function withGraphicsSpy(fn)
   return calls
 end
 
-local function primitiveBounds(call)
-  if call.kind == "rectangle" then
-    return call.x, call.y, call.x + call.width, call.y + call.height
-  end
-  local minX, minY = math.huge, math.huge
-  local maxX, maxY = -math.huge, -math.huge
-  for index = 1, #call.points, 2 do
-    minX = math.min(minX, call.points[index])
-    maxX = math.max(maxX, call.points[index])
-    minY = math.min(minY, call.points[index + 1])
-    maxY = math.max(maxY, call.points[index + 1])
-  end
-  return minX, minY, maxX, maxY
-end
-
-local function actionPrimitives(calls, outer)
-  local result = {}
-  for _, candidate in ipairs(calls.primitives) do
-    local minX, minY, maxX, maxY = primitiveBounds(candidate)
-    if minX >= outer.x and minY >= outer.y and maxX <= outer.x + outer.width and maxY <= outer.y + outer.height then
-      result[#result + 1] = candidate
-    end
-  end
-  return result
-end
-
-local function colorKey(color)
-  return table.concat({ color[1], color[2], color[3], color[4] }, ",")
-end
-
-local function assertLayeredAction(calls, outer, faceColor)
-  local primitives = actionPrimitives(calls, outer)
-  Assert.isTrue(#primitives > 1, "an action must contain multiple semantic chrome layers")
-
-  local colors = {}
-  local hasPolygon = false
-  local faceIndex = nil
-  for index, candidate in ipairs(primitives) do
-    colors[colorKey(candidate.color)] = true
-    hasPolygon = hasPolygon or candidate.kind == "polygon"
-    if colorKey(candidate.color) == colorKey(faceColor) and faceIndex == nil then
-      faceIndex = index
-    end
-  end
-  local colorCount = 0
-  for _ in pairs(colors) do
-    colorCount = colorCount + 1
-  end
-  Assert.isTrue(colorCount >= 3, "an action must retain distinct layer colors")
-  Assert.isTrue(hasPolygon, "an action must use pixel-cut geometry when its shape is painted")
-  Assert.notNil(faceIndex, "an action must paint its face")
-  Assert.isTrue(faceIndex > 1, "outer layers must be painted before the face")
-end
-
 function T.formats_capped_play_time_as_hours_and_minutes()
   Assert.equal(MainMenuState.formatPlayTime(0), "0:00")
   Assert.equal(MainMenuState.formatPlayTime(59 * 60 + 59), "0:59")
@@ -230,7 +176,7 @@ function T.layout_keeps_card_body_and_delete_hit_regions_exclusive()
   Assert.isFalse(MainMenuLayout.contains(card.body, card.delete.x + 1, card.delete.y + 1))
 end
 
-function T.delete_and_dialog_actions_keep_layout_behavior_with_layered_rendering()
+function T.delete_and_dialog_actions_keep_layout_behavior_with_local_rendering()
   local entries = {
     {
       saveId = "save-00000001",
@@ -277,15 +223,26 @@ function T.delete_and_dialog_actions_keep_layout_behavior_with_layered_rendering
   local deleteText = assert(cardDeleteText)
   Assert.equal(deleteText.text, "Delete")
   Assert.deepEqual(deleteText.color, { 1, 0.8, 0.8, 1 })
+  Assert.equal(deleteText.y, initialDelete.y + 14, "card Delete keeps the local label offset")
 
   menu:mousepressed(initialDelete.x + 1, initialDelete.y + 1, 1)
   Assert.equal(menu:view().dialog.focusedAction, "cancel")
   local dialogView = menu:view()
-  local dialog = assert(dialogView.layout.dialog)
+  Assert.notNil(dialogView.layout.dialog)
   local dialogCalls = withGraphicsSpy(function(_)
     menu:draw()
   end)
   Assert.notNil(dialogCalls)
+  local dialogCancelText, dialogDeleteText
+  for _, printCall in ipairs(dialogCalls.prints) do
+    if printCall.text == "Cancel" then
+      dialogCancelText = printCall
+    elseif printCall.text == "Delete" then
+      dialogDeleteText = printCall
+    end
+  end
+  Assert.equal(assert(dialogCancelText).y, dialogView.layout.dialog.cancel.y + 10)
+  Assert.equal(assert(dialogDeleteText).y, dialogView.layout.dialog.delete.y + 10)
 
   menu:keypressed("escape")
   Assert.isNil(menu:view().dialog)
@@ -295,9 +252,8 @@ function T.delete_and_dialog_actions_keep_layout_behavior_with_layered_rendering
   Assert.deepEqual(deletes, { "save-00000001" })
   Assert.equal(#menu:view().items, 1)
 
-  assertLayeredAction(cardCalls, initialDelete, { 0.28, 0.18, 0.22, 1 })
-  assertLayeredAction(dialogCalls, dialog.cancel, { 0.3, 0.35, 0.45, 1 })
-  assertLayeredAction(dialogCalls, dialog.delete, { 0.3, 0.2, 0.25, 1 })
+  Assert.isTrue(#cardCalls.primitives > 0, "card actions must retain local rectangle rendering")
+  Assert.isTrue(#dialogCalls.primitives > 0, "dialog actions must retain local rectangle rendering")
 end
 
 function T.narrow_dialog_action_rectangles_remain_drawable()
