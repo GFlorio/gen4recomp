@@ -11,11 +11,18 @@ local FieldPlayerModule = require("libs.hgss.src.field.FieldPlayer")
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
 local FieldSessionModule = require("libs.hgss.src.field.FieldSession")
 local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
-local Scheduler = require("libs.script.src.Scheduler")
-local TaskRegistry = require("libs.script.src.TaskRegistry")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
+local S = require("gen4.script")
+local Registry = require("libs.script.src.Registry")
+local Composition = require("libs.script.src.Composition")
+local TaskRegistry = require("libs.script.src.TaskRegistry")
+local Scheduler = require("libs.script.src.Scheduler")
+local MovementTask = require("libs.hgss.src.script.tasks.MovementTask")
+local WaitTicksTask = require("libs.script.src.tasks.WaitTicksTask")
+local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
+local FakeServices = require("tests.support.script.FakeServices")
 
 local T = {}
 
@@ -116,7 +123,7 @@ local function idleActors()
 end
 
 local function defaultPlayer()
-  return {
+  local stub = {
     fieldX = 4,
     fieldZ = 13,
     worldX = 0,
@@ -131,7 +138,18 @@ local function defaultPlayer()
     collisionCandidates = function(self)
       return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
     end,
+    clearGesturePresentation = function() end,
   }
+  function stub:presentationState()
+    local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+    return {
+      locomotionActive = locomotionActive,
+      gesturePose = nil,
+      gestureTick = nil,
+      gestureOffsetY = 0,
+    }
+  end
+  return stub
 end
 
 -- Every collaborator the production runtime supplies is required at
@@ -223,6 +241,17 @@ local function baseOptions(overrides)
   player.collisionCandidates = player.collisionCandidates
     or function(self)
       return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
+    end
+  player.clearGesturePresentation = player.clearGesturePresentation or function() end
+  player.presentationState = player.presentationState
+    or function(self)
+      local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+      return {
+        locomotionActive = locomotionActive,
+        gesturePose = nil,
+        gestureTick = nil,
+        gestureOffsetY = 0,
+      }
     end
   return options
 end
@@ -594,6 +623,102 @@ function T.audio_collaborator_requires_field_policy_and_effect_playback()
   )
   Assert.isFalse(missingPlay, "a session with audio must require audio.play: " .. tostring(missingPlayErr))
   Assert.notNil(FieldSession.new(baseOptions({})))
+end
+
+function T.session_requires_player_presentation_state()
+  local playerWithoutPresentation = {
+    fieldX = 4,
+    fieldZ = 13,
+    worldX = 0,
+    worldY = 0,
+    worldZ = 0,
+    surfaceId = 0,
+    facing = "south",
+    motion = "idle",
+    updateFixed = function()
+      return false
+    end,
+    collisionCandidates = function(self)
+      return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
+    end,
+  }
+  local options = {
+    versionId = "heartgold",
+    currentMap = { mapId = 61, fieldData = { events = { warps = {} } }, updateAnimated = function() end },
+    player = playerWithoutPresentation,
+    camera = { updateFixed = function() end },
+    transition = { phase = "idle", locked = false, updateFixed = function() end, start = function() end },
+    actors = { step = function() end },
+    input = {
+      snapshot = function()
+        return {}
+      end,
+      uiSnapshot = function()
+        return {}
+      end,
+      clearEdges = function() end,
+    },
+    dialogue = {
+      isModal = function()
+        return false
+      end,
+    },
+    scriptScheduler = {
+      step = function() end,
+      playerInputOwned = function()
+        return false
+      end,
+      foregroundEnvironmentId = function()
+        return nil
+      end,
+    },
+    scriptClient = { consume = function() end },
+    menuHost = {
+      isModal = function()
+        return false
+      end,
+      advance = function() end,
+    },
+    contextChoice = {
+      isActive = function()
+        return false
+      end,
+    },
+    signpost = {
+      isModal = function()
+        return false
+      end,
+    },
+    applicationHost = {
+      isActive = function()
+        return false
+      end,
+      updateFixed = function() end,
+      requestOpen = function()
+        return false
+      end,
+      takeReopen = function()
+        return false
+      end,
+    },
+    interactions = {
+      resolve = function()
+        return nil
+      end,
+    },
+    fieldEntranceIndicator = { updateFixed = function() end },
+    eventResolver = {
+      resolveCoordinate = function()
+        return nil
+      end,
+      resolvePassiveSign = function()
+        return nil
+      end,
+    },
+    eventState = { getVar = function() end },
+  }
+  local ok, err = pcall(FieldSession.new, options)
+  Assert.isFalse(ok, "session must require player presentationState: " .. tostring(err))
 end
 
 function T.fixed_ticks_are_render_cadence_independent()
@@ -3473,6 +3598,145 @@ function T.step_owned_events_discard_completion_direction_after_ownership_ends()
     Assert.equal(player.fieldX, 1)
     Assert.equal(player.fieldZ, 4)
   end
+end
+
+function T.warp_gestures_remain_idle_while_vertical_offset_progresses_through_composed_session()
+  local function runWarp(gestureName, expectedOffsets)
+    local map = movementMap()
+    local player = FieldPlayer.new({ currentMap = map, fieldX = 2, fieldZ = 3, surfaceId = 0, facing = "south" })
+    local visual = FieldPlayerVisual.new({ player = player, spriteId = 0 })
+    local initialY = player.worldY
+    local dummyManager = {
+      getActor = function()
+        return nil
+      end,
+      show = function() end,
+      hide = function() end,
+      setPosition = function() end,
+      setFacing = function() end,
+      setMovementType = function() end,
+      setAnimationPaused = function() end,
+      getPosition = function()
+        error("unexpected manager getPosition")
+      end,
+      getFacing = function()
+        error("unexpected manager getFacing")
+      end,
+      numericId = function()
+        return nil
+      end,
+      actorIdForMapIndex = function()
+        return nil
+      end,
+      cameraTargetId = function()
+        return nil
+      end,
+      partnerId = function()
+        return nil
+      end,
+    }
+    local facade = {
+      position = function()
+        return { fieldX = player.fieldX, fieldZ = player.fieldZ, worldY = player.worldY }
+      end,
+      facing = function()
+        return player.facing
+      end,
+      turn = function(_, dir)
+        player:turn(dir)
+      end,
+      setPosition = function(_, pos)
+        player:setScriptPosition(pos)
+      end,
+      beginScriptedAction = function(_, a)
+        player:beginScriptedAction(a)
+      end,
+      advanceScriptedAction = function(_, p, d)
+        player:advanceScriptedAction(p, d)
+      end,
+      commitScriptedAction = function(_)
+        player:commitScriptedAction()
+      end,
+      cancelScriptedMovement = function(_)
+        player:cancelScriptedMovement()
+      end,
+      isScriptedMoving = function(_)
+        return player:isScriptedMoving()
+      end,
+      gender = function()
+        return 0
+      end,
+      name = function()
+        return "Gold"
+      end,
+    }
+    local world = ScriptActorWorld.new(dummyManager --[[@as ScriptActorManager]], facade)
+    local services = FakeServices.new()
+    services.actors = world --[[@as unknown as ScriptActorManager]]
+    services.player = facade --[[@as unknown as FieldPlayer]]
+    local registry = Registry.new()
+    local composition = Composition.new(registry)
+    local taskRegistry = TaskRegistry.new()
+    taskRegistry:register("wait_ticks", 1, WaitTicksTask --[[@as unknown as TaskImplementation]])
+    taskRegistry:register("movement", 1, MovementTask --[[@as unknown as TaskImplementation]])
+    local scheduler = Scheduler.new({
+      services = services,
+      taskRegistry = taskRegistry,
+      semantics = require("libs.hgss.src.script.RuntimeValues"),
+      resolveComposition = function(id)
+        return composition:effective(id)
+      end,
+    })
+    local resource = S.script({ api = 1, id = "test.warp_" .. gestureName, steps = { S.waitTicks({ ticks = 100 }) } })
+    registry:installBase(resource.id, resource, "generated")
+    local composed = assert(composition:effective(resource.id))
+    local instanceId = scheduler:createForeground(composed, nil, 0, true)
+    local instance = assert(scheduler:instance(instanceId))
+    scheduler:createTask(
+      "movement",
+      { actor = "player", sequence = { { action = "gesture", name = gestureName } }, blocking = true },
+      instance,
+      0,
+      nil
+    )
+    local camera = { updateFixed = function() end }
+    local session = FieldSession.new(baseOptions({
+      currentMap = map,
+      player = player,
+      camera = camera,
+      playerVisual = visual,
+      scriptScheduler = scheduler,
+    }))
+    for tick = 1, 20 do
+      session:updateFixed({})
+      local status = visual:status()
+      Assert.equal(status.pose, "idle", gestureName .. " tick " .. tick .. " must stay idle through session")
+      Assert.equal(status.poseTick, 0, gestureName .. " tick " .. tick .. " poseTick stays 0")
+      local record = visual:drawRecord(0)
+      Assert.isNil(record.gesturePose, gestureName .. " has no clip")
+      Assert.isNil(record.gestureTick)
+      local expectedOffset = expectedOffsets[tick]
+      Assert.near(record.world.y, initialY + expectedOffset, 1e-9, gestureName .. " tick " .. tick .. " offset")
+      Assert.equal(player.worldY, initialY, gestureName .. " logical Y unchanged")
+      Assert.equal(player.fieldX, 2)
+      Assert.equal(player.fieldZ, 3)
+    end
+    Assert.isNil(
+      scheduler:activeMovementForActor(scheduler:foregroundEnvironmentId() or "", "player"),
+      gestureName .. " movement should be done after 20 ticks"
+    )
+  end
+
+  local warpOutOffsets = {}
+  for i = 1, 20 do
+    warpOutOffsets[i] = i
+  end
+  runWarp("warp_out", warpOutOffsets)
+  local warpInOffsets = {}
+  for i = 1, 20 do
+    warpInOffsets[i] = 20 - i
+  end
+  runWarp("warp_in", warpInOffsets)
 end
 
 return { tests = T }

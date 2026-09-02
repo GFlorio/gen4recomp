@@ -1145,6 +1145,16 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     collisionCandidates = function(self)
       return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
     end,
+    clearGesturePresentation = function() end,
+    presentationState = function(self)
+      local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+      return {
+        locomotionActive = locomotionActive,
+        gesturePose = nil,
+        gestureTick = nil,
+        gestureOffsetY = 0,
+      }
+    end,
   }
   ---@cast player FieldPlayer
   local map = {

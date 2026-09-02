@@ -1,4 +1,4 @@
----@diagnostic disable: undefined-field
+---@diagnostic disable: undefined-field, unused-local
 -- The player visual adapter must read FieldPlayer and never write it: pose from
 -- motion, facing from the player, interpolated world position from the shared
 -- render position, and a deterministic clock that only advances mid-step.
@@ -58,7 +58,7 @@ end
 
 -- A FieldPlayer-shaped stub: the adapter must depend only on this surface.
 local function player()
-  return {
+  local stub = {
     facing = "south",
     motion = "idle",
     worldX = 2,
@@ -67,6 +67,10 @@ local function player()
     previousWorldX = 1,
     previousWorldY = 0.5,
     previousWorldZ = 3,
+    animationPaused = false,
+    _gesturePose = nil,
+    _gestureTick = nil,
+    _gestureOffsetY = 0,
     renderPosition = function(self, alpha)
       alpha = alpha == nil and 1 or alpha
       return {
@@ -75,7 +79,22 @@ local function player()
         z = self.previousWorldZ + (self.worldZ - self.previousWorldZ) * alpha,
       }
     end,
+    clearGesturePresentation = function(self)
+      self._gesturePose = nil
+      self._gestureTick = nil
+      self._gestureOffsetY = 0
+    end,
   }
+  function stub:presentationState()
+    local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+    return {
+      locomotionActive = locomotionActive,
+      gesturePose = self._gesturePose,
+      gestureTick = self._gestureTick,
+      gestureOffsetY = self._gestureOffsetY,
+    }
+  end
+  return stub
 end
 
 -- A real FieldPlayer on an open flat map, for the tile-boundary phase tests.
@@ -373,13 +392,149 @@ function T.avatar_replacement_clears_held_gesture()
   subject:beginScriptedAction({ action = "gesture", name = "give" })
   subject:advanceScriptedAction(22, 22)
   subject:commitScriptedAction()
-  Assert.equal(subject._gesturePose, "give", "give held before avatar change")
+  Assert.equal(subject:presentationState().gesturePose, "give", "give held before avatar change")
   presentation:setAvatar(42)
-  Assert.isNil(subject._gesturePose, "avatar replacement clears held gesture")
-  Assert.isNil(subject._gestureTick, "avatar replacement clears held tick")
-  Assert.equal(subject._gestureOffsetY, 0, "avatar replacement clears offset")
+  local cleared = subject:presentationState()
+  Assert.isNil(cleared.gesturePose, "avatar replacement clears held gesture")
+  Assert.isNil(cleared.gestureTick, "avatar replacement clears held tick")
+  Assert.equal(cleared.gestureOffsetY, 0, "avatar replacement clears offset")
   local record = presentation:drawRecord(1)
   Assert.isNil(record.gesturePose, "draw record cleared after avatar change")
+end
+
+function T.presentation_snapshot_distinguishes_locomotion_from_stationary_scripted_actions()
+  local subject = movingPlayer()
+  local idleSnap = subject:presentationState()
+  Assert.isFalse(idleSnap.locomotionActive, "idle without scripted motion is not locomoting")
+  Assert.isNil(idleSnap.gesturePose)
+  Assert.isNil(idleSnap.gestureTick)
+  Assert.equal(idleSnap.gestureOffsetY, 0)
+
+  subject.motion = "walking"
+  Assert.isTrue(subject:presentationState().locomotionActive, "manual walking is locomoting")
+  subject.motion = "turning"
+  Assert.isTrue(subject:presentationState().locomotionActive, "manual turning is locomoting")
+  subject.motion = "jumping"
+  Assert.isTrue(subject:presentationState().locomotionActive, "manual jumping is locomoting")
+  subject.motion = "transition"
+  Assert.isFalse(subject:presentationState().locomotionActive, "transition is not locomoting")
+  subject.motion = "idle"
+  Assert.isFalse(subject:presentationState().locomotionActive, "idle is not locomoting")
+
+  subject:beginScriptedAction({ action = "walk", direction = "east", speed = "normal" })
+  Assert.isTrue(subject:presentationState().locomotionActive, "scripted walk is locomoting")
+  Assert.equal(subject.motion, "walking", "walk keeps overloaded walking motion")
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "walk_in_place", speed = "normal" })
+  Assert.isTrue(subject:presentationState().locomotionActive, "walk_in_place is locomoting")
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "jump", direction = "east", distance = "far", speed = "fast" })
+  Assert.isTrue(subject:presentationState().locomotionActive, "scripted jump is locomoting")
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "gesture", name = "warp_out" })
+  local gestureSnap = subject:presentationState()
+  Assert.isFalse(gestureSnap.locomotionActive, "gesture stays non-locomoting even though motion is walking")
+  Assert.equal(subject.motion, "walking")
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "delay", ticks = 5 })
+  Assert.isFalse(subject:presentationState().locomotionActive, "delay is not locomoting")
+  Assert.equal(subject.motion, "walking")
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "emote", name = "exclamation" })
+  Assert.isFalse(subject:presentationState().locomotionActive, "emote is not locomoting")
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "gesture", name = "give" })
+  subject:advanceScriptedAction(1, 22)
+  local giveSnap = subject:presentationState()
+  Assert.equal(giveSnap.gesturePose, "give")
+  Assert.equal(giveSnap.gestureTick, 0)
+  Assert.equal(giveSnap.gestureOffsetY, 0)
+  subject:advanceScriptedAction(10, 22)
+  local giveSnap2 = subject:presentationState()
+  Assert.equal(giveSnap2.gesturePose, "give")
+  Assert.equal(giveSnap2.gestureTick, 9)
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "gesture", name = "warp_out" })
+  subject:advanceScriptedAction(5, 20)
+  Assert.equal(subject:presentationState().gestureOffsetY, 5, "warp_out offset mirrors progress")
+  Assert.isNil(subject:presentationState().gesturePose, "warp has no clip")
+  local beforeMutate = subject:presentationState()
+  local mutated = subject:presentationState()
+  mutated.locomotionActive = not mutated.locomotionActive
+  mutated.gestureOffsetY = 999
+  mutated.gesturePose = "tampered"
+  local afterMutate = subject:presentationState()
+  Assert.equal(afterMutate.gestureOffsetY, 5, "mutating a snapshot does not affect the next snapshot")
+  Assert.isNil(afterMutate.gesturePose)
+  Assert.isFalse(beforeMutate == mutated, "each call returns a fresh table")
+  Assert.isFalse(mutated == afterMutate, "each call returns a fresh table")
+  subject:cancelScriptedMovement()
+
+  subject:beginScriptedAction({ action = "gesture", name = "warp_in" })
+  subject:advanceScriptedAction(3, 20)
+  Assert.equal(subject:presentationState().gestureOffsetY, 17, "warp_in offset is duration minus progress")
+  subject:cancelScriptedMovement()
+end
+
+function T.visual_requires_presentation_state_and_clear_collaborator()
+  local incomplete = {
+    facing = "south",
+    motion = "idle",
+    renderPosition = function(self, alpha)
+      alpha = alpha == nil and 1 or alpha
+      return { x = 0, y = 0, z = 0 }
+    end,
+  }
+  Assert.throws(function()
+    FieldPlayerVisual.new({ player = incomplete, spriteId = 0 })
+  end)
+  local missingClear = {
+    facing = "south",
+    motion = "idle",
+    renderPosition = function(self, alpha)
+      alpha = alpha == nil and 1 or alpha
+      return { x = 0, y = 0, z = 0 }
+    end,
+    presentationState = function(self)
+      return { locomotionActive = false, gesturePose = nil, gestureTick = nil, gestureOffsetY = 0 }
+    end,
+  }
+  Assert.throws(function()
+    FieldPlayerVisual.new({ player = missingClear, spriteId = 0 })
+  end)
+  local complete = player()
+  local visualInstance = FieldPlayerVisual.new({ player = complete, spriteId = 0 })
+  complete._gesturePose = "give"
+  complete._gestureTick = 5
+  complete._gestureOffsetY = 3
+  visualInstance:setAvatar(77)
+  Assert.isNil(complete._gesturePose, "setAvatar must clear gesture unconditionally")
+  Assert.equal(complete._gestureOffsetY, 0)
+end
+
+function T.scripted_walk_family_still_advances_through_presentation_snapshot()
+  local subject = movingPlayer()
+  local presentation = visual(subject)
+  subject:beginScriptedAction({ action = "walk_in_place", speed = "normal" })
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "walk", "walk_in_place via snapshot is locomoting")
+  subject:cancelScriptedMovement()
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "idle", "after cancel idle")
+
+  subject:beginScriptedAction({ action = "jump", direction = "east", distance = "far", speed = "fast" })
+  presentation:updateFixed(subject:presentationState().locomotionActive)
+  Assert.equal(presentation.pose, "walk", "jump via snapshot is locomoting")
+  subject:cancelScriptedMovement()
+  presentation:updateFixed(false)
+  Assert.equal(presentation.pose, "idle")
 end
 
 return { tests = T }

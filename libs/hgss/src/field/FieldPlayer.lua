@@ -995,6 +995,23 @@ function FieldPlayer:cancelScriptedMovement()
   self.previousWorldX, self.previousWorldY, self.previousWorldZ = self.worldX, self.worldY, self.worldZ
 end
 
+function FieldPlayer:presentationState()
+  local scripted = self._scriptedMotion
+  local locomotionActive
+  if scripted ~= nil then
+    local action = scripted.action
+    locomotionActive = action == "walk" or action == "walk_in_place" or action == "jump"
+  else
+    locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+  end
+  return {
+    locomotionActive = locomotionActive,
+    gesturePose = self._gesturePose,
+    gestureTick = self._gestureTick,
+    gestureOffsetY = self._gestureOffsetY,
+  }
+end
+
 function FieldPlayer:isScriptedMoving()
   return self._scriptedMotion ~= nil and self.motion == "walking"
 end

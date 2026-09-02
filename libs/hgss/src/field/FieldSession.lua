@@ -156,7 +156,11 @@ function FieldSession.new(options)
     "field session current map animation clock required"
   )
   assert(
-    options.player and options.player.updateFixed and options.camera and options.camera.updateFixed,
+    options.player
+      and options.player.updateFixed
+      and options.player.presentationState
+      and options.camera
+      and options.camera.updateFixed,
     "field session player and camera required"
   )
   assert(
@@ -523,12 +527,12 @@ function FieldSession:updateFixed(inputSnapshot)
     })
   end
   -- The door/stair choreography drives the player during the locked
-  -- transition: the pose clock hears the walking state at tick start, the
+  -- transition: the pose clock hears the locomotion state at tick start, the
   -- camera tracks the continuous XYZ, and the scene's animated props
   -- advance under the choreographed locked tick. The camera samples on
   -- every locked tick and on the completion tick -- never coupled to
   -- player motion -- so interpolation pairs collapse instead of replaying.
-  local walkingAtTickStart = self.player.motion == "walking"
+  local locomotionAtTickStart = self.player:presentationState().locomotionActive
   local playerAdvanced = self.transition:updateFixed()
   if self.transition.locked or self.transition.completed then
     if not playerAdvanced and self.player.motion == "idle" then
@@ -536,7 +540,7 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     self.currentMap:updateAnimated()
     if playerAdvanced and self.playerVisual then
-      self.playerVisual:updateFixed(walkingAtTickStart)
+      self.playerVisual:updateFixed(locomotionAtTickStart)
     end
     self.camera:updateFixed(self:actorTarget())
     if self.transition.completed then
@@ -755,8 +759,8 @@ function FieldSession:updateFixed(inputSnapshot)
     end
     collapseCameraInterpolation(self.camera)
     if self.playerVisual then
-      local suppressedWalkingAtTickStart = self.player.motion == "walking"
-      self.playerVisual:updateFixed(suppressedWalkingAtTickStart)
+      local suppressedLocomotionAtTickStart = self.player:presentationState().locomotionActive
+      self.playerVisual:updateFixed(suppressedLocomotionAtTickStart)
     end
     self.camera:updateFixed(self:actorTarget())
     self:_advanceTick()
@@ -874,10 +878,10 @@ function FieldSession:updateFixed(inputSnapshot)
     end
   end
 
-  -- The pose clock treats a tick as walking if the player was mid-step at either
+  -- The pose clock treats a tick as locomoting if the player was locomoting at either
   -- end of it, so the gait phase carries across the tile commit instead of
   -- restarting on every arrival (the ROM's walk range spans two tiles).
-  local walkPoseAtTickStart = self.player.motion == "walking" or self.player.motion == "turning"
+  local ordinaryLocomotionAtTickStart = self.player:presentationState().locomotionActive
 
   local movementInput = inputSnapshot
   if carriedBoundaryDirection then
@@ -965,7 +969,7 @@ function FieldSession:updateFixed(inputSnapshot)
   -- Pose clocks advance only on a tick that could change the world, so a fade or
   -- a locked transition freezes animation instead of walking it in place.
   if self.playerVisual then
-    self.playerVisual:updateFixed(walkPoseAtTickStart)
+    self.playerVisual:updateFixed(ordinaryLocomotionAtTickStart)
   end
   self.camera:updateFixed(self:actorTarget())
   self:_advanceTick()

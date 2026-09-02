@@ -867,6 +867,16 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
         updateFixed = function()
           return false
         end,
+        clearGesturePresentation = function() end,
+        presentationState = function(self)
+          local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+          return {
+            locomotionActive = locomotionActive,
+            gesturePose = nil,
+            gestureTick = nil,
+            gestureOffsetY = 0,
+          }
+        end,
       },
       camera = { updateFixed = function() end },
       transition = {

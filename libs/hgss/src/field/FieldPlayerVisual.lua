@@ -31,6 +31,10 @@ FieldPlayerVisual.ACTOR_ID = "field:player"
 
 function FieldPlayerVisual.new(opts)
   assert(type(opts) == "table" and opts.player, "FieldPlayerVisual requires a FieldPlayer")
+  assert(
+    type(opts.player.presentationState) == "function" and type(opts.player.clearGesturePresentation) == "function",
+    "FieldPlayerVisual requires presentationState and clearGesturePresentation"
+  )
   local self = setmetatable({
     actorId = FieldPlayerVisual.ACTOR_ID,
     player = opts.player,
@@ -54,34 +58,23 @@ function FieldPlayerVisual:setAvatar(spriteId)
       { spriteId = spriteId }
     )
   end
-  if self.player and self.player.clearGesturePresentation then
-    self.player:clearGesturePresentation()
-  end
+  self.player:clearGesturePresentation()
   self.spriteId = spriteId
   self.poseTick = 0
 end
 
--- Called once per fixed simulation tick with `walkPoseAtTickStart`, whether the
--- player was mid-step when the tick began. The animation clock advances on any
--- tick that touches walking -- including the commit tick that arrives at a
+-- Called once per fixed simulation tick with `locomotionAtTickStart`, whether the
+-- player was locomoting when the tick began. The animation clock advances on any
+-- tick that touches locomotion -- including the commit tick that arrives at a
 -- tile, which is why the caller captures the state before advancing the player
 -- so the gait phase carries across tile boundaries. It resets only when the
 -- player stops (the first genuinely idle tick) or changes facing, matching the
 -- original timeline: a standing actor holds the first frame of its facing
 -- range, and a turn starts the new range at its first frame.
-function FieldPlayerVisual:updateFixed(walkPoseAtTickStart)
-  local scripted = self.player._scriptedMotion
-  local isScriptedLocomotion = scripted ~= nil
-    and (scripted.action == "walk" or scripted.action == "walk_in_place" or scripted.action == "jump")
-  local walkPoseActive
-  if scripted ~= nil then
-    walkPoseActive = isScriptedLocomotion or self.player.motion == "turning" or self.player.motion == "jumping"
-  else
-    walkPoseActive = self.player.motion == "walking"
-      or self.player.motion == "turning"
-      or self.player.motion == "jumping"
-  end
-  local walking = not self.player.animationPaused and (walkPoseAtTickStart == true or walkPoseActive)
+function FieldPlayerVisual:updateFixed(locomotionAtTickStart)
+  local snapshot = self.player:presentationState()
+  local walking = not self.player.animationPaused
+    and (locomotionAtTickStart == true or snapshot.locomotionActive == true)
 
   local facingChanged = self.lastFacing ~= self.player.facing
   if facingChanged then
@@ -113,8 +106,9 @@ end
 -- `alpha` is the render interpolation factor of the current fixed step.
 function FieldPlayerVisual:drawRecord(alpha)
   local point = self.player:renderPosition(alpha)
+  local snapshot = self.player:presentationState()
   local record = self._drawRecord
-  local gestureOffsetY = self.player._gestureOffsetY or 0
+  local gestureOffsetY = snapshot.gestureOffsetY or 0
   record.actorId = self.actorId
   record.spriteId = self.spriteId
   record.world.x = point.x
@@ -123,8 +117,8 @@ function FieldPlayerVisual:drawRecord(alpha)
   record.facing = self.player.facing
   record.pose = self.pose
   record.poseTick = self.poseTick
-  record.gesturePose = self.player._gesturePose
-  record.gestureTick = self.player._gestureTick
+  record.gesturePose = snapshot.gesturePose
+  record.gestureTick = snapshot.gestureTick
   record.visible = true
   return record
 end
