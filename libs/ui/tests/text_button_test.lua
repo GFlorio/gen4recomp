@@ -1,16 +1,12 @@
 local Assert = require("tests.support.Assert")
 
+---@diagnostic disable: missing-return-value
+
 local T = {}
 
 local function textButtonModule()
   local ok, mod = pcall(require, "libs.ui.src.TextButton")
   Assert.isTrue(ok, "TextButton missing: " .. tostring(mod))
-  return mod
-end
-
-local function buttonModule()
-  local ok, mod = pcall(require, "libs.ui.src.Button")
-  Assert.isTrue(ok, "Button missing: " .. tostring(mod))
   return mod
 end
 
@@ -20,17 +16,29 @@ end
 
 local function recordingGraphics()
   local state = { color = { 1, 1, 1, 1 }, lineWidth = 1 }
-  local calls = { setColor = {}, rectangles = {}, polygons = {}, lineWidths = {}, transforms = {}, pushCount = 0, popCount = 0 }
+  local calls =
+    { setColor = {}, rectangles = {}, polygons = {}, lineWidths = {}, transforms = {}, pushCount = 0, popCount = 0 }
   local g = {
     setColor = function(r, g2, b, a)
       state.color = { r, g2, b, a }
       calls.setColor[#calls.setColor + 1] = { r, g2, b, a }
     end,
     rectangle = function(mode, x, y, w, h, rx, ry)
-      calls.rectangles[#calls.rectangles + 1] = { mode = mode, x = x, y = y, w = w, h = h, rx = rx, ry = ry, color = { state.color[1], state.color[2], state.color[3], state.color[4] }, lineWidth = state.lineWidth }
+      calls.rectangles[#calls.rectangles + 1] = {
+        mode = mode,
+        x = x,
+        y = y,
+        w = w,
+        h = h,
+        rx = rx,
+        ry = ry,
+        color = { state.color[1], state.color[2], state.color[3], state.color[4] },
+        lineWidth = state.lineWidth,
+      }
     end,
     polygon = function(mode, ...)
-      calls.polygons[#calls.polygons + 1] = { mode = mode, points = { ... }, color = { state.color[1], state.color[2], state.color[3], state.color[4] } }
+      calls.polygons[#calls.polygons + 1] =
+        { mode = mode, points = { ... }, color = { state.color[1], state.color[2], state.color[3], state.color[4] } }
     end,
     setLineWidth = function(w)
       state.lineWidth = w
@@ -60,27 +68,6 @@ local function recordingGraphics()
   return g, calls
 end
 
-local function adapter(overrides)
-  local calls = {}
-  local expectedWidth = overrides and overrides.width or 50
-  local lineHeight = overrides and overrides.lineHeight or 16
-  return {
-    measureCalls = calls,
-    measure = function(label)
-      calls[#calls + 1] = label
-      return expectedWidth
-    end,
-    lineHeight = lineHeight,
-    drawCalls = {},
-    draw = function(label, x, y)
-      local self = overrides and overrides.self
-      if self then
-        self.drawCalls[#self.drawCalls + 1] = { label = label, x = x, y = y }
-      end
-    end,
-  }
-end
-
 function T.canonical_geometry_matches_yes_no_format()
   local TextButton = textButtonModule()
   local at1 = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
@@ -107,14 +94,28 @@ function T.preserves_focus_and_supports_one_role_override()
   local TextButton = textButtonModule()
   local button = TextButton.resolve({ rect = rect(10, 20, 120, 56), scale = 1 })
   local g1, calls1 = recordingGraphics()
-  local text1 = { measure = function() return 20 end, lineHeight = 16, draw = function() end }
+  local text1 = {
+    measure = function()
+      return 20
+    end,
+    lineHeight = 16,
+    draw = function() end,
+  }
   TextButton.draw(g1, button, { label = "Yes", selected = false, text = text1 })
   -- Unselected has no focus lines: only base draw, no lineWidth 5/3
   Assert.isTrue(#calls1.lineWidths == 0, "unselected has no focus lines")
 
   local g2, calls2 = recordingGraphics()
   local drawCalls = {}
-  local text2 = { measure = function() return 20 end, lineHeight = 16, draw = function(l, x, y) drawCalls[#drawCalls + 1] = { l, x, y } end }
+  local text2 = {
+    measure = function()
+      return 20
+    end,
+    lineHeight = 16,
+    draw = function(l, x, y)
+      drawCalls[#drawCalls + 1] = { l, x, y }
+    end,
+  }
   TextButton.draw(g2, button, { label = "No", selected = true, text = text2 })
   Assert.equal(calls2.lineWidths[1], 5)
   Assert.equal(calls2.lineWidths[2], 3)
@@ -125,7 +126,13 @@ function T.preserves_focus_and_supports_one_role_override()
 
   -- Override only faceTop
   local g3, calls3 = recordingGraphics()
-  local text3 = { measure = function() return 20 end, lineHeight = 16, draw = function() end }
+  local text3 = {
+    measure = function()
+      return 20
+    end,
+    lineHeight = 16,
+    draw = function() end,
+  }
   TextButton.draw(g3, button, { label = "Yes", selected = true, text = text3, colors = { faceTop = { 0, 0, 1, 1 } } })
   -- Base colors: check that only faceTop changed, others default. We can infer via setColor calls for base layers.
   -- First 5 setColors are base: border, rim, innerBorder, faceBottom, faceTop. faceTop should be blue.
@@ -139,7 +146,9 @@ function T.text_is_centered_and_callback_invoked_once()
   local g, _ = recordingGraphics()
   local drawPositions = {}
   local text = {
-    measure = function() return 40 end,
+    measure = function()
+      return 40
+    end,
     lineHeight = 16,
     draw = function(_, x, y)
       drawPositions[#drawPositions + 1] = { x = x, y = y }
@@ -160,7 +169,13 @@ function T.unknown_color_keys_are_rejected()
   local TextButton = textButtonModule()
   local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
   local g, _ = recordingGraphics()
-  local text = { measure = function() return 10 end, lineHeight = 16, draw = function() end }
+  local text = {
+    measure = function()
+      return 10
+    end,
+    lineHeight = 16,
+    draw = function() end,
+  }
   Assert.throws(function()
     TextButton.draw(g, button, { label = "Yes", selected = false, text = text, colors = { unknown = { 1, 0, 0, 1 } } })
   end)
@@ -177,10 +192,30 @@ function T.invalid_scale_and_non_fitting_label_are_rejected()
   local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
   local g, _ = recordingGraphics()
   Assert.throws(function()
-    TextButton.draw(g, button, { label = "Yes", selected = false, text = { measure = function() return 200 end, lineHeight = 16, draw = function() end } })
+    TextButton.draw(g, button, {
+      label = "Yes",
+      selected = false,
+      text = {
+        measure = function()
+          return 200
+        end,
+        lineHeight = 16,
+        draw = function() end,
+      },
+    })
   end)
   Assert.throws(function()
-    TextButton.draw(g, button, { label = "Yes", selected = false, text = { measure = function() return 10 end, lineHeight = 100, draw = function() end } })
+    TextButton.draw(g, button, {
+      label = "Yes",
+      selected = false,
+      text = {
+        measure = function()
+          return 10
+        end,
+        lineHeight = 100,
+        draw = function() end,
+      },
+    })
   end)
 end
 
@@ -189,9 +224,13 @@ function T.callback_failure_restores_transform_stack()
   local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
   local g, _ = recordingGraphics()
   local text = {
-    measure = function() return 10 end,
+    measure = function()
+      return 10
+    end,
     lineHeight = 16,
-    draw = function() error("boom") end,
+    draw = function()
+      error("boom")
+    end,
   }
   Assert.throws(function()
     TextButton.draw(g, button, { label = "Yes", selected = false, text = text })

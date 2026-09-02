@@ -1,4 +1,5 @@
 local Assert = require("tests.support.Assert")
+local ImageButton = require("libs.ui.src.ImageButton")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FakeGraphics = require("tests.support.FakeGraphics")
@@ -37,6 +38,7 @@ local function genderButtons()
       scale = 1,
       portraitId = "gender_male",
       portraitRect = { x = 20, y = 20, width = 40, height = 60 },
+      button = ImageButton.resolve({ rect = { x = 10, y = 10, width = 60, height = 80 }, scale = 1 }),
     },
     [1] = {
       key = "female",
@@ -44,9 +46,12 @@ local function genderButtons()
       scale = 1,
       portraitId = "gender_female",
       portraitRect = { x = 100, y = 20, width = 40, height = 60 },
+      button = ImageButton.resolve({ rect = { x = 90, y = 10, width = 60, height = 80 }, scale = 1 }),
     },
   }
 end
+
+local TextButton = require("libs.ui.src.TextButton")
 
 local function manifest()
   local assets = {
@@ -67,8 +72,6 @@ local function manifest()
     "shrink_male",
     "shrink_female",
     "ball_open",
-    "confirmation_yes",
-    "confirmation_no",
     "gender_male",
     "gender_female",
   }) do
@@ -83,22 +86,6 @@ local function manifest()
   assets.oak.frames = {
     { image = "oak.png", x = 0, y = 0, width = 4, height = 4, duration = 1 },
     { image = "oak.png", x = 0, y = 4, width = 4, height = 4, duration = 1 },
-  }
-  assets.confirmation_yes = {
-    image = "confirmation_yes.png",
-    width = 4,
-    height = 4,
-    sampling = "nearest",
-    contentRect = { x = 1, y = 1, width = 2, height = 2 },
-    frames = { { image = "confirmation_yes.png", x = 0, y = 0, width = 4, height = 4, duration = 1 } },
-  }
-  assets.confirmation_no = {
-    image = "confirmation_no.png",
-    width = 4,
-    height = 4,
-    sampling = "nearest",
-    contentRect = { x = 1, y = 1, width = 2, height = 2 },
-    frames = { { image = "confirmation_no.png", x = 0, y = 0, width = 4, height = 4, duration = 1 } },
   }
   local background = assets.background
   assets.background = nil
@@ -328,24 +315,14 @@ end
 function T.confirmation_uses_font_zero_metrics_and_font_four_source_palette()
   local graphics = FakeGraphics.new()
   local manifestValue = manifest()
-  manifestValue.widgets.confirmation_yes.width = 120
-  manifestValue.widgets.confirmation_yes.height = 56
-  manifestValue.widgets.confirmation_yes.contentRect = { x = 8, y = 16, width = 104, height = 24 }
-  manifestValue.widgets.confirmation_no.width = 120
-  manifestValue.widgets.confirmation_no.height = 56
-  manifestValue.widgets.confirmation_no.contentRect = { x = 8, y = 16, width = 104, height = 24 }
-  manifestValue.widgets.confirmation_yes.frames[1].width = 120
-  manifestValue.widgets.confirmation_yes.frames[1].height = 56
-  manifestValue.widgets.confirmation_no.frames[1].width = 120
-  manifestValue.widgets.confirmation_no.frames[1].height = 56
   local measuredLabels = {}
   local palettes = {}
   local font0 = textRenderer()
-  font0.textWidth = function(_, label)
+  local font4 = choiceTextRenderer()
+  font4.textWidth = function(_, label)
     measuredLabels[#measuredLabels + 1] = label
     return 8
   end
-  local font4 = choiceTextRenderer()
   font4.fontDef.palette[1] = { r = 32, g = 64, b = 96 }
   font4.fontDef.palette[2] = { r = 7, g = 8, b = 9 }
   font4.fontDef.palette[16] = { r = 200, g = 210, b = 220 }
@@ -368,8 +345,18 @@ function T.confirmation_uses_font_zero_metrics_and_font_four_source_palette()
   confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
   confirmation.confirmationChoice = { kind = "gender", selected = 0 }
   confirmation.layout.confirmationButtons = {
-    [0] = { key = "yes", rect = { x = 10, y = 20, width = 120, height = 56 }, scale = 1 },
-    [1] = { key = "no", rect = { x = 140, y = 20, width = 120, height = 56 }, scale = 1 },
+    [0] = {
+      key = "yes",
+      rect = { x = 10, y = 20, width = 120, height = 56 },
+      scale = 1,
+      button = TextButton.resolve({ rect = { x = 10, y = 20, width = 120, height = 56 }, scale = 1 }),
+    },
+    [1] = {
+      key = "no",
+      rect = { x = 140, y = 20, width = 120, height = 56 },
+      scale = 1,
+      button = TextButton.resolve({ rect = { x = 140, y = 20, width = 120, height = 56 }, scale = 1 }),
+    },
   }
 
   renderer:draw(confirmation)
@@ -379,39 +366,22 @@ function T.confirmation_uses_font_zero_metrics_and_font_four_source_palette()
   for _, entry in ipairs(palettes) do
     Assert.deepEqual(entry.value.foreground, { r = 200, g = 210, b = 220 })
     Assert.deepEqual(entry.value.shadow, { r = 7, g = 8, b = 9 })
-    Assert.deepEqual(entry.value.background, { r = 32, g = 64, b = 96 })
+    Assert.deepEqual(entry.value.background, { r = 32, g = 64, b = 96, a = 0 })
   end
-  local fill
+  -- New TextButton path has no opaque fill; background is transparent via palette alpha.
+  local hasFill = false
   for _, rectangle in ipairs(graphics.rectangles) do
-    if
-      rectangle.mode == "fill"
-      and rectangle.x == 18
-      and rectangle.y == 36
-      and rectangle.w == 104
-      and rectangle.h == 24
-    then
-      fill = rectangle
-      break
+    if rectangle.mode == "fill" and rectangle.x == 18 and rectangle.y == 36 then
+      hasFill = true
     end
   end
-  Assert.notNil(fill, "confirmation content window must be filled at the corrected 8/16 window")
-  Assert.deepEqual(assert(fill).color, { 32 / 255, 64 / 255, 96 / 255, 1 })
+  Assert.isFalse(hasFill, "confirmation must not paint opaque content fill; TextButton face is background")
   renderer:dispose()
 end
 
 function T.selected_confirmation_focus_stays_outside_label_content()
   local graphics = FakeGraphics.new()
   local manifestValue = manifest()
-  manifestValue.widgets.confirmation_yes.width = 120
-  manifestValue.widgets.confirmation_yes.height = 56
-  manifestValue.widgets.confirmation_yes.contentRect = { x = 8, y = 16, width = 104, height = 24 }
-  manifestValue.widgets.confirmation_no.width = 120
-  manifestValue.widgets.confirmation_no.height = 56
-  manifestValue.widgets.confirmation_no.contentRect = { x = 8, y = 16, width = 104, height = 24 }
-  manifestValue.widgets.confirmation_yes.frames[1].width = 120
-  manifestValue.widgets.confirmation_yes.frames[1].height = 56
-  manifestValue.widgets.confirmation_no.frames[1].width = 120
-  manifestValue.widgets.confirmation_no.frames[1].height = 56
   local renderer = OakIntroRenderer.new({
     manifest = manifestValue,
     graphics = graphics,
@@ -428,8 +398,18 @@ function T.selected_confirmation_focus_stays_outside_label_content()
   confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
   confirmation.confirmationChoice = { kind = "gender", selected = 0 }
   confirmation.layout.confirmationButtons = {
-    [0] = { key = "yes", rect = { x = 10, y = 20, width = 120, height = 56 }, scale = 1 },
-    [1] = { key = "no", rect = { x = 150, y = 20, width = 240, height = 112 }, scale = 2 },
+    [0] = {
+      key = "yes",
+      rect = { x = 10, y = 20, width = 120, height = 56 },
+      scale = 1,
+      button = TextButton.resolve({ rect = { x = 10, y = 20, width = 120, height = 56 }, scale = 1 }),
+    },
+    [1] = {
+      key = "no",
+      rect = { x = 150, y = 20, width = 240, height = 112 },
+      scale = 2,
+      button = TextButton.resolve({ rect = { x = 150, y = 20, width = 240, height = 112 }, scale = 2 }),
+    },
   }
 
   renderer:draw(confirmation)
@@ -524,16 +504,6 @@ function T.focus_uses_source_scale_and_restores_line_width()
   local graphics = FakeGraphics.new()
   graphics.setLineWidth(2)
   local manifestValue = manifest()
-  manifestValue.widgets.confirmation_yes.width = 120
-  manifestValue.widgets.confirmation_yes.height = 56
-  manifestValue.widgets.confirmation_yes.contentRect = { x = 8, y = 16, width = 104, height = 24 }
-  manifestValue.widgets.confirmation_no.width = 120
-  manifestValue.widgets.confirmation_no.height = 56
-  manifestValue.widgets.confirmation_no.contentRect = { x = 8, y = 16, width = 104, height = 24 }
-  manifestValue.widgets.confirmation_yes.frames[1].width = 120
-  manifestValue.widgets.confirmation_yes.frames[1].height = 56
-  manifestValue.widgets.confirmation_no.frames[1].width = 120
-  manifestValue.widgets.confirmation_no.frames[1].height = 56
   local renderer = OakIntroRenderer.new({
     manifest = manifestValue,
     graphics = graphics,
@@ -550,8 +520,18 @@ function T.focus_uses_source_scale_and_restores_line_width()
   confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
   confirmation.confirmationChoice = { kind = "gender", selected = 0 }
   confirmation.layout.confirmationButtons = {
-    [0] = { key = "yes", rect = { x = 10, y = 20, width = 240, height = 112 }, scale = 2 },
-    [1] = { key = "no", rect = { x = 260, y = 20, width = 240, height = 112 }, scale = 2 },
+    [0] = {
+      key = "yes",
+      rect = { x = 10, y = 20, width = 240, height = 112 },
+      scale = 2,
+      button = TextButton.resolve({ rect = { x = 10, y = 20, width = 240, height = 112 }, scale = 2 }),
+    },
+    [1] = {
+      key = "no",
+      rect = { x = 260, y = 20, width = 240, height = 112 },
+      scale = 2,
+      button = TextButton.resolve({ rect = { x = 260, y = 20, width = 240, height = 112 }, scale = 2 }),
+    },
   }
   renderer:draw(confirmation)
   Assert.equal(graphics.getLineWidth(), 2, "renderer must restore caller line width after normal draw")
@@ -764,9 +744,9 @@ T.constructor_rejects_missing_confirmation_widget = function()
     imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
   })
   local manifestValue = manifest()
-  manifestValue.widgets.confirmation_yes = nil
-  local ok, failure = pcall(function()
-    OakIntroRenderer.new({
+  -- After migration, confirmation widgets are not required.
+  local ok, _ = pcall(function()
+    return OakIntroRenderer.new({
       manifest = manifestValue,
       graphics = graphics,
       imageLoader = function(path)
@@ -778,8 +758,7 @@ T.constructor_rejects_missing_confirmation_widget = function()
       choiceText = choiceTextRenderer(),
     })
   end)
-  Assert.isFalse(ok)
-  Assert.isTrue(tostring(failure):find("confirmation_yes", 1, true) ~= nil)
+  Assert.isTrue(ok, "renderer must not require confirmation widgets after migration")
 end
 
 return GraphicsSmoke.suite(T)

@@ -162,13 +162,25 @@ local function textButtonEntries(origin, scale, horizontal, gap)
   if horizontal then
     local firstRect = rect(origin.x, origin.y, w, h)
     local secondRect = rect(origin.x + w + gap, origin.y, w, h)
-    entries[0] = { key = "yes", rect = firstRect, scale = scale, button = TextButton.resolve({ rect = firstRect, scale = scale }) }
-    entries[1] = { key = "no", rect = secondRect, scale = scale, button = TextButton.resolve({ rect = secondRect, scale = scale }) }
+    entries[0] =
+      { key = "yes", rect = firstRect, scale = scale, button = TextButton.resolve({ rect = firstRect, scale = scale }) }
+    entries[1] = {
+      key = "no",
+      rect = secondRect,
+      scale = scale,
+      button = TextButton.resolve({ rect = secondRect, scale = scale }),
+    }
   else
     local firstRect = rect(origin.x, origin.y, w, h)
     local secondRect = rect(origin.x, origin.y + h + gap, w, h)
-    entries[0] = { key = "yes", rect = firstRect, scale = scale, button = TextButton.resolve({ rect = firstRect, scale = scale }) }
-    entries[1] = { key = "no", rect = secondRect, scale = scale, button = TextButton.resolve({ rect = secondRect, scale = scale }) }
+    entries[0] =
+      { key = "yes", rect = firstRect, scale = scale, button = TextButton.resolve({ rect = firstRect, scale = scale }) }
+    entries[1] = {
+      key = "no",
+      rect = secondRect,
+      scale = scale,
+      button = TextButton.resolve({ rect = secondRect, scale = scale }),
+    }
   end
   return entries
 end
@@ -376,7 +388,7 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
       local sourceCard = assert(manifest.genderSelector.buttons[sourceGender]).bounds
       -- Ensure selectorRegion available; compute if not (when composition not active)
       if not selectorRegion then
-        local tempOak, tempSelector = selectorRegions(scene, gap)
+        local _, tempSelector = selectorRegions(scene, gap)
         selectorRegion = tempSelector
       end
       result.confirmationButtons = nameConfirmationEntries(sceneContent, assert(selectorRegion), sourceCard, gap)

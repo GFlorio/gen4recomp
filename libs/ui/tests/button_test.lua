@@ -96,7 +96,9 @@ end
 
 function T.zero_width_layers_and_zero_corner_use_positive_rectangles()
   local Button = buttonModule()
-  local resolved = Button.resolve(spec({ borderWidth = 0, rimWidth = 0, innerBorderWidth = 0, cornerCut = 0, contentInsetX = 2, contentInsetY = 2 }))
+  local resolved = Button.resolve(
+    spec({ borderWidth = 0, rimWidth = 0, innerBorderWidth = 0, cornerCut = 0, contentInsetX = 2, contentInsetY = 2 })
+  )
   assertLayered(resolved)
   Assert.deepEqual(resolved.border.rect, resolved.rect)
   Assert.deepEqual(resolved.rim.rect, resolved.rect)

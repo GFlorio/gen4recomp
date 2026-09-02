@@ -101,7 +101,8 @@ function ImageButton.draw(graphics, button, spec)
   end
 
   local face = validateColor(spec.colors.face, "image button face color")
-  local border = spec.colors.border and validateColor(spec.colors.border, "image button border color") or copyColor(DEFAULT_BORDER)
+  local border = spec.colors.border and validateColor(spec.colors.border, "image button border color")
+    or copyColor(DEFAULT_BORDER)
   local rimColor = copyColor(DEFAULT_RIM)
   local selectedRim = copyColor(DEFAULT_SELECTED_RIM)
   if spec.colors.rim ~= nil then

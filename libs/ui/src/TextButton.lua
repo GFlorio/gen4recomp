@@ -2,6 +2,11 @@
 
 local Button = require("libs.ui.src.Button")
 
+---@class TextAdapter
+---@field measure fun(label:string):number
+---@field lineHeight number
+---@field draw fun(label:string, x:number, y:number)
+
 local TextButton = {}
 
 TextButton.REFERENCE_WIDTH = 120
@@ -134,7 +139,7 @@ end
 
 ---@param graphics table
 ---@param button table
----@param spec { label: string, selected: boolean, text: {measure:fun(string):number, lineHeight:number, draw:fun(string, number, number)}, colors?: table }
+---@param spec { label: string, selected: boolean, text: TextAdapter, colors?: table }
 function TextButton.draw(graphics, button, spec)
   assert(type(graphics) == "table", "text button graphics is required")
   assert(type(graphics.setColor) == "function", "text button graphics setColor is required")
@@ -146,7 +151,10 @@ function TextButton.draw(graphics, button, spec)
   assert(type(spec.selected) == "boolean", "text button selected flag is required")
   assert(type(spec.text) == "table", "text button text adapter is required")
   assert(type(spec.text.measure) == "function", "text button text measure is required")
-  assert(finite(spec.text.lineHeight) and spec.text.lineHeight > 0, "text button lineHeight must be a finite positive number")
+  assert(
+    finite(spec.text.lineHeight) and spec.text.lineHeight > 0,
+    "text button lineHeight must be a finite positive number"
+  )
   assert(type(spec.text.draw) == "function", "text button text draw is required")
   if spec.colors ~= nil then
     assert(type(spec.colors) == "table", "text button colors must be a table")
@@ -198,12 +206,21 @@ function TextButton.draw(graphics, button, spec)
   local textYSource = localContentY + (localContentHeight - lineHeight) / 2
 
   local pushed = false
-  if type(graphics.push) == "function" and type(graphics.pop) == "function" and type(graphics.translate) == "function" and type(graphics.scale) == "function" then
+  if
+    type(graphics.push) == "function"
+    and type(graphics.pop) == "function"
+    and type(graphics.translate) == "function"
+    and type(graphics.scale) == "function"
+  then
     graphics.push()
     pushed = true
     graphics.translate(button.rect.x, button.rect.y)
     graphics.scale(scale, scale)
-  elseif type(graphics.push) == "function" and type(graphics.pop) == "function" and type(graphics.scale) == "function" then
+  elseif
+    type(graphics.push) == "function"
+    and type(graphics.pop) == "function"
+    and type(graphics.scale) == "function"
+  then
     graphics.push()
     pushed = true
     graphics.scale(scale, scale)
