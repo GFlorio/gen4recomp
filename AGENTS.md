@@ -31,6 +31,7 @@ Read the narrowest authoritative source instead of duplicating it:
 - `libs/nds/AGENTS.md`: Nintendo DS/Nitro platform ownership and dependency direction.
 - `libs/script/AGENTS.md`: mod scripting platform ownership and injected game meaning.
 - `libs/hgss/AGENTS.md`: recreated HGSS runtime mechanism ownership.
+- `libs/ui/AGENTS.md`: shared game-independent widget ownership.
 - `libs/assets/AGENTS.md`: generated/mod-facing asset contract rules.
 - `app/AGENTS.md`: process, launcher, and provisioning rules.
 - `game/AGENTS.md`: game-agnostic lifecycle and host-adapter rules.
