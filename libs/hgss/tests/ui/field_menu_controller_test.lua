@@ -31,6 +31,19 @@ function T.initial_cursor_is_zero_based_and_validated()
   end)
 end
 
+function T.invalid_focus_preserves_the_selected_value()
+  local controller = menu({ initialCursor = 1 })
+  Assert.equal(controller:status().selectedIndex, 1)
+
+  controller:focus(2)
+  Assert.equal(controller:status().selectedIndex, 2)
+
+  Assert.throws(function()
+    controller:focus(3)
+  end)
+  Assert.equal(controller:status().selectedIndex, 2)
+end
+
 function T.layout_targeted_focus_stays_in_bounds()
   local controller = menu({ initialCursor = 1 })
   controller:focus(0)

@@ -2,11 +2,10 @@
 -- pointer capture while leaving message resolution, layout, rendering, and
 -- physical input mapping to its callers.
 
-local Selection = require("libs.ui.src.Selection")
-
 ---@class FieldMenuController
 ---@field _items table<integer, FieldMenuController.Item>
----@field _selection Selection
+---@field _itemCount integer
+---@field _selectedIndex integer
 ---@field _cancellable boolean
 ---@field _cancelValue any
 ---@field _state "active"|"complete"
@@ -60,14 +59,14 @@ local function copyItems(items)
   return copied, count
 end
 
----@param self { _selection: Selection }
+---@param self { _itemCount: integer }
 ---@param itemIndex integer?
 local function assertItemIndex(self, itemIndex)
   if itemIndex == nil then
     return
   end
   assertInteger(itemIndex, "field menu item index")
-  assert(itemIndex >= 0 and itemIndex < self._selection:itemCount(), "field menu item index is out of range")
+  assert(itemIndex >= 0 and itemIndex < self._itemCount, "field menu item index is out of range")
 end
 
 ---@class FieldMenuController.Spec
@@ -98,7 +97,8 @@ function FieldMenuController.new(spec)
 
   local controller = {
     _items = items,
-    _selection = Selection.new(itemCount, initialCursor),
+    _itemCount = itemCount,
+    _selectedIndex = initialCursor,
     _cancellable = spec.cancellable == true,
     _cancelValue = spec.cancelValue,
     _state = "active",
@@ -134,7 +134,7 @@ end
 function FieldMenuController:focus(itemIndex)
   assertItemIndex(self, itemIndex)
   if self:isActive() then
-    self._selection:setSelectedIndex(assert(itemIndex))
+    self._selectedIndex = assert(itemIndex)
   end
 end
 
@@ -143,7 +143,7 @@ function FieldMenuController:confirm()
   if not self:isActive() then
     return nil
   end
-  return self:_complete(self._items[assert(self._selection:selectedIndex())].value, false)
+  return self:_complete(self._items[assert(self._selectedIndex)].value, false)
 end
 
 ---@return any
@@ -187,7 +187,7 @@ function FieldMenuController:release(itemIndex)
   if pressed == nil or pressed ~= itemIndex then
     return nil
   end
-  self._selection:setSelectedIndex(pressed)
+  self._selectedIndex = assert(pressed)
   return self:confirm()
 end
 
@@ -201,7 +201,7 @@ end
 function FieldMenuController:status()
   return {
     state = self._state,
-    selectedIndex = assert(self._selection:selectedIndex()),
+    selectedIndex = assert(self._selectedIndex),
     result = self._result,
     cancelled = self._cancelled,
   }

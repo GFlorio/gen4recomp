@@ -181,24 +181,15 @@ function T.large_menus_scroll_without_overflow_and_keep_the_selected_item_visibl
   Assert.isTrue(contains(layout.scrollViewport, layout.itemRects[23]))
   Assert.isTrue(contains(layout.surface.safeRect, layout.frame))
 
-  local firstVisibleRow
-  local lastVisibleRow
+  local visibleRows = {}
   for itemIndex = 0, layout.itemCount - 1 do
     if overlaps(layout.itemRects[itemIndex], layout.scrollViewport) then
-      firstVisibleRow = firstVisibleRow or itemIndex
-      lastVisibleRow = itemIndex
+      visibleRows[#visibleRows + 1] = itemIndex
     end
   end
-  Assert.equal(layout.firstVisibleRow, firstVisibleRow)
-  Assert.equal(layout.lastVisibleRow, lastVisibleRow)
-  Assert.isTrue(layout.firstVisibleRow <= layout.selectedIndex)
-  Assert.isTrue(layout.selectedIndex <= layout.lastVisibleRow)
-  if layout.firstVisibleRow > 0 then
-    Assert.isFalse(overlaps(layout.itemRects[layout.firstVisibleRow - 1], layout.scrollViewport))
-  end
-  if layout.lastVisibleRow < layout.itemCount - 1 then
-    Assert.isFalse(overlaps(layout.itemRects[layout.lastVisibleRow + 1], layout.scrollViewport))
-  end
+  Assert.isTrue(#visibleRows > 0)
+  Assert.isTrue(#visibleRows < layout.itemCount)
+  Assert.equal(visibleRows[#visibleRows], layout.selectedIndex)
 end
 
 function T.wide_large_menus_auto_dock_and_dual_screen_menus_prefer_the_auxiliary_surface()

@@ -263,7 +263,7 @@ end
 ---@param rowHeight number
 ---@param padding number
 ---@param cancelHeight number
----@return ScreenTopology.Rectangle, ScreenTopology.Rectangle[], number, number, integer, integer
+---@return ScreenTopology.Rectangle, ScreenTopology.Rectangle[], number, number
 local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   local content = {
     x = frame.x + padding,
@@ -276,8 +276,6 @@ local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
   local selectedTop = (menu.selectedIndex or 0) * rowHeight
   local offset = clamp(selectedTop - (content.height - rowHeight), 0, maxOffset)
   local itemRects = {}
-  local firstVisibleRow
-  local lastVisibleRow
   for luaIndex = 1, #menu.items do
     local itemIndex = luaIndex - 1
     local itemRect = {
@@ -287,13 +285,8 @@ local function layoutItems(frame, menu, rowHeight, padding, cancelHeight)
       height = rowHeight,
     }
     itemRects[itemIndex] = itemRect
-    if overlaps(itemRect, content) then
-      firstVisibleRow = firstVisibleRow or itemIndex
-      lastVisibleRow = itemIndex
-    end
   end
-  assert(firstVisibleRow ~= nil and lastVisibleRow ~= nil, "menu layout must expose at least one visible row")
-  return content, itemRects, offset, maxOffset, firstVisibleRow, lastVisibleRow
+  return content, itemRects, offset, maxOffset
 end
 
 local DIRECTIONS = { up = true, down = true, left = true, right = true }
@@ -372,7 +365,7 @@ end
 -- the renderer, while the selected row is always brought into view.
 
 ---@param spec MenuLayout.Spec
----@return { surface: ScreenTopology.Surface, presentation: "floating"|"docked", frame: ScreenTopology.Rectangle, contentRect: ScreenTopology.Rectangle, itemCount: integer, itemRects: ScreenTopology.Rectangle[], itemTexts: table<integer, string>, scrollViewport: ScreenTopology.Rectangle, cancelRect: ScreenTopology.Rectangle?, selectedIndex: integer, scrollOffset: number, maxScrollOffset: number, firstVisibleRow: integer, lastVisibleRow: integer }
+---@return { surface: ScreenTopology.Surface, presentation: "floating"|"docked", frame: ScreenTopology.Rectangle, contentRect: ScreenTopology.Rectangle, itemCount: integer, itemRects: ScreenTopology.Rectangle[], itemTexts: table<integer, string>, scrollViewport: ScreenTopology.Rectangle, cancelRect: ScreenTopology.Rectangle?, selectedIndex: integer, scrollOffset: number, maxScrollOffset: number }
 function MenuLayout.resolve(spec)
   assert(type(spec) == "table", "menu layout requires a specification")
   local selectedIndex = assertItems(spec.menu)
@@ -421,7 +414,7 @@ function MenuLayout.resolve(spec)
     selectedIndex = selectedIndex,
     cancellable = spec.menu.cancellable == true,
   }
-  local contentRect, itemRects, scrollOffset, maxScrollOffset, firstVisibleRow, lastVisibleRow =
+  local contentRect, itemRects, scrollOffset, maxScrollOffset =
     layoutItems(resolvedFrame, resolvedMenu, rowHeight, padding, cancelHeight)
   local itemTexts = {}
   for luaIndex = 1, #spec.menu.items do
@@ -449,8 +442,6 @@ function MenuLayout.resolve(spec)
     selectedIndex = selectedIndex,
     scrollOffset = scrollOffset,
     maxScrollOffset = maxScrollOffset,
-    firstVisibleRow = firstVisibleRow,
-    lastVisibleRow = lastVisibleRow,
   }
 end
 

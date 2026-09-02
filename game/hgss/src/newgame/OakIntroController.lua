@@ -5,7 +5,6 @@
 
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakGreetingPolicy = require("game.hgss.src.newgame.OakGreetingPolicy")
-local Selection = require("libs.ui.src.Selection")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 ---@class OakIntroControllerOptions
@@ -71,7 +70,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _sourceFrames integer
 ---@field private _message string|table|nil
 ---@field private _messageKey string|nil
----@field private _confirmationChoice { kind: "gender"|"name", selection: Selection }?
+---@field private _confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field private _visual string
 ---@field private _visualFrameIndex integer
 ---@field private _visualFrameTimer integer?
@@ -82,7 +81,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _revealFrameIndex integer|nil
 ---@field private _revealFrameTimer integer|nil
 ---@field private _revealWidget string|nil
----@field private _genderSelection Selection
+---@field private _genderSelection integer
 ---@field private _name string
 ---@field private _oakBgScrollX number source BG scroll X, 0 centered and -52 shifted
 ---@field private _genderCompositionProgress number normalized host composition progress
@@ -165,6 +164,19 @@ local function validateTickCount(frames)
   assert(type(frames) == "number" and frames % 1 == 0 and frames >= 0, "Oak tick count must be a non-negative integer")
 end
 
+local function assertSelectionIndex(index)
+  assert(
+    type(index) == "number"
+      and index == index
+      and index ~= math.huge
+      and index ~= -math.huge
+      and index == math.floor(index),
+    "selection index must be a finite integer"
+  )
+  assert(index >= 0 and index < 2, "selection index is out of range")
+  return index
+end
+
 local function framesFor(assets, visual)
   assets = assets.widgets or assets
   local asset = assets[visual]
@@ -229,7 +241,7 @@ function OakIntroController.new(options)
     _revealFrameIndex = nil,
     _revealFrameTimer = nil,
     _revealWidget = nil,
-    _genderSelection = Selection.new(2, 0),
+    _genderSelection = 0,
     _focusTimer = 0,
     _focusBlinkDelta = 0,
     _name = "",
@@ -352,7 +364,7 @@ end
 function OakIntroController:_finish()
   local finalized, failure = NewGame.finalize(self._candidate, {
     name = self._name,
-    gender = self._genderSelection:selectedIndex(),
+    gender = self._genderSelection,
   }, {
     randomU32 = self._randomU32,
     playerDataContext = self._playerDataContext,
@@ -384,9 +396,7 @@ function OakIntroController:_stepFrame()
       self._genderCompositionProgress = 0
       self._phase = "name_confirm"
       self:_setVisual("oak")
-      self:_setMessage(
-        self._genderSelection:selectedIndex() == 0 and "profile.name_confirm.male" or "profile.name_confirm.female"
-      )
+      self:_setMessage(self._genderSelection == 0 and "profile.name_confirm.male" or "profile.name_confirm.female")
     end
     return
   end
@@ -504,7 +514,7 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._finalFadeAlpha = 1
-      self:_setVisual(self._genderSelection:selectedIndex() == 0 and "male" or "female")
+      self:_setVisual(self._genderSelection == 0 and "male" or "female")
       self._phase = "final_full_art_fade_in"
       self._timer = FINAL_FADE_FRAMES
     end
@@ -519,7 +529,7 @@ function OakIntroController:_stepFrame()
     self._timer = self._timer - 1
     if self._timer == 0 then
       self._audio:play("SEQ_SE_GS_HERO_SHUKUSHOU")
-      self:_setVisual(self._genderSelection:selectedIndex() == 0 and "shrink_male" or "shrink_female")
+      self:_setVisual(self._genderSelection == 0 and "shrink_male" or "shrink_female")
       if framesFor(self._assets, self._visual) == nil then
         self:_finish()
       else
@@ -570,8 +580,9 @@ function OakIntroController:_playSelectionEffect()
 end
 
 function OakIntroController:_focusGender(index)
-  local changed = self._genderSelection:selectedIndex() ~= index
-  self._genderSelection:setSelectedIndex(index)
+  index = assertSelectionIndex(index)
+  local changed = self._genderSelection ~= index
+  self._genderSelection = index
   if changed then
     self._focusTimer = 0
     self._focusBlinkDelta = 0
@@ -582,7 +593,8 @@ end
 
 function OakIntroController:_activateGender(index)
   assert(self._phase == "gender_select", "gender activation is only valid during selection")
-  self._genderSelection:setSelectedIndex(index)
+  index = assertSelectionIndex(index)
+  self._genderSelection = index
   self._focusTimer = 0
   self._focusBlinkDelta = 0
   self:_playSelectionEffect()
@@ -593,7 +605,7 @@ end
 
 function OakIntroController:_resolveConfirmation(selected)
   assert(self._confirmationChoice ~= nil, "Oak confirmation choice is not active")
-  assert(selected == 0 or selected == 1, "Oak confirmation selection is invalid")
+  selected = assertSelectionIndex(selected)
   self:_playSelectionEffect()
   local kind = self._confirmationChoice.kind
   self._confirmationChoice = nil
@@ -627,15 +639,15 @@ function OakIntroController:press(action)
   if self._confirmationChoice then
     if action == "up" or action == "down" then
       local index = action == "up" and 0 or 1
-      local changed = self._confirmationChoice.selection:selectedIndex() ~= index
-      self._confirmationChoice.selection:setSelectedIndex(index)
+      local changed = self._confirmationChoice.selected ~= index
+      self._confirmationChoice.selected = assertSelectionIndex(index)
       if changed then
         self:_playSelectionEffect()
       end
       return true
     end
     if action == "confirm" then
-      return self:_resolveConfirmation(self._confirmationChoice.selection:selectedIndex())
+      return self:_resolveConfirmation(self._confirmationChoice.selected)
     end
     if action == "yes" then
       return self:_resolveConfirmation(0)
@@ -697,7 +709,7 @@ function OakIntroController:press(action)
       self._focusBlinkDelta = 0
     end
   elseif (action == "confirm" or action == "yes") and self._phase == "gender_select" then
-    return self:_activateGender(self._genderSelection:selectedIndex())
+    return self:_activateGender(self._genderSelection)
   elseif (action == "cancel" or action == "no") and self._phase == "gender_confirm" then
     self._phase = "gender_question"
     self:_setMessage("profile.gender_question")
@@ -711,7 +723,7 @@ function OakIntroController:press(action)
     local glyphs = appendGlyphs(self._name)
     if #glyphs <= 7 then
       if isBlankName(self._name) then
-        self._name = assert(DEFAULT_PROFILE_NAMES[self._genderSelection:selectedIndex()])
+        self._name = assert(DEFAULT_PROFILE_NAMES[self._genderSelection])
       end
       if #appendGlyphs(self._name) >= 1 then
         self._phase = "gender_composition_exit"
@@ -794,7 +806,7 @@ function OakIntroController:view()
     sceneBrightness = self._sceneBrightness / 16,
     revealBrightness = self._revealBrightness / 16,
     revealOpacity = self._revealOpacity / 16,
-    genderFocus = self._genderSelection:selectedIndex(),
+    genderFocus = self._genderSelection,
     focusTimer = self._focusTimer,
     focusBlinkDelta = self._focusBlinkDelta,
     name = self._name,
@@ -807,7 +819,7 @@ function OakIntroController:view()
     messageKey = self._messageKey,
     confirmationChoice = self._confirmationChoice and {
       kind = self._confirmationChoice.kind,
-      selected = self._confirmationChoice.selection:selectedIndex(),
+      selected = self._confirmationChoice.selected,
     } or nil,
     dialogue = dialogue,
     primaryWidget = primaryWidget,
@@ -829,7 +841,7 @@ function OakIntroController:messageCompleted(key)
   if self._phase == "gender_confirm" or self._phase == "name_confirm" then
     self._confirmationChoice = {
       kind = self._phase == "gender_confirm" and "gender" or "name",
-      selection = Selection.new(2, 0),
+      selected = 0,
     }
     return true
   end

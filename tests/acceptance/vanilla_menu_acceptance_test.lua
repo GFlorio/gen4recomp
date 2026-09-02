@@ -91,8 +91,6 @@ end
 
 local function selectSecondItem(game)
   local opened = openVanillaMenu(game)
-  Assert.equal(opened.menu.layout.firstVisibleRow, 0)
-  Assert.equal(opened.menu.layout.lastVisibleRow, 2)
   local state = hostCallbacks(game)
   pressKey(game, state, "s")
   pressConfirm(game, "key:return")
