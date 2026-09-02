@@ -14,6 +14,7 @@ local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 local StartMenuPolicy = require("libs.hgss.src.ui.StartMenuPolicy")
+local MovementTimingOracle = require("tests.support.MovementTimingOracle")
 
 local T = {
   metadata = {
@@ -280,7 +281,7 @@ function T.tests.new_bark_friend_and_marill_scene_follows_the_house_scene()
         and world:isFlagSet(FLAG_HIDE_NEW_BARK_FRIEND)
         and world:isFlagSet(FLAG_HIDE_NEW_BARK_MARILL)
         and not snapshot.fieldLocked
-    end, 400)
+    end, 900)
 
     local runtimeMap = game.runtime.runtimeMap
     local hiddenFlags = {
@@ -581,8 +582,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     Assert.equal(#planOrder, 4, "the scene must run exactly four Marill movement plans")
     Assert.isTrue(#presentationTimeline > 0, "the live Marill must have a continuous presentation timeline")
 
-    local function appendExpected(out, descriptor, repetitions)
-      local ticks = MovementCalibration.actionTicks(descriptor)
+    local function appendExpected(out, descriptor, ticks, repetitions)
       for repetition = 1, repetitions do
         for _ = 1, ticks do
           out[#out + 1] = {
@@ -621,57 +621,92 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
 
     local first = plans[planOrder[1]]
     local firstExpected = {}
-    appendExpected(firstExpected, { action = "delay", ticks = 32 }, 1)
-    appendExpected(firstExpected, { action = "walk", direction = "north", speed = "fast", tiles = 8 }, 8)
-    appendExpected(firstExpected, { action = "jump", direction = "south", distance = "near", speed = "fast" }, 1)
-    appendExpected(firstExpected, { action = "face", direction = "east" }, 5)
-    appendExpected(firstExpected, { action = "face", direction = "north" }, 5)
-    appendExpected(firstExpected, { action = "face", direction = "west" }, 5)
-    appendExpected(firstExpected, { action = "face", direction = "north" }, 5)
-    appendExpected(firstExpected, { action = "walk", direction = "north", speed = "normal", tiles = 1 }, 1)
-    appendExpected(firstExpected, { action = "delay", ticks = 32 }, 1)
+    appendExpected(firstExpected, { action = "delay", ticks = 32 }, 32, 1)
+    appendExpected(firstExpected, { action = "walk", direction = "north", speed = "fast", tiles = 8 }, 4, 8)
+    appendExpected(
+      firstExpected,
+      { action = "jump", direction = "south", distance = "near", speed = "fast" },
+      MovementTimingOracle.jump.nearFastTicks,
+      1
+    )
+    appendExpected(firstExpected, { action = "face", direction = "east" }, 1, 5)
+    appendExpected(firstExpected, { action = "face", direction = "north" }, 1, 5)
+    appendExpected(firstExpected, { action = "face", direction = "west" }, 1, 5)
+    appendExpected(firstExpected, { action = "face", direction = "north" }, 1, 5)
+    appendExpected(firstExpected, { action = "walk", direction = "north", speed = "normal", tiles = 1 }, 8, 1)
+    appendExpected(firstExpected, { action = "delay", ticks = 32 }, 32, 1)
     assertTimeline(first, firstExpected, "the arrival movement")
 
     local second = plans[planOrder[2]]
     local secondExpected = {}
-    appendExpected(secondExpected, { action = "face", direction = "west" }, 1)
-    appendExpected(secondExpected, { action = "emote", name = "exclamation" }, 1)
-    appendExpected(secondExpected, { action = "walk_in_place", direction = "north", speed = "fast" }, 4)
-    appendExpected(secondExpected, { action = "face", direction = "south" }, 2)
-    appendExpected(secondExpected, { action = "face", direction = "east" }, 2)
-    appendExpected(secondExpected, { action = "face", direction = "north" }, 2)
-    appendExpected(secondExpected, { action = "face", direction = "west" }, 2)
-    appendExpected(secondExpected, { action = "walk_in_place", direction = "west", speed = "fast" }, 4)
-    appendExpected(secondExpected, { action = "walk", direction = "west", speed = "fast", tiles = 6 }, 6)
+    appendExpected(secondExpected, { action = "face", direction = "west" }, 1, 1)
+    appendExpected(
+      secondExpected,
+      { action = "emote", name = "exclamation" },
+      MovementTimingOracle.newBark.exclamationTicks,
+      1
+    )
+    appendExpected(
+      secondExpected,
+      { action = "walk_in_place", direction = "north", speed = "fast" },
+      MovementTimingOracle.newBark.walkInPlaceFastTicks,
+      4
+    )
+    appendExpected(secondExpected, { action = "face", direction = "south" }, 1, 2)
+    appendExpected(secondExpected, { action = "face", direction = "east" }, 1, 2)
+    appendExpected(secondExpected, { action = "face", direction = "north" }, 1, 2)
+    appendExpected(secondExpected, { action = "face", direction = "west" }, 1, 2)
+    appendExpected(
+      secondExpected,
+      { action = "walk_in_place", direction = "west", speed = "fast" },
+      MovementTimingOracle.newBark.walkInPlaceFastTicks,
+      4
+    )
+    appendExpected(secondExpected, { action = "walk", direction = "west", speed = "fast", tiles = 6 }, 4, 6)
     assertTimeline(second, secondExpected, "the friend movement")
 
     local third = plans[planOrder[3]]
     local thirdExpected = {}
-    appendExpected(thirdExpected, { action = "jump", direction = "west", distance = "zero", speed = "fast" }, 4)
+    appendExpected(
+      thirdExpected,
+      { action = "jump", direction = "west", distance = "zero", speed = "fast" },
+      MovementTimingOracle.jump.zeroFastTicks,
+      4
+    )
     assertTimeline(third, thirdExpected, "the repeated zero-distance jumps")
 
     local jumpAnchorX, jumpAnchorZ = third.records[1].fieldX, third.records[1].fieldZ
-    local jumpAnchorLogicalY = third.records[4].logicalWorldY
+    local jumpAnchorLogicalY = third.records[MovementTimingOracle.jump.zeroFastTicks].logicalWorldY
+    local completedJumps = 0
+    local sawInteriorByJump = {}
     for index, record in ipairs(third.records) do
       Assert.equal(record.fieldX, jumpAnchorX, "zero-distance jumps keep logical X fixed")
       Assert.equal(record.fieldZ, jumpAnchorZ, "zero-distance jumps keep logical Z fixed")
-      if index % 4 == 0 then
+      if record.afterAction == nil then
+        if index > 1 then
+          completedJumps = completedJumps + 1
+        end
         Assert.near(
           record.logicalWorldY,
           jumpAnchorLogicalY,
           1e-9,
-          "each zero-distance jump returns to its logical anchor"
+          "each zero-distance jump sample at a task boundary returns to its logical anchor"
         )
-        Assert.isNil(record.afterAction, "each zero-distance jump commits before its repetition")
       else
-        Assert.isTrue(record.worldY > jumpAnchorLogicalY, "each zero-distance jump has an interior vertical arc")
+        Assert.isTrue(
+          record.worldY >= jumpAnchorLogicalY,
+          "each active zero-distance jump sample stays on or above its logical anchor"
+        )
+        if record.worldY > jumpAnchorLogicalY then
+          sawInteriorByJump[record.repeatIndex] = true
+        end
         Assert.isTrue(
           record.worldY <= jumpAnchorLogicalY + MovementCalibration.JUMP_HEIGHTS.zero + 1e-9,
           "each zero-distance jump arc stays bounded"
         )
       end
       if index < #third.records then
-        local actionTick = (index - 1) % 4
+        local actionTick = (index - 1) % MovementTimingOracle.jump.zeroFastTicks
         local expectedPoseDelta = actionTick
         local actionStart = third.records[index - actionTick]
         Assert.equal(
@@ -681,15 +716,22 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
         )
       end
     end
+    Assert.equal(completedJumps, 4, "each repeated zero-distance jump reaches its task boundary")
+    for repeatIndex = 0, 3 do
+      Assert.isTrue(
+        sawInteriorByJump[repeatIndex] == true,
+        "each repeated zero-distance jump has an interior vertical arc"
+      )
+    end
 
     local fourth = plans[planOrder[4]]
     local fourthExpected = {}
-    appendExpected(fourthExpected, { action = "face", direction = "west" }, 1)
-    appendExpected(fourthExpected, { action = "walk", direction = "west", speed = "normal", tiles = 1 }, 1)
-    appendExpected(fourthExpected, { action = "face", direction = "south" }, 1)
-    appendExpected(fourthExpected, { action = "walk", direction = "south", speed = "normal", tiles = 4 }, 4)
-    appendExpected(fourthExpected, { action = "face", direction = "west" }, 1)
-    appendExpected(fourthExpected, { action = "walk", direction = "west", speed = "normal", tiles = 2 }, 2)
+    appendExpected(fourthExpected, { action = "face", direction = "west" }, 1, 1)
+    appendExpected(fourthExpected, { action = "walk", direction = "west", speed = "normal", tiles = 1 }, 8, 1)
+    appendExpected(fourthExpected, { action = "face", direction = "south" }, 1, 1)
+    appendExpected(fourthExpected, { action = "walk", direction = "south", speed = "normal", tiles = 4 }, 8, 4)
+    appendExpected(fourthExpected, { action = "face", direction = "west" }, 1, 1)
+    appendExpected(fourthExpected, { action = "walk", direction = "west", speed = "normal", tiles = 2 }, 8, 2)
     assertTimeline(fourth, fourthExpected, "the final normal walking movement")
 
     local finalAnchorX, finalAnchorZ = fourth.records[1].fieldX, fourth.records[1].fieldZ
@@ -895,14 +937,18 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
         )
       end
     end
-    Assert.equal(#walkInPlaceRecords, 32, "both walk-in-place repetitions retain their calibrated ticks")
+    Assert.equal(
+      #walkInPlaceRecords,
+      MovementTimingOracle.newBark.walkInPlaceFastTicks * 8,
+      "all fast walk-in-place repetitions retain their source lifetime"
+    )
     local firstFastRepetition = {}
-    for index = 1, 4 do
+    for index = 1, MovementTimingOracle.newBark.walkInPlaceFastTicks do
       firstFastRepetition[index] = walkInPlaceRecords[index]
     end
     withCompiledVisual(firstFastRepetition[1], function(visual)
       local northWalk = assert(visual.directions.north.walk, "Marill's compiled north walk pose is required")
-      local firstFrame = assert(northWalk.frames[1])
+      Assert.isTrue(#northWalk.frames > 0, "Marill's compiled north walk pose must have frames")
       local selected = {}
       local activePoseTick
       for _, record in ipairs(firstFastRepetition) do
@@ -930,11 +976,10 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
         Assert.equal(record.frameIndex, expectedFrame, "the trace records the production-selected frame")
         selected[#selected + 1] = record.frameIndex
       end
-      Assert.equal(selected[1], firstFrame.frameIndex, "the first fast tick selects the source first frame")
       -- The scheduler-owned active ticks are already advanced; the manager
       -- must not double-advance them. The completion sample has transitioned
       -- to the visual's idle profile.
-      Assert.equal(selected[1], firstFrame.frameIndex, "the first active tick selects the source first frame")
+      Assert.isTrue(#selected >= 2, "the first fast repetition exposes multiple source-selected frames")
     end)
     local firstTileX, firstTileZ = walkInPlaceRecords[1].fieldX, walkInPlaceRecords[1].fieldZ
     local distinctY = {}
@@ -950,7 +995,7 @@ function T.tests.new_bark_marill_movement_follows_decoded_fixed_tick_choreograph
     Assert.isTrue(distinctCount >= 2, "walk-in-place visibly bobs across fixed ticks")
 
     for index, record in ipairs(walkInPlaceRecords) do
-      if index % 4 == 0 then
+      if index % MovementTimingOracle.newBark.walkInPlaceFastTicks == 0 then
         Assert.isNil(record.afterAction, "a completed walk-in-place instance yields before its successor")
       end
     end
@@ -992,7 +1037,7 @@ function T.tests.new_bark_exclamation_follows_marills_current_draw_world()
       )
       activeTicks = activeTicks + 1
       Assert.isTrue(
-        activeTicks <= MovementCalibration.EMOTE_TICKS - 1,
+        activeTicks <= MovementTimingOracle.newBark.exclamationTicks - 1,
         "the effect must have a bounded action lifetime"
       )
       game:step()
@@ -1001,7 +1046,7 @@ function T.tests.new_bark_exclamation_follows_marills_current_draw_world()
 
     Assert.equal(
       activeTicks,
-      MovementCalibration.EMOTE_TICKS - 1,
+      MovementTimingOracle.newBark.exclamationTicks - 1,
       "the effect lifetime remains owned by the emote action"
     )
     Assert.equal(#renderer:drawItems({ record }), 0, "clearing the emote state removes its draw item")

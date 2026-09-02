@@ -1,9 +1,5 @@
--- Movement calibration: v1 tick durations per HGSS movement speed
--- profile, at the engine's 30 Hz fixed tick. The pinned decomp does not
--- decompile the movement engine (EventObjectMovementMan lives in an
--- overlay), so these values are documented calibrations; the
--- hgss_96..hgss_99 names preserve distinct source profiles whose final
--- timings may be supplied later. Pure domain module: no love dependency.
+-- Source-backed movement lifetimes and pose cadences at the HGSS engine's
+-- 30 Hz fixed tick. Pure domain module: no love dependency.
 
 local MovementCalibration = {}
 
@@ -17,7 +13,9 @@ MovementCalibration.SPEED_TICKS = {
   slightly_fast = 6,
   slightly_faster = 5,
   fastest = 2,
-  run = 2,
+  -- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
+  -- asm/unk_02062108.s commands 88-91 use a four-update run lifetime.
+  run = 4,
   hgss_96 = 16,
   hgss_97 = 8,
   hgss_98 = 4,
@@ -26,21 +24,31 @@ MovementCalibration.SPEED_TICKS = {
 
 -- Ticks per walk-in-place cycle (on-spot animation step), by speed.
 MovementCalibration.WALK_IN_PLACE_TICKS = {
-  slower = 24,
-  slow = 16,
-  normal = 8,
-  fast = 4,
+  -- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
+  -- asm/unk_02062108.s commands 24-39 use configured countdowns of 32,
+  -- 16, 8, and 4, plus one update before completing.
+  slower = 33,
+  slow = 17,
+  normal = 9,
+  fast = 5,
 }
 
--- Ticks per jump, by distance (zero/near/far).
+-- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
+-- asm/unk_02062108.s: commands 44-47 are slow zero jumps (16 updates),
+-- 48-51 are fast zero jumps (8), 52-55 are fast near jumps (8), and
+-- 56-59 are fast far jumps (16). Unsupported pairs are not assigned a
+-- plausible fallback.
 MovementCalibration.JUMP_TICKS = {
-  zero = 4,
-  near = 6,
-  far = 8,
+  zero = { slow = 16, fast = 8 },
+  near = { fast = 8 },
+  far = { fast = 16 },
 }
 
 MovementCalibration.FACE_TICKS = 1
-MovementCalibration.EMOTE_TICKS = 4
+-- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
+-- asm/overlay_01_022001E4.s, ov01_02200614: the exclamation effect's
+-- entrance and completion progression surrounds a 30-update hold.
+MovementCalibration.EMOTE_TICKS = 33
 MovementCalibration.GESTURE_TICKS = 4
 
 -- Vertical arc heights for jump presentation (world units / tiles).
@@ -146,9 +154,10 @@ function MovementCalibration.actionTicks(action)
       "unknown walk_in_place speed " .. tostring(action.speed)
     )
   elseif kind == "jump" then
+    local jumpTicks = MovementCalibration.JUMP_TICKS[action.distance]
     return assert(
-      MovementCalibration.JUMP_TICKS[action.distance],
-      "unknown jump distance " .. tostring(action.distance)
+      jumpTicks and jumpTicks[action.speed],
+      "unknown jump distance/speed " .. tostring(action.distance) .. " " .. tostring(action.speed)
     )
   elseif kind == "delay" then
     return action.ticks

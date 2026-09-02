@@ -377,8 +377,9 @@ function T.locked_face_returns_to_visual_idle_presentation()
   Assert.equal(actor.poseTick, poseTickBeforeFace, "the following delay does not inherit locomotion cadence")
 end
 
--- `walk -> walk -> walk_in_place (two repetitions) -> delay` (all "fast", 4
--- ticks per action) must present one continuous locomotion pose across every
+-- `walk -> walk -> walk_in_place (two repetitions) -> delay` (fast walks use
+-- four ticks and fast walk-in-place uses five) must present one continuous
+-- locomotion pose across every
 -- timed boundary. Each completed action settles to the visual idle profile and
 -- leaves no previous-action presentation state behind.
 function T.contiguous_locomotion_returns_to_visual_idle_between_actions()
@@ -415,7 +416,7 @@ function T.contiguous_locomotion_returns_to_visual_idle_between_actions()
   local worldX, worldY, worldZ = actor.worldX, actor.worldY, actor.worldZ
   local poseTickBeforeWalkInPlace = actor.poseTick
   local sawBob = false
-  for tick = 109, 111 do
+  for tick = 109, 112 do
     h.scheduler:step(tick, nil)
     Assert.equal(actor:currentAction(), "walk_in_place", "the first walk-in-place instance is active")
     Assert.equal(actor.pose, "walk", "walk-in-place uses walking presentation")
@@ -432,27 +433,27 @@ function T.contiguous_locomotion_returns_to_visual_idle_between_actions()
     sawBob = sawBob or actor.presentationOffset.y ~= 0
   end
   Assert.isTrue(sawBob, "walk-in-place visibly bobs during its action")
-  -- The first walk-in-place repetition commits at 112's boundary. Its
+  -- The first walk-in-place repetition commits at 113's boundary. Its
   -- transaction clears the bob, and the second repetition begins on the next
   -- poll with a fresh presentation offset.
-  h.scheduler:step(112, nil)
+  h.scheduler:step(113, nil)
   Assert.isNil(actor:currentAction(), "a completed walk-in-place yields before its repetition")
   Assert.equal(actor.pose, "idle", "a completed walk-in-place returns to visual idle")
   Assert.equal(actor.presentationOffset.y, 0, "a committed walk-in-place clears its bob")
   Assert.equal(
     actor.poseTick,
-    poseTickBeforeWalkInPlace + 8,
-    "the first fast repetition advances exactly four ticks at 2x"
+    poseTickBeforeWalkInPlace + 10,
+    "the first fast repetition advances exactly five ticks at 2x"
   )
   Assert.equal(actor.worldX, worldX, "a completed walk-in-place keeps world X at its anchor")
   Assert.equal(actor.worldY, worldY, "a completed walk-in-place keeps world Y at its anchor")
   Assert.equal(actor.worldZ, worldZ, "a completed walk-in-place keeps world Z at its anchor")
-  h.scheduler:step(113, nil)
+  h.scheduler:step(114, nil)
   Assert.equal(actor:currentAction(), "walk_in_place", "the second walk-in-place instance starts next poll")
   Assert.isTrue(actor.presentationOffset.y ~= 0, "the second instance gets a fresh bob")
   Assert.equal(
     actor.poseTick,
-    poseTickBeforeWalkInPlace + 10,
+    poseTickBeforeWalkInPlace + 12,
     "the second fast repetition continues without a phase reset"
   )
   Assert.equal(actor.fieldX, fieldX, "the second walk-in-place keeps logical X fixed")
@@ -460,7 +461,7 @@ function T.contiguous_locomotion_returns_to_visual_idle_between_actions()
   Assert.equal(actor.worldX, worldX, "the second walk-in-place keeps world X at its anchor")
   Assert.equal(actor.worldY, worldY, "the second walk-in-place keeps world Y at its anchor")
   Assert.equal(actor.worldZ, worldZ, "the second walk-in-place keeps world Z at its anchor")
-  for tick = 114, 115 do
+  for tick = 115, 117 do
     h.scheduler:step(tick, nil)
     Assert.equal(actor.pose, "walk", "the second walk-in-place remains walking")
     Assert.equal(
@@ -474,26 +475,22 @@ function T.contiguous_locomotion_returns_to_visual_idle_between_actions()
     Assert.equal(actor.worldY, worldY, "the second walk-in-place keeps world Y at its anchor")
     Assert.equal(actor.worldZ, worldZ, "the second walk-in-place keeps world Z at its anchor")
   end
-  h.scheduler:step(116, nil)
+  h.scheduler:step(118, nil)
   Assert.isNil(actor:currentAction(), "the second walk-in-place commits independently")
   Assert.equal(actor.pose, "idle", "the second completed walk-in-place returns to visual idle")
   Assert.equal(actor.presentationOffset.y, 0, "the second commit clears its bob")
-  Assert.equal(
-    actor.poseTick,
-    poseTickBeforeWalkInPlace + 16,
-    "two fast repetitions retain their full calibrated bob duration"
-  )
+  Assert.equal(actor.poseTick, poseTickBeforeWalkInPlace + 20, "two fast repetitions retain their full source duration")
   Assert.equal(actor.worldX, worldX, "the second completed walk-in-place keeps world X at its anchor")
   Assert.equal(actor.worldY, worldY, "the second completed walk-in-place keeps world Y at its anchor")
   Assert.equal(actor.worldZ, worldZ, "the second completed walk-in-place keeps world Z at its anchor")
   -- The trailing delay begins on the following poll without inheriting the
   -- final locomotion cadence while its actor remains at the anchor.
-  h.scheduler:step(117, nil)
+  h.scheduler:step(119, nil)
   Assert.equal(actor.pose, "idle", "the trailing delay uses visual idle presentation")
-  Assert.equal(actor.poseTick, poseTickBeforeWalkInPlace + 16, "the trailing delay does not advance static idle")
-  h.scheduler:step(118, nil)
+  Assert.equal(actor.poseTick, poseTickBeforeWalkInPlace + 20, "the trailing delay does not advance static idle")
+  h.scheduler:step(120, nil)
   Assert.equal(actor.pose, "idle", "task completion keeps visual idle presentation")
-  Assert.equal(actor.poseTick, poseTickBeforeWalkInPlace + 16, "task completion keeps static idle phase")
+  Assert.equal(actor.poseTick, poseTickBeforeWalkInPlace + 20, "task completion keeps static idle phase")
 end
 
 -- `face east, count=5` followed by a trailing delay (so the fifth
@@ -620,10 +617,10 @@ function T.face_repetitions_and_walk_in_place_preserve_action_boundaries()
   end
   Assert.equal(actor.facing, "south", "the repeated face's final repetition applies its facing")
 
-  -- Ticks 105-107: explicit walk_in_place (fast = 4 ticks) walks and bobs,
+  -- Ticks 105-108: explicit walk_in_place (fast = 5 ticks) walks and bobs,
   -- keeping its own established, distinct presentation.
   local sawBob = false
-  for tick = 105, 107 do
+  for tick = 105, 108 do
     h.scheduler:step(tick, nil)
     Assert.equal(actor:currentAction(), "walk_in_place", "walk_in_place is active (tick " .. tick .. ")")
     Assert.equal(actor.pose, "walk", "walk_in_place presents walking pose (tick " .. tick .. ")")
@@ -633,11 +630,11 @@ function T.face_repetitions_and_walk_in_place_preserve_action_boundaries()
   end
   Assert.isTrue(sawBob, "explicit walk_in_place keeps its own deterministic bob")
 
-  -- Tick 108: walk_in_place's fourth and final tick completes and commits in
+  -- Tick 109: walk_in_place's fifth and final tick completes and commits in
   -- the same poll (mirroring the pre-existing walk/walk_in_place boundary
   -- pattern elsewhere in this file); the completed action remains the
   -- observable idle presentation for this boundary tick.
-  h.scheduler:step(108, nil)
+  h.scheduler:step(109, nil)
   Assert.isNil(actor:currentAction(), "walk_in_place has committed by its boundary tick")
   Assert.equal(actor.pose, "idle", "the completed walk_in_place settles on its boundary tick")
   Assert.equal(actor.fieldX, fieldX, "walk_in_place's boundary tick keeps logical fieldX fixed")
@@ -645,9 +642,9 @@ function T.face_repetitions_and_walk_in_place_preserve_action_boundaries()
 
   -- Tick 109: the trailing delay does not inherit the completed walk-in-place's
   -- cadence while the actor stays at its anchor.
-  h.scheduler:step(109, nil)
+  h.scheduler:step(110, nil)
   Assert.equal(actor.pose, "idle", "the sequence uses visual idle once the delay begins")
-  Assert.equal(actor.poseTick, 8, "the trailing delay does not advance static idle")
+  Assert.equal(actor.poseTick, 10, "the trailing delay does not advance static idle")
   Assert.equal(actor.presentationOffset.y, 0, "settling clears any residual bob")
 end
 
@@ -665,7 +662,20 @@ local function cadenceVisual()
   return visual
 end
 
-local function runLocomotion(action)
+-- Independent source cadence fixture. It intentionally mirrors the source
+-- cadence evidence rather than asking MovementCalibration for expected pose
+-- progress.
+local function sourcePoseTicks(cadence, durationTicks)
+  local poseTicks = {}
+  local poseTick = 0
+  for progress = 1, durationTicks do
+    poseTick = poseTick + cadence[((progress - 1) % #cadence) + 1]
+    poseTicks[#poseTicks + 1] = poseTick
+  end
+  return poseTicks
+end
+
+local function runLocomotion(action, durationTicks)
   local h = harness()
   local resource = S.script({
     api = 1,
@@ -686,7 +696,6 @@ local function runLocomotion(action)
   h.scheduler:step(100, nil)
   local actor = assert(h.mgr:getById(ACTOR_ID))
   local visual = cadenceVisual()
-  local durationTicks = MovementCalibration.actionTicks(action)
   local startFieldX, startFieldZ = actor.fieldX, actor.fieldZ
   local startWorldY = actor.worldY
   local poseTicks, frameIndexes = {}, {}
@@ -723,123 +732,120 @@ function T.source_backed_locomotion_matrix_preserves_timing_and_visible_frames()
     {
       label = "walk slow",
       action = { action = "walk", direction = "east", speed = "slow", tiles = 1 },
-      poseTicks = { 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8 },
-      frameIndexes = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5 },
+      ticks = 16,
+      poseCadence = { 0, 1 },
       endFieldX = 3,
       endFieldZ = 3,
     },
     {
       label = "walk normal",
       action = { action = "walk", direction = "east", speed = "normal", tiles = 1 },
-      poseTicks = { 1, 2, 3, 4, 5, 6, 7, 8 },
-      frameIndexes = { 4, 4, 4, 4, 5, 5, 5, 5 },
+      ticks = 8,
+      poseCadence = { 1 },
       endFieldX = 3,
       endFieldZ = 3,
     },
     {
       label = "walk fast",
       action = { action = "walk", direction = "east", speed = "fast", tiles = 1 },
-      poseTicks = { 2, 4, 6, 8 },
-      frameIndexes = { 4, 4, 5, 5 },
+      ticks = 4,
+      poseCadence = { 2 },
       endFieldX = 3,
       endFieldZ = 3,
     },
     {
       label = "walk slightly fast",
       action = { action = "walk", direction = "east", speed = "slightly_fast", tiles = 1 },
-      poseTicks = { 1, 2, 4, 5, 6, 8 },
-      frameIndexes = { 4, 4, 4, 5, 5, 5 },
+      ticks = 6,
+      poseCadence = { 1, 1, 2, 1, 1, 2 },
       endFieldX = 3,
       endFieldZ = 3,
     },
     {
       label = "walk run",
       action = { action = "walk", direction = "east", speed = "run", tiles = 1 },
-      poseTicks = { 2, 4 },
-      frameIndexes = { 4, 4 },
+      ticks = 4,
+      poseCadence = { 2 },
       endFieldX = 3,
       endFieldZ = 3,
     },
     {
       label = "walk-in-place slower",
       action = { action = "walk_in_place", direction = "east", speed = "slower" },
-      poseTicks = { 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12 },
-      frameIndexes = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5 },
+      ticks = 33,
+      poseCadence = { 0, 1 },
       endFieldX = 2,
       endFieldZ = 3,
     },
     {
       label = "walk-in-place slow",
       action = { action = "walk_in_place", direction = "east", speed = "slow" },
-      poseTicks = { 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8 },
-      frameIndexes = { 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5 },
+      ticks = 17,
+      poseCadence = { 0, 1 },
       endFieldX = 2,
       endFieldZ = 3,
     },
     {
       label = "walk-in-place normal",
       action = { action = "walk_in_place", direction = "east", speed = "normal" },
-      poseTicks = { 1, 2, 3, 4, 5, 6, 7, 8 },
-      frameIndexes = { 4, 4, 4, 4, 5, 5, 5, 5 },
+      ticks = 9,
+      poseCadence = { 1 },
       endFieldX = 2,
       endFieldZ = 3,
     },
     {
       label = "walk-in-place fast",
       action = { action = "walk_in_place", direction = "east", speed = "fast" },
-      poseTicks = { 2, 4, 6, 8 },
-      frameIndexes = { 4, 4, 5, 5 },
+      ticks = 5,
+      poseCadence = { 2 },
       endFieldX = 2,
       endFieldZ = 3,
     },
     {
       label = "zero jump slow",
       action = { action = "jump", direction = "east", distance = "zero", speed = "slow" },
-      poseTicks = { 0, 1, 1, 2 },
-      frameIndexes = { 4, 4, 4, 4 },
+      ticks = 16,
+      poseCadence = { 0, 1 },
       endFieldX = 2,
       endFieldZ = 3,
     },
     {
       label = "zero jump fast",
       action = { action = "jump", direction = "east", distance = "zero", speed = "fast" },
-      poseTicks = { 1, 2, 3, 4 },
-      frameIndexes = { 4, 4, 4, 4 },
+      ticks = 8,
+      poseCadence = { 1 },
       endFieldX = 2,
       endFieldZ = 3,
     },
     {
       label = "near jump fast",
       action = { action = "jump", direction = "east", distance = "near", speed = "fast" },
-      poseTicks = { 1, 2, 3, 4, 5, 6 },
-      frameIndexes = { 4, 4, 4, 4, 5, 5 },
+      ticks = 8,
+      poseCadence = { 1 },
       endFieldX = 3,
       endFieldZ = 3,
     },
     {
       label = "far jump fast",
       action = { action = "jump", direction = "east", distance = "far", speed = "fast" },
-      poseTicks = { 1, 2, 3, 4, 5, 6, 7, 8 },
-      frameIndexes = { 4, 4, 4, 4, 5, 5, 5, 5 },
+      ticks = 16,
+      poseCadence = { 1 },
       endFieldX = 3,
       endFieldZ = 3,
     },
   }
 
   for _, case in ipairs(cases) do
-    local observed = runLocomotion(case.action)
-    Assert.equal(
-      observed.durationTicks,
-      MovementCalibration.actionTicks(case.action),
-      case.label .. " retains duration"
-    )
-    Assert.deepEqual(observed.poseTicks, case.poseTicks, case.label .. " uses the source pose cadence")
+    local observed = runLocomotion(case.action, case.ticks)
+    Assert.equal(observed.durationTicks, case.ticks, case.label .. " retains duration")
+    Assert.equal(MovementCalibration.actionTicks(case.action), case.ticks, case.label .. " uses source duration")
+    local expectedPoseTicks = sourcePoseTicks(case.poseCadence, case.ticks)
+    Assert.deepEqual(observed.poseTicks, expectedPoseTicks, case.label .. " uses the source pose cadence")
     local expectedFrames = {}
-    for index, frameIndex in ipairs(case.frameIndexes) do
-      expectedFrames[index] = frameIndex
+    for index, poseTick in ipairs(expectedPoseTicks) do
+      local pose = index < #expectedPoseTicks and "walk" or "idle"
+      expectedFrames[index] = assert(FieldActorPose.frameIndex(cadenceVisual(), "east", pose, poseTick))
     end
-    expectedFrames[#expectedFrames] =
-      FieldActorPose.frameIndex(cadenceVisual(), "east", "idle", case.poseTicks[#case.poseTicks])
     Assert.deepEqual(observed.frameIndexes, expectedFrames, case.label .. " selects the source frame timeline")
     Assert.equal(observed.actor.fieldX, case.endFieldX, case.label .. " retains its physical X result")
     Assert.equal(observed.actor.fieldZ, case.endFieldZ, case.label .. " retains its physical Z result")
@@ -886,21 +892,22 @@ function T.half_rate_locomotion_keeps_integer_continuous_pose_phase()
   local actor = assert(h.mgr:getById(ACTOR_ID))
   local startingPoseTick = actor.poseTick
   local sawBob = false
-  for progress = 1, 32 do
+  for progress = 1, 34 do
     h.scheduler:step(100 + progress, nil)
     local expectedPose = "walk"
-    if progress == 16 or progress == 32 then
+    if progress == 17 or progress == 34 then
       expectedPose = "idle"
     end
     Assert.equal(actor.pose, expectedPose, "half-rate actions settle at their completed boundaries")
-    Assert.equal(actor.poseTick, startingPoseTick + math.floor(progress / 2), "half-rate pose phase stays contiguous")
+    local expectedPoseProgress = progress <= 17 and math.floor(progress / 2) or 8 + math.floor((progress - 17) / 2)
+    Assert.equal(actor.poseTick, startingPoseTick + expectedPoseProgress, "half-rate pose phase stays contiguous")
     Assert.equal(actor.poseTick, math.floor(actor.poseTick), "half-rate pose phase remains an integer")
     Assert.isTrue(actor.poseTick >= 0, "half-rate pose phase remains non-negative")
     sawBob = sawBob or actor.presentationOffset.y ~= 0
-    if progress == 16 then
+    if progress == 17 then
       Assert.isNil(actor:currentAction(), "the first half-rate action keeps its existing duration")
       Assert.equal(actor.poseTick, startingPoseTick + 8, "the first half-rate action ends at its exact rational delta")
-    elseif progress < 32 then
+    elseif progress < 34 then
       Assert.equal(actor:currentAction(), "walk_in_place", "the repeated half-rate action remains active")
     end
   end
@@ -1000,9 +1007,9 @@ function T.normal_and_fast_locomotion_keep_independent_pose_cadence()
   local normalFrames, fastFrames = {}, {}
   local normalSawBob = false
 
-  for tick = 101, 108 do
+  for tick = 101, 109 do
     h.scheduler:step(tick, nil)
-    if tick < 108 then
+    if tick < 109 then
       Assert.equal(actor:currentAction(), "walk_in_place", "normal walk-in-place remains active")
     else
       Assert.isNil(actor:currentAction(), "the normal action commits on its final fixed tick")
@@ -1017,25 +1024,25 @@ function T.normal_and_fast_locomotion_keep_independent_pose_cadence()
     Assert.equal(actor.worldZ, worldZ, "normal walk-in-place keeps world Z at its anchor")
     normalSawBob = normalSawBob or actor.presentationOffset.y ~= 0
   end
-  Assert.deepEqual(normalFrames, { 4, 4, 4, 4, 5, 5, 5, 4 }, "normal cadence selects the source timeline at 1x")
+  Assert.deepEqual(normalFrames, { 4, 4, 4, 4, 5, 5, 5, 5, 4 }, "normal cadence selects the source timeline at 1x")
   Assert.isTrue(normalSawBob, "normal walk-in-place retains its bob during the calibrated action")
   Assert.equal(actor.presentationOffset.y, 0, "normal walk-in-place bob ends at its calibrated duration")
 
-  h.scheduler:step(109, nil)
+  h.scheduler:step(110, nil)
   Assert.equal(actor.pose, "idle", "the delay uses the visual idle presentation")
-  Assert.equal(actor.poseTick, 8, "the delay does not advance static idle")
+  Assert.equal(actor.poseTick, 9, "the delay does not advance static idle")
 
   local fastSawBob = false
-  for tick = 110, 113 do
+  for tick = 111, 115 do
     h.scheduler:step(tick, nil)
-    if tick < 113 then
+    if tick < 115 then
       Assert.equal(actor:currentAction(), "walk_in_place", "fast walk-in-place remains active")
     else
       Assert.isNil(actor:currentAction(), "the fast action commits on its final fixed tick")
     end
     Assert.equal(
       actor.poseTick,
-      8 + 2 * (tick - 109),
+      9 + 2 * (tick - 110),
       "fast locomotion advances the pose clock at 2x (got " .. actor.poseTick .. ")"
     )
     fastFrames[#fastFrames + 1] = assert(FieldActorPose.frameIndex(visual, actor.facing, actor.pose, actor.poseTick))
@@ -1046,10 +1053,18 @@ function T.normal_and_fast_locomotion_keep_independent_pose_cadence()
     Assert.equal(actor.worldZ, worldZ, "fast walk-in-place keeps world Z at its anchor")
     fastSawBob = fastSawBob or actor.presentationOffset.y ~= 0
   end
-  Assert.deepEqual(fastFrames, { 5, 5, 5, 4 }, "fast cadence selects the source timeline at 2x")
+  for index, frameIndex in ipairs(fastFrames) do
+    local poseTick = 9 + 2 * index
+    local pose = index < #fastFrames and "walk" or "idle"
+    Assert.equal(
+      frameIndex,
+      assert(FieldActorPose.frameIndex(visual, "east", pose, poseTick)),
+      "fast cadence selects the source frame at index " .. index
+    )
+  end
   Assert.isTrue(fastSawBob, "fast walk-in-place retains its bob during the calibrated action")
   Assert.equal(actor.presentationOffset.y, 0, "fast walk-in-place bob ends at its calibrated duration")
-  h.scheduler:step(114, nil)
+  h.scheduler:step(116, nil)
   Assert.isNil(actor:currentAction(), "the trailing delay completes at its calibrated boundary")
 end
 
