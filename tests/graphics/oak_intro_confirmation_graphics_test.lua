@@ -190,6 +190,43 @@ function T.name_confirmation_uses_common_side_by_side_backings(scope)
   end
 end
 
+function T.unselected_text_button_face_has_light_separator_dark(scope)
+  for _, entry in ipairs(readyManifests()) do
+    local renderer = rendererFor(scope, entry)
+    -- Use gender confirmation with YES unselected (selected NO) to avoid focus contamination
+    local view = confirmationView("gender", 1)
+    local image = render(scope, renderer, view, entry.manifest)
+    local yes = view.layout.confirmationButtons[0]
+    Assert.notNil(yes.button, entry.versionId .. " yes button must exist")
+    local button = yes.button
+    local face = assert(button.face, "button face missing")
+    local scale = assert(button.scale, "button scale missing")
+    local sampleX = math.floor(face.rect.x + 4 * scale)
+    -- Ensure sampleX is inside face
+    Assert.isTrue(sampleX >= face.rect.x and sampleX < face.rect.x + face.rect.width, "sampleX inside face")
+    local lightY = math.floor(face.splitY - 2 * scale)
+    local dividerY = math.floor(face.splitY + scale * 0.5)
+    local darkY = math.floor(face.splitY + 2 * scale)
+    local function rgbAt(x, y)
+      local r, g, b = image:getPixel(x, y)
+      Assert.notNil(r, "pixel out of bounds " .. x .. "," .. y)
+      return math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)
+    end
+    local lr, lg, lb = rgbAt(sampleX, lightY)
+    local sr, sg, sb = rgbAt(sampleX, dividerY)
+    local dr, dg, db = rgbAt(sampleX, darkY)
+    Assert.equal(lr, 49, entry.versionId .. " light face r must be 49")
+    Assert.equal(lg, 222, entry.versionId .. " light face g must be 222")
+    Assert.equal(lb, 230, entry.versionId .. " light face b must be 230")
+    Assert.equal(sr, 25, entry.versionId .. " separator r must be 25")
+    Assert.equal(sg, 189, entry.versionId .. " separator g must be 189")
+    Assert.equal(sb, 197, entry.versionId .. " separator b must be 197")
+    Assert.equal(dr, 8, entry.versionId .. " dark face r must be 8")
+    Assert.equal(dg, 156, entry.versionId .. " dark face g must be 156")
+    Assert.equal(db, 165, entry.versionId .. " dark face b must be 165")
+  end
+end
+
 local suite = GraphicsSmoke.suite(T)
 suite.metadata.capabilities = { "graphics", "derived_cache" }
 return suite

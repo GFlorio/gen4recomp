@@ -105,6 +105,15 @@ function TextButton.resolve(spec)
   return resolved
 end
 
+local function drawFaceDivider(graphics, button, colors)
+  local scale = assert(button.scale, "text button scale is missing")
+  local face = assert(button.face, "text button face is missing")
+  local rect = assert(face.rect, "text button face rectangle is missing")
+  local splitY = assert(face.splitY, "text button face split is missing")
+  graphics.setColor(colors.innerBorder[1], colors.innerBorder[2], colors.innerBorder[3], colors.innerBorder[4])
+  graphics.rectangle("fill", rect.x, splitY, rect.width, 1 * scale)
+end
+
 local function drawFocusOutline(graphics, button, colors)
   local scale = assert(button.scale, "text button scale is missing")
   local whiteWidth = 5 * scale
@@ -189,6 +198,8 @@ function TextButton.draw(graphics, button, spec)
   local savedLineWidth = graphics.getLineWidth()
 
   Button.draw(graphics, button, palette)
+
+  drawFaceDivider(graphics, button, colors)
 
   if spec.selected then
     drawFocusOutline(graphics, button, colors)

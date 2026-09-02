@@ -379,4 +379,76 @@ function T.requires_graphics_contract()
   end
 end
 
+function T.face_divider_is_source_pixel_chrome()
+  local TextButton = textButtonModule()
+  local function findDivider(calls, button)
+    local face = assert(button.face)
+    local expectedX, expectedY, expectedW = face.rect.x, face.splitY, face.rect.width
+    local expectedH = button.scale
+    local innerR, innerG, innerB = 25 / 255, 189 / 255, 197 / 255
+    for _, r in ipairs(calls.rectangles) do
+      if r.mode == "fill" and r.w == expectedW and r.h == expectedH and r.x == expectedX and r.y == expectedY then
+        if
+          math.abs(r.color[1] - innerR) < 1e-6
+          and math.abs(r.color[2] - innerG) < 1e-6
+          and math.abs(r.color[3] - innerB) < 1e-6
+        then
+          return r
+        end
+      end
+    end
+    return nil
+  end
+  local function textAdapter()
+    return {
+      measure = function()
+        return 10
+      end,
+      lineHeight = 16,
+      draw = function() end,
+    }
+  end
+  -- scale 1 unselected
+  local button1 = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
+  local g1, calls1 = recordingGraphics()
+  TextButton.draw(g1, button1, { label = "Yes", selected = false, text = textAdapter() })
+  local divider1 = findDivider(calls1, button1)
+  Assert.notNil(divider1, "scale 1 divider must be present at face split with innerBorder color")
+  Assert.equal(divider1.w, button1.face.rect.width)
+  Assert.equal(divider1.h, 1)
+  Assert.equal(divider1.x, button1.face.rect.x)
+  Assert.equal(divider1.y, button1.face.splitY)
+  -- unselected must not emit focus line widths beyond the final restore
+  Assert.equal(#calls1.lineWidths, 1, "unselected divider must not add line width changes")
+  Assert.equal(calls1.lineWidths[1], 1)
+  -- scale 2 unselected
+  local button2 = TextButton.resolve({ rect = rect(0, 0, 240, 112), scale = 2 })
+  local g2, calls2 = recordingGraphics()
+  TextButton.draw(g2, button2, { label = "Yes", selected = false, text = textAdapter() })
+  local divider2 = findDivider(calls2, button2)
+  Assert.notNil(divider2, "scale 2 divider must be present and scaled")
+  Assert.equal(divider2.h, 2)
+  Assert.equal(divider2.w, button2.face.rect.width)
+  Assert.equal(divider2.x, button2.face.rect.x)
+  Assert.equal(divider2.y, button2.face.splitY)
+  -- selected retains divider plus focus
+  local g3, calls3 = recordingGraphics()
+  TextButton.draw(g3, button1, { label = "Yes", selected = true, text = textAdapter() })
+  local divider3 = findDivider(calls3, button1)
+  Assert.notNil(divider3, "selected button must still have divider")
+  local lineRects = {}
+  for _, r in ipairs(calls3.rectangles) do
+    if r.mode == "line" then
+      lineRects[#lineRects + 1] = r
+    end
+  end
+  Assert.equal(#lineRects, 2, "selected focus still draws two line rects")
+  -- divider color must be innerBorder, not face colors
+  local faceTopR, faceTopG, faceTopB = 49 / 255, 222 / 255, 230 / 255
+  Assert.isTrue(
+    math.abs(divider1.color[1] - faceTopR) > 1e-6 or math.abs(divider1.color[2] - faceTopG) > 1e-6,
+    "divider must not use faceTop color"
+  )
+end
+
 return { tests = T }
