@@ -8,6 +8,8 @@ local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
 local T = {}
 local WIDGETS = {
   "ball_open",
+  "confirmation_no",
+  "confirmation_yes",
   "female",
   "gender_female",
   "gender_male",
@@ -60,7 +62,7 @@ local function validManifest()
   widgets.gender_male.sourceCenter = { x = 64, y = 104 }
   widgets.gender_female.sourceCenter = { x = 192, y = 104 }
   return {
-    schemaVersion = 8,
+    schemaVersion = 9,
     variant = "heartgold",
     sourceReference = { width = 256, height = 192 },
     background = {
@@ -75,35 +77,9 @@ local function validManifest()
       buttons = {
         male = {
           bounds = { x = 18, y = 25, width = 93, height = 148 },
-          hitBounds = { x = 18, y = 25, width = 93, height = 148 },
         },
         female = {
           bounds = { x = 144, y = 25, width = 95, height = 148 },
-          hitBounds = { x = 144, y = 25, width = 95, height = 148 },
-        },
-      },
-    },
-    profileConfirmation = {
-      buttons = {
-        male = {
-          yes = {
-            bounds = { x = 138, y = 26, width = 115, height = 57 },
-            textBounds = { x = 136, y = 48, width = 104, height = 24 },
-          },
-          no = {
-            bounds = { x = 138, y = 108, width = 115, height = 56 },
-            textBounds = { x = 136, y = 128, width = 104, height = 24 },
-          },
-        },
-        female = {
-          yes = {
-            bounds = { x = 10, y = 26, width = 115, height = 57 },
-            textBounds = { x = 16, y = 48, width = 104, height = 24 },
-          },
-          no = {
-            bounds = { x = 10, y = 108, width = 115, height = 56 },
-            textBounds = { x = 16, y = 128, width = 104, height = 24 },
-          },
         },
       },
     },
@@ -111,8 +87,24 @@ local function validManifest()
   }
 end
 
+local function confirmationWidget(manifest, id, width, height, contentRect)
+  local widget = manifest.widgets[id]
+  widget.width = width
+  widget.height = height
+  widget.anchor = { x = 0, y = 0 }
+  widget.sourceBounds = { x = 0, y = 0, width = width, height = height }
+  widget.frames = { frame(widget.image, width, height, 1) }
+  widget.contentRect = contentRect
+end
+
+local function addConfirmationWidgets(manifest)
+  confirmationWidget(manifest, "confirmation_yes", 115, 57, { x = 6, y = 22, width = 104, height = 24 })
+  confirmationWidget(manifest, "confirmation_no", 115, 56, { x = 6, y = 20, width = 104, height = 24 })
+end
+
 local function reject(cache, mutate, label)
   local manifest = validManifest()
+  addConfirmationWidgets(manifest)
   mutate(manifest)
   local ok, err = cache.validateManifest(manifest)
   Assert.isFalse(ok, label .. " must be rejected")
@@ -121,26 +113,29 @@ end
 
 function T.complete_schema_manifest_loads_and_declares_closed_inventory()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.equal(cache.SCHEMA, "g4-intro-assets-v8")
+  Assert.equal(cache.SCHEMA, "g4-intro-assets-v9")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
+  addConfirmationWidgets(manifest)
   Assert.isTrue(cache.validateManifest(manifest))
   Assert.keySet(
     manifest.widgets,
-    "ball_open,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
+    "ball_open,confirmation_no,confirmation_yes,female,gender_female,gender_male,male,marill,marill_appear,oak,shrink_female,shrink_male"
   )
   Assert.deepEqual(manifest.widgets.gender_male.sourceCenter, { x = 64, y = 104 })
   Assert.deepEqual(manifest.widgets.gender_female.sourceCenter, { x = 192, y = 104 })
   Assert.deepEqual(manifest.genderSelector.buttons.male.bounds, { x = 18, y = 25, width = 93, height = 148 })
-  Assert.deepEqual(
-    manifest.profileConfirmation.buttons.female.no.textBounds,
-    { x = 16, y = 128, width = 104, height = 24 }
-  )
+  Assert.isNil(manifest.genderSelector.buttons.male.hitBounds)
+  Assert.isNil(manifest.profileConfirmation)
+  Assert.deepEqual(manifest.widgets.confirmation_yes.contentRect, { x = 6, y = 22, width = 104, height = 24 })
+  Assert.deepEqual(manifest.widgets.confirmation_no.contentRect, { x = 6, y = 20, width = 104, height = 24 })
 end
 
 function T.stale_and_malformed_manifests_fail_before_composition()
   local cache = require("libs.assets.src.IntroAssetCache")
-  Assert.isTrue(cache.validateManifest(validManifest()), "the complete schema fixture must be accepted first")
+  local complete = validManifest()
+  addConfirmationWidgets(complete)
+  Assert.isTrue(cache.validateManifest(complete), "the complete schema fixture must be accepted first")
   reject(cache, function(manifest)
     manifest.schemaVersion = 1
   end, "stale schema")
@@ -190,11 +185,23 @@ function T.stale_and_malformed_manifests_fail_before_composition()
     manifest.genderSelector.buttons.male.backing = "control.png"
   end, "raster gender control field")
   reject(cache, function(manifest)
-    manifest.profileConfirmation.buttons.male.yes.focusImage = "focus.png"
+    manifest.profileConfirmation = {}
   end, "raster confirmation control field")
   reject(cache, function(manifest)
-    manifest.profileConfirmation.buttons.female.no.textBounds.scroll = 1
-  end, "source scroll field")
+    manifest.genderSelector.buttons.male.hitBounds = { x = 18, y = 25, width = 93, height = 148 }
+  end, "removed gender hit bounds")
+  reject(cache, function(manifest)
+    manifest.widgets.confirmation_yes.contentRect.x = -1
+  end, "out-of-bounds confirmation content rectangle")
+  reject(cache, function(manifest)
+    manifest.widgets.confirmation_yes.contentRect = nil
+  end, "missing confirmation content rectangle")
+  reject(cache, function(manifest)
+    manifest.widgets.confirmation_no.contentRect.width = 110
+  end, "confirmation content rectangle exceeding widget")
+  reject(cache, function(manifest)
+    manifest.widgets.confirmation_yes.contentRect.scroll = 1
+  end, "unknown confirmation content rectangle field")
   reject(cache, function(manifest)
     manifest.schemaVersion = 6
   end, "stale v6 schema")
@@ -210,6 +217,7 @@ function T.semantic_records_do_not_add_files_to_cache_readiness()
   local backend = FakeCache.new()
   local cacheFs = CacheFs.forVersion("heartgold", backend)
   local manifest = validManifest()
+  addConfirmationWidgets(manifest)
   backend:write(cacheFs:resolve(cache.markerPath()), "ready")
   cacheFs.loadLua = function(_, path)
     if path == cache.manifestPath() then

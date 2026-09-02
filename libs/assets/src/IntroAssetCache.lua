@@ -21,6 +21,8 @@ M.REQUIRED_ASSETS = {
   "shrink_male",
   "shrink_female",
   "ball_open",
+  "confirmation_no",
+  "confirmation_yes",
   "gender_male",
   "gender_female",
 }
@@ -235,6 +237,35 @@ local function sourceRect(label, reference, value)
   return true
 end
 
+local function contentRect(id, widgetValue)
+  local value = widgetValue.contentRect
+  local recordOk, recordErr = closedRecord("widget " .. id .. " contentRect", value, {
+    x = true,
+    y = true,
+    width = true,
+    height = true,
+  })
+  if not recordOk then
+    return false, recordErr
+  end
+  for _, field in ipairs({ "x", "y", "width", "height" }) do
+    if not integer(value[field]) then
+      return invalid("widget " .. id .. " contentRect is invalid", { widget = id })
+    end
+  end
+  if
+    value.width <= 0
+    or value.height <= 0
+    or value.x < 0
+    or value.y < 0
+    or value.x + value.width > widgetValue.width
+    or value.y + value.height > widgetValue.height
+  then
+    return invalid("widget " .. id .. " contentRect is outside the widget", { widget = id })
+  end
+  return true
+end
+
 local function rgbColor(label, value)
   local ok, err = closedRecord(label, value, { r = true, g = true, b = true })
   if not ok then
@@ -264,17 +295,13 @@ local function genderSelector(reference, value)
   for _, gender in ipairs({ "male", "female" }) do
     local button = buttons[gender]
     local buttonOk, buttonErr =
-      closedRecord("manifest genderSelector " .. gender .. " button", button, { bounds = true, hitBounds = true })
+      closedRecord("manifest genderSelector " .. gender .. " button", button, { bounds = true })
     if not buttonOk then
       return false, buttonErr
     end
     local boundsOk, boundsErr = sourceRect("gender selector " .. gender .. " button", reference, button.bounds)
     if not boundsOk then
       return false, boundsErr
-    end
-    local hitOk, hitErr = sourceRect("gender selector " .. gender .. " hit bounds", reference, button.hitBounds)
-    if not hitOk then
-      return false, hitErr
     end
   end
   for gender in pairs(buttons) do
@@ -285,55 +312,9 @@ local function genderSelector(reference, value)
   return true
 end
 
-local function profileConfirmation(reference, value)
-  local recordOk, recordErr = closedRecord("manifest profileConfirmation", value, { buttons = true })
-  if not recordOk then
-    return false, recordErr
-  end
-  local buttons = value.buttons
-  if type(buttons) ~= "table" then
-    return invalid("manifest profileConfirmation buttons are required")
-  end
-  for _, gender in ipairs({ "male", "female" }) do
-    local choices = buttons[gender]
-    local genderOk, genderErr =
-      closedRecord("manifest profileConfirmation " .. gender, choices, { yes = true, no = true })
-    if not genderOk then
-      return false, genderErr
-    end
-    for _, choice in ipairs({ "yes", "no" }) do
-      local button = choices[choice]
-      local buttonOk, buttonErr = closedRecord(
-        "manifest profileConfirmation " .. gender .. " " .. choice .. " button",
-        button,
-        { bounds = true, textBounds = true }
-      )
-      if not buttonOk then
-        return false, buttonErr
-      end
-      local boundsOk, boundsErr =
-        sourceRect("profile confirmation " .. gender .. " " .. choice .. " bounds", reference, button.bounds)
-      if not boundsOk then
-        return false, boundsErr
-      end
-      local textOk, textErr =
-        sourceRect("profile confirmation " .. gender .. " " .. choice .. " text bounds", reference, button.textBounds)
-      if not textOk then
-        return false, textErr
-      end
-    end
-  end
-  for gender in pairs(buttons) do
-    if gender ~= "male" and gender ~= "female" then
-      return invalid("manifest profileConfirmation has an unknown gender " .. tostring(gender), { gender = gender })
-    end
-  end
-  return true
-end
-
 function M.validateManifest(manifest)
-  if type(manifest) ~= "table" or manifest.schemaVersion ~= 8 then
-    return invalid("manifest schema mismatch", { expected = 8, actual = manifest and manifest.schemaVersion })
+  if type(manifest) ~= "table" or manifest.schemaVersion ~= 9 then
+    return invalid("manifest schema mismatch", { expected = 9, actual = manifest and manifest.schemaVersion })
   end
   local recordOk, recordErr = closedRecord("manifest", manifest, {
     schemaVersion = true,
@@ -341,7 +322,6 @@ function M.validateManifest(manifest)
     sourceReference = true,
     background = true,
     genderSelector = true,
-    profileConfirmation = true,
     widgets = true,
   })
   if not recordOk then
@@ -383,6 +363,17 @@ function M.validateManifest(manifest)
     elseif manifest.widgets[id].sourceCenter ~= nil then
       return invalid("widget " .. id .. " sourceCenter is obsolete", { widget = id })
     end
+    if id == "confirmation_yes" or id == "confirmation_no" then
+      if manifest.widgets[id].contentRect == nil then
+        return invalid("widget " .. id .. " contentRect is required", { widget = id })
+      end
+      local contentOk, contentErr = contentRect(id, manifest.widgets[id])
+      if not contentOk then
+        return false, contentErr
+      end
+    elseif manifest.widgets[id].contentRect ~= nil then
+      return invalid("widget " .. id .. " contentRect is obsolete", { widget = id })
+    end
   end
   for id in pairs(manifest.widgets) do
     if not REQUIRED[id] then
@@ -392,10 +383,6 @@ function M.validateManifest(manifest)
   local selectorOk, selectorErr = genderSelector(reference, manifest.genderSelector)
   if not selectorOk then
     return false, selectorErr
-  end
-  local confirmationOk, confirmationErr = profileConfirmation(reference, manifest.profileConfirmation)
-  if not confirmationOk then
-    return false, confirmationErr
   end
   return true
 end

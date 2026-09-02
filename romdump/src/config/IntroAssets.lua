@@ -36,36 +36,24 @@ local IntroAssets = {
     buttons = {
       male = {
         bounds = { x = 18, y = 25, width = 93, height = 148 },
-        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
       },
       female = {
         bounds = { x = 144, y = 25, width = 95, height = 148 },
-        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
       },
     },
   },
-  profileConfirmation = {
-    buttons = {
-      male = {
-        yes = {
-          bounds = { x = 138, y = 26, width = 115, height = 57 },
-          textBounds = { x = 136, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 138, y = 108, width = 115, height = 56 },
-          textBounds = { x = 136, y = 128, width = 104, height = 24 },
-        },
-      },
-      female = {
-        yes = {
-          bounds = { x = 10, y = 26, width = 115, height = 57 },
-          textBounds = { x = 16, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 10, y = 108, width = 115, height = 56 },
-          textBounds = { x = 16, y = 128, width = 104, height = 24 },
-        },
-      },
+  confirmation = {
+    archive = "intro",
+    screen = 48,
+    char = 37,
+    palette = 33,
+    crops = {
+      yes = { x = 10, y = 26, width = 115, height = 57 },
+      no = { x = 10, y = 108, width = 115, height = 56 },
+    },
+    contentRects = {
+      yes = { x = 6, y = 22, width = 104, height = 24 },
+      no = { x = 6, y = 20, width = 104, height = 24 },
     },
   },
   oak = { char = 10, palette = 11, screen = 9 },
