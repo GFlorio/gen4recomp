@@ -163,7 +163,7 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field published boolean
 ---@field actors table<string, FieldActorManager.Actor>
 ---@field order FieldActorManager.Actor[]
----@field occupancy table<string, FieldActorManager.Actor>
+---@field occupancy table<string, FieldActorManager.Actor[]>
 ---@field reservations table<string, { actorId: string, candidate: FieldOccupancyCandidate }>
 ---@field autonomousActions table<string, table>
 ---@field autonomousPresentationCarry table<string, boolean>
@@ -321,6 +321,57 @@ local function candidateForActor(actor)
   }
 end
 
+local function occupancyTop(entry, key)
+  local bucket = entry.occupancy[key]
+  if bucket == nil or #bucket == 0 then
+    return nil
+  end
+  return bucket[#bucket]
+end
+
+local function bucketContains(bucket, actor)
+  if bucket == nil then
+    return false
+  end
+  for _, candidate in ipairs(bucket) do
+    if candidate == actor then
+      return true
+    end
+  end
+  return false
+end
+
+local function occupancyContains(entry, key, actor)
+  return bucketContains(entry.occupancy[key], actor)
+end
+
+local function occupancyAdd(entry, key, actor)
+  local bucket = entry.occupancy[key]
+  if bucket == nil then
+    entry.occupancy[key] = { actor }
+    return
+  end
+  if not bucketContains(bucket, actor) then
+    bucket[#bucket + 1] = actor
+  end
+end
+
+local function occupancyRemove(entry, key, actor)
+  local bucket = entry.occupancy[key]
+  if bucket == nil then
+    return
+  end
+  for index, candidate in ipairs(bucket) do
+    if candidate == actor then
+      table.remove(bucket, index)
+      if #bucket == 0 then
+        entry.occupancy[key] = nil
+      end
+      return
+    end
+  end
+end
+
 ---@param entry FieldActorManager.Entry
 ---@param actor FieldActorManager.Actor
 ---@param position FieldActorResolvedPosition
@@ -333,11 +384,17 @@ local function publishResolvedPosition(entry, actor, position)
   if position.resident and actor.solid then
     newKey = occupancyKey(entry.runtimeMap, actor.mapId, position --[[@as FieldOccupancyCandidate]])
   end
-  if oldKey and entry.occupancy[oldKey] == actor then
-    entry.occupancy[oldKey] = nil
-  end
-  if newKey then
-    entry.occupancy[newKey] = actor
+  if oldKey and newKey and oldKey == newKey then
+    if not occupancyContains(entry, oldKey, actor) then
+      occupancyAdd(entry, newKey, actor)
+    end
+  else
+    if oldKey then
+      occupancyRemove(entry, oldKey, actor)
+    end
+    if newKey then
+      occupancyAdd(entry, newKey, actor)
+    end
   end
   actor:setPosition(position)
 end
@@ -529,7 +586,7 @@ function FieldActorManager:_instantiate(entry, event, eventState)
 
     if actor.resident then
       local key = occupancyKey(runtimeMap, runtimeMap.mapId, candidateForActor(actor))
-      local occupant = entry.occupancy[key]
+      local occupant = occupancyTop(entry, key)
       if actor.solid and occupant then
         Errors.raise(
           FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
@@ -545,7 +602,7 @@ function FieldActorManager:_instantiate(entry, event, eventState)
         )
       end
       if actor.solid then
-        entry.occupancy[key] = actor
+        occupancyAdd(entry, key, actor)
       end
     end
     entry.actors[actorId] = actor
@@ -561,9 +618,7 @@ function FieldActorManager:_instantiate(entry, event, eventState)
     if actor then
       if actor.resident and actor.solid then
         local key = occupancyKey(runtimeMap, actor.mapId, candidateForActor(actor))
-        if entry.occupancy[key] == actor then
-          entry.occupancy[key] = nil
-        end
+        occupancyRemove(entry, key, actor)
       end
       entry.actors[actorId] = nil
       entry.byIndex[actor.objectEventId] = nil
@@ -603,11 +658,9 @@ function FieldActorManager:_destroy(entry, actor)
   -- Only solid actors ever occupy a cell, and only the exact occupant may
   -- vacate it: a non-solid or stale actor must never erase another actor's
   -- occupancy entry by coordinate.
-  if actor.resident then
+  if actor.resident and actor.solid then
     local key = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
-    if actor.solid and entry.occupancy[key] == actor then
-      entry.occupancy[key] = nil
-    end
+    occupancyRemove(entry, key, actor)
   end
   for index, candidate in ipairs(entry.order) do
     if candidate == actor then
@@ -827,13 +880,12 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
     }
     if actor.solid and projection.resident ~= false and occupancyKey(entry.runtimeMap, actor.mapId, candidate) then
       local key = occupancyKey(entry.runtimeMap, actor.mapId, candidate)
-      if occupancy[key] then
-        Errors.raise(FieldErrors.ACTOR_OCCUPANCY_CONFLICT, "saved actors occupy the same field cell", {
-          actorId = actor.actorId,
-          otherActorId = occupancy[key].actorId,
-        })
+      local bucket = occupancy[key]
+      if bucket == nil then
+        occupancy[key] = { actor }
+      elseif not bucketContains(bucket, actor) then
+        bucket[#bucket + 1] = actor
       end
-      occupancy[key] = actor
     end
   end
 
@@ -865,7 +917,7 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
         sourceSurfaceId = destination.sourceSurfaceId,
       }
       local key = occupancyKey(entry.runtimeMap, plan.actor.mapId, candidate)
-      if occupancy[key] or reservations[key] then
+      if (occupancy[key] and #occupancy[key] > 0) or reservations[key] then
         Errors.raise(
           FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
           "saved autonomous reservations conflict",
@@ -1327,8 +1379,8 @@ function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
   local oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
   local newKey = occupancyKey(entry.runtimeMap, actor.mapId, reservation.candidate)
   if actor.solid then
-    assert(entry.occupancy[newKey] == nil, "autonomous destination became occupied")
-    assert(entry.occupancy[oldKey] == actor, "autonomous departure occupancy is missing")
+    assert(occupancyTop(entry, newKey) == nil, "autonomous destination became occupied")
+    assert(occupancyContains(entry, oldKey, actor), "autonomous departure occupancy is missing")
   end
   assert(
     occupancyKey(entry.runtimeMap, actor.mapId, destination --[[@as FieldOccupancyCandidate]]) == newKey,
@@ -1452,22 +1504,13 @@ function FieldActorManager:reconcilePhysicalWorld()
               sourceSurfaceId = projection.sourceSurfaceId,
             })
           or nil
-        if key and stagedOccupancy[key] then
-          Errors.raise(
-            FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
-            actor.actorId .. " and " .. stagedOccupancy[key].actorId .. " occupy the same field cell and surface",
-            {
-              actorId = actor.actorId,
-              otherActorId = stagedOccupancy[key].actorId,
-              mapId = entry.runtimeMap.mapId,
-              fieldX = actor.fieldX,
-              fieldZ = actor.fieldZ,
-              surfaceId = projection.surfaceId,
-            }
-          )
-        end
         if key then
-          stagedOccupancy[key] = actor
+          local bucket = stagedOccupancy[key]
+          if bucket == nil then
+            stagedOccupancy[key] = { actor }
+          elseif not bucketContains(bucket, actor) then
+            bucket[#bucket + 1] = actor
+          end
         end
         staged[#staged + 1] = { actor = actor, projection = projection }
       end
@@ -1587,7 +1630,7 @@ function FieldActorManager:getAt(mapId, candidate)
   if not entry then
     return nil
   end
-  return entry.occupancy[occupancyKey(entry.runtimeMap, mapId, candidate)]
+  return occupancyTop(entry, occupancyKey(entry.runtimeMap, mapId, candidate))
 end
 
 -- Motion collision sees committed occupants and autonomous destinations. The
@@ -1601,7 +1644,7 @@ function FieldActorManager:getCollisionAt(mapId, candidate)
     return nil
   end
   local key = occupancyKey(entry.runtimeMap, mapId, candidate)
-  local actor = entry.occupancy[key]
+  local actor = occupancyTop(entry, key)
   if actor then
     return actor
   end
@@ -1796,10 +1839,14 @@ function FieldActorManager:setPosition(actorId, position, options)
     assert(newCandidate.cellKey ~= nil, "actor destination source surface requires a cell key")
   end
   local newKey = newCandidate and occupancyKey(entry.runtimeMap, actor.mapId, newCandidate) or nil
+  local oldKey
+  if actor.resident and actor.solid then
+    oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
+  end
   local scripted = options ~= nil and options.scripted == true
-  if resident and actor.solid then
-    local occupant = newKey and entry.occupancy[newKey]
-    if occupant ~= nil and occupant ~= actor and not scripted then
+  if resident and actor.solid and newKey and oldKey ~= newKey then
+    local occupant = occupancyTop(entry, newKey)
+    if occupant ~= nil and not scripted then
       Errors.raise(
         FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
         actorId .. " cannot move onto " .. occupant.actorId .. "'s field cell",

@@ -1935,4 +1935,218 @@ function T.dispose_releases_every_published_map()
   Assert.isNil(next(mgr.maps), "disposing multiple maps removes every published map")
 end
 
+function T.scripted_overlap_vacate_reveals_prior_occupant()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorB.surfaceId }
+  if actorB.cellKey then
+    keyB.cellKey = actorB.cellKey
+    keyB.sourceSurfaceId = actorB.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, keyB), actorB)
+  Assert.equal(mgr:getCollisionAt(61, keyB), actorB)
+
+  mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  Assert.equal(mgr:getAt(61, keyB), actorA, "scripted overlap makes the mover the visible occupant")
+  Assert.equal(mgr:getCollisionAt(61, keyB), actorA)
+  Assert.isTrue(isOccupied(mgr, 61, 8, 3, actorB.surfaceId))
+  Assert.equal(actorA.fieldX, 8)
+  Assert.equal(actorB.fieldX, 8)
+
+  mgr:setPosition("map:61:object:0", { fieldX = 2, fieldZ = 3 }, { scripted = true })
+  local revealed = mgr:getAt(61, keyB)
+  Assert.equal(revealed, actorB, "vacating the top must reveal the displaced solid actor")
+  Assert.equal(mgr:getCollisionAt(61, keyB), actorB)
+  Assert.isTrue(actorB.resident)
+  Assert.isTrue(actorB.solid)
+  Assert.equal(actorB.fieldX, 8)
+  Assert.equal(actorB.fieldZ, 3)
+  Assert.equal(actorA.fieldX, 2)
+  Assert.isNil(mgr:getAt(61, candidate(2, 3, actorA.surfaceId)) == actorB and actorB or nil)
+  Assert.equal(mgr:getAt(61, candidate(2, 3, actorA.surfaceId)), actorA)
+  mgr:dispose()
+end
+
+function T.revealed_occupant_blocks_autonomous_reservation()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+    object({ objectEventId = 2, x = 8, z = 4, movementType = "wander_around", xRange = -1, yRange = -1 }),
+  })
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  local actorC = assert(mgr:getById("map:61:object:2"))
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorB.surfaceId }
+  if actorB.cellKey then
+    keyB.cellKey = actorB.cellKey
+    keyB.sourceSurfaceId = actorB.sourceSurfaceId
+  end
+
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  Assert.equal(mgr:getAt(61, keyB), actorA)
+  mgr:setPosition(actorA.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
+  Assert.equal(mgr:getAt(61, keyB), actorB, "B must be restored before autonomy probes the tile")
+  Assert.equal(mgr:getCollisionAt(61, keyB), actorB)
+
+  local entry = assert(mgr.maps[61])
+  forceAutonomy(mgr, "north")
+  mgr:step(1)
+  local actionC = entry.autonomousActions[actorC.actorId]
+  Assert.isNil(actionC, "autonomous walk into the revealed occupant must not reserve")
+  Assert.equal(mgr:getCollisionAt(61, keyB), actorB, "revealed occupant must remain collidable")
+  Assert.isTrue(isOccupied(mgr, 61, 8, 3, actorB.surfaceId))
+  for actorId, _ in pairs(entry.actors) do
+    if actorId ~= actorC.actorId then
+      Assert.isNil(entry.autonomousActions[actorId], "no other actor should have been reserved")
+    end
+  end
+  mgr:dispose()
+end
+
+function T.destroy_buried_keeps_top()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorB.surfaceId }
+  if actorB.cellKey then
+    keyB.cellKey = actorB.cellKey
+    keyB.sourceSurfaceId = actorB.sourceSurfaceId
+  end
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  Assert.equal(mgr:getAt(61, keyB), actorA)
+  local entry = assert(mgr.maps[61])
+  mgr:_destroy(entry, actorB)
+  Assert.isNil(mgr:getById(actorB.actorId))
+  Assert.equal(mgr:getAt(61, keyB), actorA, "destroying a buried occupant must leave the top occupant indexed")
+  Assert.equal(mgr:getCollisionAt(61, keyB), actorA)
+  mgr:dispose()
+end
+
+function T.destroy_top_reveals_next()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorB.surfaceId }
+  if actorB.cellKey then
+    keyB.cellKey = actorB.cellKey
+    keyB.sourceSurfaceId = actorB.sourceSurfaceId
+  end
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  Assert.equal(mgr:getAt(61, keyB), actorA)
+  local entry = assert(mgr.maps[61])
+  mgr:_destroy(entry, actorA)
+  Assert.isNil(mgr:getById(actorA.actorId))
+  Assert.equal(mgr:getAt(61, keyB), actorB, "destroying the top must reveal the next occupant")
+  Assert.equal(mgr:getCollisionAt(61, keyB), actorB)
+  mgr:dispose()
+end
+
+function T.same_key_publication_is_idempotent()
+  local mgr = manager({ object({ objectEventId = 0, x = 2, z = 3 }) })
+  local actor = assert(mgr:getById("map:61:object:0"))
+  local key = { fieldX = 2, fieldZ = 3, surfaceId = actor.surfaceId }
+  if actor.cellKey then
+    key.cellKey = actor.cellKey
+    key.sourceSurfaceId = actor.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, key), actor)
+  mgr:setPosition(actor.actorId, { fieldX = 2, fieldZ = 3 }, { scripted = true })
+  Assert.equal(mgr:getAt(61, key), actor, "publishing to the same key must not duplicate the actor")
+  mgr:setPosition(actor.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  mgr:setPosition(actor.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local key2 = { fieldX = 8, fieldZ = 3, surfaceId = actor.surfaceId }
+  if actor.cellKey then
+    key2.cellKey = actor.cellKey
+    key2.sourceSurfaceId = actor.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, key2), actor)
+  Assert.isNil(mgr:getAt(61, key))
+  mgr:dispose()
+end
+
+function T.reconcile_preserves_overlap_deterministic_top()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  local actorB = assert(mgr:getById("map:61:object:1"))
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorA.surfaceId }
+  if actorA.cellKey then
+    keyB.cellKey = actorA.cellKey
+    keyB.sourceSurfaceId = actorA.sourceSurfaceId
+  end
+  Assert.equal(mgr:getAt(61, keyB), actorA)
+  mgr:reconcilePhysicalWorld()
+  local reconciledTop = mgr:getAt(61, keyB)
+  Assert.notNil(reconciledTop, "reconcile must retain the overlapping bucket")
+  Assert.isTrue(
+    reconciledTop == actorA or reconciledTop == actorB,
+    "reconcile top must be one of the overlapping actors"
+  )
+  Assert.notNil(mgr:getById(actorA.actorId))
+  Assert.notNil(mgr:getById(actorB.actorId))
+  Assert.isTrue(isOccupied(mgr, 61, 8, 3, actorA.surfaceId))
+  -- Deterministic ordering is by stable manager order (entry.order), so top is the last actor in that order.
+  Assert.equal(mgr:getAt(61, keyB), actorB, "reconcile deterministic top follows stable actor order")
+  mgr:dispose()
+end
+
+function T.restore_preserves_overlap_deterministic_top()
+  local objects = {
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  }
+  local map = runtimeMap(objects)
+  local eventState = FieldEventState.new()
+  local assets = fakeAssets({ [99] = true, [34] = true })
+  local mgr = FieldActorManager.new({ assets = assets, policy = POLICY })
+  mgr:enterMap(map, eventState)
+  local actorA = assert(mgr:getById("map:61:object:0"))
+  assert(mgr:getById("map:61:object:1"))
+  mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
+  local captured = mgr:captureObjects()
+  -- Both actors now share 8,3; capture preserves the overlap via positions.
+  local validated, validationErr = FieldObjectSave.validate(captured)
+  Assert.notNil(validated, tostring(validationErr))
+  mgr:dispose()
+
+  local restoredMap = runtimeMap({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
+  })
+  local restoredMgr = FieldActorManager.new({ assets = fakeAssets({ [99] = true, [34] = true }), policy = POLICY })
+  restoredMgr:enterMap(restoredMap, FieldEventState.new(), validated)
+  local restoredA = assert(restoredMgr:getById("map:61:object:0"))
+  local restoredB = assert(restoredMgr:getById("map:61:object:1"))
+  local keyB = { fieldX = 8, fieldZ = 3, surfaceId = restoredA.surfaceId }
+  if restoredA.cellKey then
+    keyB.cellKey = restoredA.cellKey
+    keyB.sourceSurfaceId = restoredA.sourceSurfaceId
+  end
+  Assert.notNil(restoredMgr:getById(restoredA.actorId))
+  Assert.notNil(restoredMgr:getById(restoredB.actorId))
+  local restoredTop = restoredMgr:getAt(61, keyB)
+  Assert.notNil(restoredTop, "restore must retain the overlapping bucket")
+  Assert.isTrue(
+    restoredTop == restoredA or restoredTop == restoredB,
+    "restore top must be one of the overlapping actors"
+  )
+  -- Deterministic ordering is by stable manager order (entry.order sorted), last wins.
+  Assert.equal(restoredTop, restoredB, "restore deterministic top follows stable actor order")
+  Assert.isTrue(isOccupied(restoredMgr, 61, 8, 3, restoredA.surfaceId))
+  restoredMgr:dispose()
+end
+
 return { tests = T }
