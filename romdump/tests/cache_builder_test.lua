@@ -149,7 +149,7 @@ local function newEnv()
       { mapId = 3, marker = "fd-3" },
       { mapId = 7, marker = "fd-7" },
     },
-    fontBundle = { fontId = 5, marker = "font-v1" },
+    fontBundle = { fonts = { [0] = {}, [4] = {} }, marker = "font-v1" },
     uiBundle = { marker = "ui-v1" },
     introBundle = { marker = "intro-v1" },
     weatherBundle = { marker = "weather-v1" },

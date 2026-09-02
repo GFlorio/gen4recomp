@@ -17,12 +17,13 @@ local T = {}
 local COLOR_COUNT = FieldMessageText.COLOR_VARIANT_COUNT
 local FOCUS_COUNT = FieldMessageText.FOCUS_INDICATOR_COUNT
 
-local function validDef()
+local function validDef(fontId)
+  fontId = fontId or 0
   local baseHeight = 16
   return {
     schema = FieldFontCache.SCHEMA,
-    fontId = 0,
-    maskAtlasPath = FieldFontCache.maskAtlasPath(0),
+    fontId = fontId,
+    maskAtlasPath = FieldFontCache.maskAtlasPath(fontId),
     lineHeight = 16,
     maxLetterHeight = 16,
     letterSpacing = 0,
@@ -38,7 +39,7 @@ local function validDef()
     },
     colorVariants = { count = COLOR_COUNT, strideY = baseHeight },
     focusIndicators = {
-      imagePath = "assets/generated/field/font/font-0-focus-indicators.png",
+      imagePath = FieldFontCache.focusIndicatorsPath(fontId),
       count = FOCUS_COUNT,
       width = 24,
       height = 32,
@@ -57,9 +58,10 @@ local function validDef()
   }
 end
 
-local function cacheWith(def)
+local function cacheWith(def, fontId)
+  fontId = fontId or def.fontId
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:writeLua(FieldFontCache.defPath(0), def)
+  cache:writeLua(FieldFontCache.defPath(fontId), def)
   return cache
 end
 
@@ -76,6 +78,13 @@ function T.loads_the_compiled_definition_without_a_graphics_namespace()
   Assert.deepEqual(loaded, definition)
   Assert.equal(loaded.colorVariants.count, FieldMessageText.COLOR_VARIANT_COUNT)
   Assert.equal(loaded.focusIndicators.count, FieldMessageText.FOCUS_INDICATOR_COUNT)
+end
+
+function T.loads_font_four_from_its_parameterized_definition_path()
+  local definition = validDef(4)
+  local loaded = FieldFontLoader.load(cacheWith(definition), 4) --[[@as table]]
+  Assert.deepEqual(loaded, definition)
+  Assert.equal(loaded.fontId, 4)
 end
 
 function T.load_rejects_a_wrong_color_variant_count()

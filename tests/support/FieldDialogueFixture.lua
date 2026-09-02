@@ -7,7 +7,6 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local LuaWriter = require("libs.codec.src.LuaWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local FieldFontCache = require("libs.assets.src.FieldFontCache")
 local FieldMessageText = require("libs.assets.src.FieldMessageText")
@@ -15,8 +14,6 @@ local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueControlle
 
 local FieldDialogueFixture = {}
 
-local DEF_PATH = "data/generated/field/font/font-0.lua"
-local ATLAS_PATH = "assets/generated/field/font/font-0.png"
 local MASK_ATLAS_PATH = FieldFontCache.maskAtlasPath(0)
 
 FieldDialogueFixture.FOCUS_INDICATOR_PATH = "assets/generated/field/font/font-0-focus-indicators.png"
@@ -128,18 +125,24 @@ function FieldDialogueFixture.fontDef()
   }
 end
 
----@return string lua
-function FieldDialogueFixture.encodedFontDef()
-  return LuaWriter.encode(FieldDialogueFixture.fontDef())
-end
-
 ---@return CacheFs
 function FieldDialogueFixture.cacheWithFont()
+  return FieldDialogueFixture.cacheWithFontId(0)
+end
+
+---@param fontId integer
+---@return CacheFs
+function FieldDialogueFixture.cacheWithFontId(fontId)
+  local definition = FieldDialogueFixture.fontDef()
+  definition.fontId = fontId
+  definition.atlasPath = FieldFontCache.atlasPath(fontId)
+  definition.maskAtlasPath = FieldFontCache.maskAtlasPath(fontId)
+  definition.focusIndicators.imagePath = FieldFontCache.focusIndicatorsPath(fontId)
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  cache:write(DEF_PATH, FieldDialogueFixture.encodedFontDef())
-  cache:write(ATLAS_PATH, FieldDialogueFixture.atlasBytes())
-  cache:write(MASK_ATLAS_PATH, FieldDialogueFixture.maskAtlasBytes())
-  cache:write(FieldDialogueFixture.FOCUS_INDICATOR_PATH, FieldDialogueFixture.focusIndicatorBytes())
+  cache:writeLua(FieldFontCache.defPath(fontId), definition)
+  cache:write(FieldFontCache.atlasPath(fontId), FieldDialogueFixture.atlasBytes())
+  cache:write(FieldFontCache.maskAtlasPath(fontId), FieldDialogueFixture.maskAtlasBytes())
+  cache:write(FieldFontCache.focusIndicatorsPath(fontId), FieldDialogueFixture.focusIndicatorBytes())
   return cache
 end
 

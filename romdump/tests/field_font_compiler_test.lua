@@ -164,6 +164,7 @@ local function fixture(opts)
   -- Row bytes (right, left): left half = value 1 (fg), right half = value 2.
   local tile = string.char(0xBB, 0x55) .. string.rep(string.char(0xAA, 0x55), 7)
   local glyphMember = buildFontMember(1, glyph64(tile), { 6 })
+  local font4Member = buildFontMember(1, glyph64(tile), { 7 })
   -- Font palette slots mirroring the ROM font palette (src/font.c
   -- sFontInfos[0]: fgColor=1, shadowColor=2, bgColor=0xF): slot 0 = unused
   -- green, 1 = fg (0x296B dark), 2 = shadow (0x5EF5 gray), 15 = bg (white).
@@ -209,6 +210,9 @@ local function fixture(opts)
           if memberId == 0 then
             return glyphMember
           end
+          if memberId == 4 then
+            return opts.font4Member or font4Member
+          end
           if memberId == 6 then
             return opts.focusMember or focusA
           end
@@ -230,6 +234,9 @@ local function fixture(opts)
     if bytes == glyphMember then
       return "glyph-member-sha"
     end
+    if bytes == font4Member then
+      return "font4-member-sha"
+    end
     if bytes == paletteMember then
       return "palette-member-sha"
     end
@@ -246,37 +253,67 @@ local function fixture(opts)
   end, { focusA = focusA, focusB = focusB }
 end
 
+function T.compiles_font_zero_and_four_as_one_deterministic_class()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
+  Assert.deepEqual(FieldFontCache.REQUIRED_FONT_IDS, { 0, 4 })
+  Assert.notNil(bundle.fonts, "the compiler must return the complete field-font class")
+  Assert.equal(bundle.fonts[0].font.fontId, 0)
+  Assert.equal(bundle.fonts[4].font.fontId, 4)
+  Assert.equal(bundle.fonts[0].font.atlasPath, FieldFontCache.atlasPath(0))
+  Assert.equal(bundle.fonts[4].font.atlasPath, FieldFontCache.atlasPath(4))
+  Assert.equal(bundle.fonts[0].font.focusIndicators.imagePath, FieldFontCache.focusIndicatorsPath(0))
+  Assert.equal(bundle.fonts[4].font.focusIndicators.imagePath, FieldFontCache.focusIndicatorsPath(4))
+  Assert.equal(bundle.dependencies.glyphMembers[1].memberId, 0)
+  Assert.equal(bundle.dependencies.glyphMembers[2].memberId, 4)
+  Assert.equal(bundle.dependencies.glyphMembers[2].sha1, "font4-member-sha")
+  Assert.equal(bundle.marker, "field-font-cache-v4:rom-sha:dependency-sha")
+end
+
+function T.changing_font_four_source_bytes_changes_the_class_marker()
+  local hashLua = function(value)
+    return LuaWriter.encode(value)
+  end
+  local romFs, sha1 = fixture()
+  local first = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
+  local changedFont4 = buildFontMember(1, glyph64(string.rep(string.char(255), 16)), { 7 })
+  local changedRomFs = fixture({ font4Member = changedFont4 })
+  local second = assert(FieldFontCompiler.compile(changedRomFs, sha1, hashLua))
+  Assert.isTrue(first.marker ~= second.marker, "font member 4 bytes must participate in the class marker")
+end
+
 function T.compiles_font_def_and_atlas()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  Assert.equal(bundle.font.schema, FieldFontCache.SCHEMA)
-  Assert.equal(bundle.font.fontId, 0)
-  Assert.equal(bundle.font.lineHeight, 16)
-  Assert.equal(bundle.font.maxLetterHeight, 16)
-  Assert.equal(bundle.font.letterSpacing, 0)
-  Assert.equal(bundle.font.glyphCount, 1)
-  Assert.equal(bundle.font.atlas.width, 1024)
-  Assert.equal(bundle.font.atlas.height, 16 * 7)
-  Assert.equal(bundle.font.atlas.baseHeight, 16)
-  Assert.equal(bundle.font.glyphs[1].advance, 6)
-  Assert.equal(bundle.font.charmap["A"], 0x12B)
-  Assert.equal(bundle.font.charmap[" "], 0x01DE)
-  Assert.equal(bundle.font.glyphs[1].w, 16)
+  local font = bundle.fonts[0].font
+  Assert.equal(font.schema, FieldFontCache.SCHEMA)
+  Assert.equal(font.fontId, 0)
+  Assert.equal(font.lineHeight, 16)
+  Assert.equal(font.maxLetterHeight, 16)
+  Assert.equal(font.letterSpacing, 0)
+  Assert.equal(font.glyphCount, 1)
+  Assert.equal(font.atlas.width, 1024)
+  Assert.equal(font.atlas.height, 16 * 7)
+  Assert.equal(font.atlas.baseHeight, 16)
+  Assert.equal(font.glyphs[1].advance, 6)
+  Assert.equal(font.charmap["A"], 0x12B)
+  Assert.equal(font.charmap[" "], 0x01DE)
+  Assert.equal(font.glyphs[1].w, 16)
   -- Fallback resolves to glyph index 427 (its atlas cell in the grid).
-  Assert.equal(bundle.font.glyphs[0].x, 688)
-  Assert.equal(bundle.font.glyphs[0].y, 96)
-  Assert.isNil(bundle.font.source, "font source identity lives in the dependency record")
-  Assert.equal(bundle.dependencies.glyphMemberSha1, "glyph-member-sha")
+  Assert.equal(font.glyphs[0].x, 688)
+  Assert.equal(font.glyphs[0].y, 96)
+  Assert.isNil(font.source, "font source identity lives in the dependency record")
+  Assert.equal(bundle.dependencies.glyphMembers[1].sha1, "glyph-member-sha")
   Assert.equal(bundle.dependencies.paletteMemberSha1, "palette-member-sha")
-  Assert.equal(bundle.dependencies.glyphMemberId, 0)
+  Assert.equal(bundle.dependencies.glyphMembers[1].memberId, 0)
   Assert.equal(bundle.dependencies.paletteMemberId, 7)
-  Assert.equal(bundle.marker, "field-font-cache-v3:rom-sha:dependency-sha")
+  Assert.equal(bundle.marker, "field-font-cache-v4:rom-sha:dependency-sha")
 
   -- The 8x8 sub-tile is repeated for all four quadrants: each row is
   -- (right=0xAA shadow, left=0x55 fg), so every quadrant's left half is
   -- fg (slot 1, 0x296B -> RGB555(r5=11,g5=11,b5=10) -> 90,90,82) and its right half is shadow
   -- (slot 2, 0x5EF5 -> RGB555(r5=21,g5=23,b5=23) -> 173,189,189), resolved at colors[slot+1].
-  local atlasWidth, _, rgba = PngReader.rgba(bundle.atlas)
+  local atlasWidth, _, rgba = PngReader.rgba(bundle.fonts[0].atlas)
   Assert.equal(atlasWidth, 1024)
   local r, g, b, a = PngReader.pixel(rgba, atlasWidth, 0, 0)
   Assert.equal(a, 255)
@@ -307,8 +344,8 @@ function T.compilation_is_deterministic()
   local romFs, sha1, hashLua = fixture()
   local a = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
   local b = assert(FieldFontCompiler.compile(romFs, sha1, hashLua))
-  Assert.equal(a.atlas, b.atlas)
-  Assert.equal(LuaWriter.encode(a.font), LuaWriter.encode(b.font))
+  Assert.equal(a.fonts[0].atlas, b.fonts[0].atlas)
+  Assert.equal(LuaWriter.encode(a.fonts[0].font), LuaWriter.encode(b.fonts[0].font))
   Assert.equal(a.marker, b.marker)
 end
 
@@ -317,11 +354,12 @@ function T.writer_commits_marker_last_and_reads_back()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldFontCacheWriter.write(cache, bundle)
-  Assert.isTrue(FieldFontCache.isReady(cache, 0, bundle.marker))
-  Assert.isFalse(FieldFontCache.isReady(cache, 0, bundle.marker .. "-stale"))
+  Assert.isTrue(FieldFontCache.isReady(cache, bundle.marker))
+  Assert.isFalse(FieldFontCache.isReady(cache, bundle.marker .. "-stale"))
   local def = assert(cache:loadLua(FieldFontCache.defPath(0)))
   Assert.equal(def.schema, FieldFontCache.SCHEMA)
   Assert.isTrue(cache:exists(FieldFontCache.atlasPath(0), "file"))
+  Assert.isTrue(cache:exists(FieldFontCache.defPath(4), "file"))
 end
 
 function T.writer_failure_invalidates_the_class()
@@ -331,7 +369,7 @@ function T.writer_failure_invalidates_the_class()
   local originalWrite = backend.write
   ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
-    if path:find("font-0.png", 1, true) then
+    if path:find("font-4.png", 1, true) then
       error("injected")
     end
     return originalWrite(self, path, data)
@@ -352,7 +390,7 @@ function T.failed_rebuild_preserves_the_previous_font()
   local originalWrite = backend.write
   ---@diagnostic disable: duplicate-set-field
   backend.write = function(self, path, data)
-    if path:find("font-0.png", 1, true) then
+    if path:find("font-4.png", 1, true) then
       error("injected")
     end
     return originalWrite(self, path, data)
@@ -362,12 +400,12 @@ function T.failed_rebuild_preserves_the_previous_font()
   Assert.throws(function()
     FieldFontCacheWriter.write(cache, second)
   end)
-  Assert.isTrue(FieldFontCache.isReady(cache, 0, first.marker), "the previous font remains ready")
+  Assert.isTrue(FieldFontCache.isReady(cache, first.marker), "the previous font class remains ready")
   Assert.equal(cache:read(FieldFontCache.markerPath()), first.marker, "no new marker leaked")
   Assert.isNil(backend:getInfo("staging/heartgold/field-font"), "the stage is cleaned on failure")
   backend.write = originalWrite
   FieldFontCacheWriter.write(cache, second)
-  Assert.isTrue(FieldFontCache.isReady(cache, 0, second.marker), "a retry publishes the new font")
+  Assert.isTrue(FieldFontCache.isReady(cache, second.marker), "a retry publishes the new font class")
 end
 
 function T.corrupt_palette_member_is_typed()
@@ -394,13 +432,13 @@ end
 function T.font_def_exposes_four_24x32_focus_frames_and_member6_dependencies()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local focus = bundle.font.focusIndicators
+  local focus = bundle.fonts[0].font.focusIndicators
   Assert.notNil(focus, "the font definition must expose the focus indicator asset")
   Assert.equal(focus.imagePath, "assets/generated/field/font/font-0-focus-indicators.png")
   Assert.equal(focus.count, 4)
   Assert.equal(focus.width, 24)
   Assert.equal(focus.height, 32)
-  local focusW, focusH, _ = PngReader.rgba(bundle.focusIndicators)
+  local focusW, focusH, _ = PngReader.rgba(bundle.fonts[0].focusIndicators)
   for field = 0, focus.count - 1 do
     local rect = focus.frames[field]
     Assert.notNil(rect, "focus frame " .. field .. " must have a rect")
@@ -428,25 +466,33 @@ function T.malformed_focus_members_fail_with_a_typed_format_error()
   end
 end
 
+function T.malformed_font_four_fails_the_complete_class_with_a_typed_format_error()
+  local romFs, sha1, hashLua = fixture({ font4Member = "not-a-font" })
+  local bundle, err = FieldFontCompiler.compile(romFs, sha1, hashLua)
+  Assert.isNil(bundle, "a malformed font 4 member must fail the complete class")
+  Assert.isTrue(Errors.is(err), "the font 4 failure must be a typed format error")
+end
+
 -- The compiled definition reports seven color bands that share the base
 -- atlas geometry via a positive stride, and the atlas is tall enough for every
 -- band.
 function T.the_font_def_reports_seven_color_bands_over_the_base_geometry()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local variants = bundle.font.colorVariants
+  local variants = bundle.fonts[0].font.colorVariants
   Assert.notNil(variants, "the font definition must expose colorVariants")
   Assert.equal(variants.count, 7)
   Assert.isTrue(
     variants.strideY > 0 and variants.strideY == math.floor(variants.strideY),
     "strideY must be a positive integer"
   )
-  Assert.equal(bundle.font.atlas.height / variants.count, bundle.font.atlas.baseHeight)
-  local _, atlasH, _ = PngReader.rgba(bundle.atlas)
-  Assert.equal(atlasH, bundle.font.atlas.height)
+  Assert.equal(bundle.fonts[0].font.atlas.height / variants.count, bundle.fonts[0].font.atlas.baseHeight)
+  local _, atlasH, _ = PngReader.rgba(bundle.fonts[0].atlas)
+  Assert.equal(atlasH, bundle.fonts[0].font.atlas.height)
   for variant = 1, variants.count - 1 do
     Assert.isTrue(
-      bundle.font.glyphs[1].y + variant * variants.strideY + bundle.font.glyphs[1].h <= bundle.font.atlas.height,
+      bundle.fonts[0].font.glyphs[1].y + variant * variants.strideY + bundle.fonts[0].font.glyphs[1].h
+        <= bundle.fonts[0].font.atlas.height,
       "variant " .. variant .. " band must fit inside the atlas"
     )
   end
@@ -457,14 +503,14 @@ end
 function T.color_variants_resolve_the_foreground_and_shadow_palette_pairs()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local variants = bundle.font.colorVariants
+  local variants = bundle.fonts[0].font.colorVariants
   Assert.notNil(variants, "the font definition must expose colorVariants")
-  local atlasW, _, rgba = PngReader.rgba(bundle.atlas)
+  local atlasW, _, rgba = PngReader.rgba(bundle.fonts[0].atlas)
   for variant = 0, 6 do
     local fgSlot = variant * 2 + 1
     local shadowSlot = variant * 2 + 2
-    local fg = bundle.font.palette[fgSlot + 1]
-    local shadow = bundle.font.palette[shadowSlot + 1]
+    local fg = bundle.fonts[0].font.palette[fgSlot + 1]
+    local shadow = bundle.fonts[0].font.palette[shadowSlot + 1]
     local r, g, b, a = PngReader.pixel(rgba, atlasW, 0, variant * variants.strideY)
     Assert.equal(a, 255, "variant " .. variant .. " foreground pixel must be opaque")
     Assert.deepEqual({ r = r, g = g, b = b }, fg, "variant " .. variant .. " foreground uses slot " .. fgSlot)
@@ -479,17 +525,17 @@ end
 function T.variant_zero_keeps_the_previous_default_palette_slots()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local atlasW, _, rgba = PngReader.rgba(bundle.atlas)
+  local atlasW, _, rgba = PngReader.rgba(bundle.fonts[0].atlas)
   local r, g, b, _ = PngReader.pixel(rgba, atlasW, 0, 0)
   Assert.deepEqual(
     { r = r, g = g, b = b },
-    bundle.font.palette[FieldFontDecoder.FG_PALETTE_INDEX + 1],
+    bundle.fonts[0].font.palette[FieldFontDecoder.FG_PALETTE_INDEX + 1],
     "default variant foreground stays the previous FG_PALETTE_INDEX slot"
   )
   local r2, g2, b2, _ = PngReader.pixel(rgba, atlasW, 4, 0)
   Assert.deepEqual(
     { r = r2, g = g2, b = b2 },
-    bundle.font.palette[FieldFontDecoder.SHADOW_PALETTE_INDEX + 1],
+    bundle.fonts[0].font.palette[FieldFontDecoder.SHADOW_PALETTE_INDEX + 1],
     "default variant shadow stays the previous SHADOW_PALETTE_INDEX slot"
   )
 end
@@ -499,15 +545,15 @@ end
 function T.focus_indicator_png_keeps_ink_slots_and_makes_the_background_transparent()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local focus = bundle.font.focusIndicators
+  local focus = bundle.fonts[0].font.focusIndicators
   Assert.notNil(focus, "the font definition must expose focusIndicators")
-  local focusW, _, rgba = PngReader.rgba(bundle.focusIndicators)
+  local focusW, _, rgba = PngReader.rgba(bundle.fonts[0].focusIndicators)
   local rect = focus.frames[0]
   local r, g, b, a = PngReader.pixel(rgba, focusW, rect.x + 2, rect.y + 2)
   Assert.equal(a, 255, "visible indicator pixels must stay opaque")
   Assert.deepEqual(
     { r = r, g = g, b = b },
-    bundle.font.palette[0x0B + 1],
+    bundle.fonts[0].font.palette[0x0B + 1],
     "visible indicator pixels keep their source slot"
   )
   local rb, gb, bb, ab = PngReader.pixel(rgba, focusW, rect.x + 12, rect.y + 16)
@@ -538,7 +584,16 @@ function T.cache_missing_the_focus_indicator_png_is_not_ready()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldFontCacheWriter.write(cache, bundle)
   cache:remove(FieldFontCache.focusIndicatorsPath(0))
-  Assert.isFalse(FieldFontCache.isReady(cache, 0, bundle.marker), "a cache without the focus PNG must not be ready")
+  Assert.isFalse(FieldFontCache.isReady(cache, bundle.marker), "a cache without the focus PNG must not be ready")
+end
+
+function T.cache_missing_font_four_is_not_ready()
+  local romFs, sha1, hashLua = fixture()
+  local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  FieldFontCacheWriter.write(cache, bundle)
+  cache:remove(FieldFontCache.defPath(4))
+  Assert.isFalse(FieldFontCache.isReady(cache, bundle.marker), "a cache without font 4 must not be ready")
 end
 
 -- The compiled definition names the required v3 semantic glyph mask atlas,
@@ -546,9 +601,12 @@ end
 function T.v3_definition_names_the_mask_atlas_and_the_bundle_carries_its_bytes()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  Assert.equal(bundle.font.schema, "g4-field-font-v3")
-  Assert.equal(bundle.font.maskAtlasPath, FieldFontCache.maskAtlasPath(0))
-  Assert.isTrue(type(bundle.maskAtlas) == "string" and #bundle.maskAtlas > 0, "the mask atlas PNG bytes are emitted")
+  Assert.equal(bundle.fonts[0].font.schema, "g4-field-font-v3")
+  Assert.equal(bundle.fonts[0].font.maskAtlasPath, FieldFontCache.maskAtlasPath(0))
+  Assert.isTrue(
+    type(bundle.fonts[0].maskAtlas) == "string" and #bundle.fonts[0].maskAtlas > 0,
+    "the mask atlas PNG bytes are emitted"
+  )
 end
 
 -- The mask atlas repeats the base glyph-layout geometry exactly once (no
@@ -557,9 +615,13 @@ end
 function T.mask_atlas_dimensions_equal_the_base_glyph_atlas_dimensions()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local maskW, maskH = PngReader.rgba(bundle.maskAtlas)
-  Assert.equal(maskW, bundle.font.atlas.width, "the mask atlas width matches the base glyph atlas width")
-  Assert.equal(maskH, bundle.font.atlas.baseHeight, "the mask atlas height matches the base glyph atlas baseHeight")
+  local maskW, maskH = PngReader.rgba(bundle.fonts[0].maskAtlas)
+  Assert.equal(maskW, bundle.fonts[0].font.atlas.width, "the mask atlas width matches the base glyph atlas width")
+  Assert.equal(
+    maskH,
+    bundle.fonts[0].font.atlas.baseHeight,
+    "the mask atlas height matches the base glyph atlas baseHeight"
+  )
 end
 
 -- The mask atlas encodes the raw 0..3 glyph pixel value categorically, using
@@ -570,7 +632,7 @@ end
 function T.mask_atlas_encodes_the_categorical_glyph_class_exactly()
   local romFs, sha1, hashLua = fixture()
   local bundle = assert(FieldFontCompiler.compile(romFs, sha1, hashLua)) --[[@as table]]
-  local maskW, _, maskRgba = PngReader.rgba(bundle.maskAtlas)
+  local maskW, _, maskRgba = PngReader.rgba(bundle.fonts[0].maskAtlas)
 
   local r, g, b, a = PngReader.pixel(maskRgba, maskW, 0, 0)
   Assert.deepEqual({ r = r, g = g, b = b, a = a }, { r = 255, g = 0, b = 0, a = 255 }, "foreground encodes as red")
@@ -603,10 +665,7 @@ function T.cache_missing_the_mask_atlas_png_is_not_ready()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   FieldFontCacheWriter.write(cache, bundle)
   cache:remove(FieldFontCache.maskAtlasPath(0))
-  Assert.isFalse(
-    FieldFontCache.isReady(cache, 0, bundle.marker),
-    "a cache without the mask atlas PNG must not be ready"
-  )
+  Assert.isFalse(FieldFontCache.isReady(cache, bundle.marker), "a cache without the mask atlas PNG must not be ready")
 end
 
 return { tests = T }

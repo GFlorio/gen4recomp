@@ -356,10 +356,10 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   Assert.isTrue(FieldMessageCache.isReady(cache, messageBundle.marker))
   Assert.equal(FieldMessageCache.bankPath(542), "data/generated/field/messages/banks/0542.lua")
   local fontBundle = assert(FieldFontCompiler.compile(romFs))
-  Assert.isTrue(require("romdump.src.digest.FieldFontCacheWriter").isReady(cache, 0, fontBundle.marker))
-  Assert.equal(fontBundle.font.glyphCount, 509)
-  Assert.isNil(fontBundle.font.source)
-  Assert.equal(fontBundle.dependencies.glyphMemberSha1, memberSha("font", 0))
+  Assert.isTrue(require("romdump.src.digest.FieldFontCacheWriter").isReady(cache, fontBundle.marker))
+  Assert.equal(fontBundle.fonts[0].font.glyphCount, 509)
+  Assert.isNil(fontBundle.fonts[0].font.source)
+  Assert.equal(fontBundle.dependencies.glyphMembers[1].sha1, memberSha("font", 0))
   Assert.equal(fontBundle.dependencies.paletteMemberSha1, memberSha("font", 7))
   Assert.equal(messageBundle.dependencies.messageNarc.sha1, archiveSha("messages"))
 end
@@ -433,7 +433,7 @@ function T.compiled_font_def_matches_the_real_focus_and_color_contract(romFs, _)
   -- four 24x32 focus frames with in-bounds rects, and the member bytes
   -- participating in the dependency record.
   local bundle = assert(FieldFontCompiler.compile(romFs)) --[[@as table]]
-  local def = bundle.font
+  local def = bundle.fonts[0].font
   local variants = def.colorVariants
   Assert.notNil(variants, "the compiled font must expose colorVariants")
   Assert.equal(variants.count, FieldMessageText.COLOR_VARIANT_COUNT)
@@ -445,7 +445,7 @@ function T.compiled_font_def_matches_the_real_focus_and_color_contract(romFs, _)
   Assert.equal(focus.count, FieldMessageText.FOCUS_INDICATOR_COUNT)
   Assert.equal(focus.width, 24)
   Assert.equal(focus.height, 32)
-  local focusW, focusH, _ = PngReader.rgba(bundle.focusIndicators)
+  local focusW, focusH, _ = PngReader.rgba(bundle.fonts[0].focusIndicators)
   for field = 0, focus.count - 1 do
     local rect = focus.frames[field]
     Assert.equal(rect.width, 24, "focus frame " .. field .. " must be 24 wide")
@@ -462,7 +462,7 @@ function T.compiled_font_def_matches_the_real_focus_and_color_contract(romFs, _)
   -- The default band keeps the pre-change palette mapping: visible pixels
   -- resolve to the font foreground slot 1 and shadow slot 2 (the same slots
   -- the old single-band compiler used), so unstyled dialogue is unchanged.
-  local atlasW, atlasH, atlasRgba = PngReader.rgba(bundle.atlas)
+  local atlasW, atlasH, atlasRgba = PngReader.rgba(bundle.fonts[0].atlas)
   Assert.equal(atlasH, def.atlas.height)
   local fg = def.palette[FieldFontDecoder.FG_PALETTE_INDEX + 1]
   local shadow = def.palette[FieldFontDecoder.SHADOW_PALETTE_INDEX + 1]

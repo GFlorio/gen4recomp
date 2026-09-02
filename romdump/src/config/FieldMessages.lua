@@ -18,9 +18,10 @@ return {
       { path = "files/msgdata/msg/msg_0543_T20R0101.gmm" },
     },
   },
-  -- Font 0 is the field dialogue font (src/font.c sFontArcParam[0]).
-  fontId = 0,
-  fontGlyphMember = 0,
+  -- The current field-font consumers use font 0 for dialogue and font 4 for
+  -- Oak choice labels (src/font.c sFontArcParam[0] and [4]).
+  fontIds = { 0, 4 },
+  fontGlyphMembers = { [0] = 0, [4] = 4 },
   -- Member 6 is the screen-focus indicator set the text printer blits next
   -- to YESNO prompts (GfGfxLoader_GetCharData in src/font.c).
   fontFocusIndicatorMember = 6,
