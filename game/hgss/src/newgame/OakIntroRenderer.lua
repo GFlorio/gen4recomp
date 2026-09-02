@@ -52,14 +52,16 @@ end
 local function profilePalette(manifest, selected, focusBlinkDelta)
   local tone = assert(manifest.genderSelector and manifest.genderSelector.defaultTone)
   local delta = selected and (focusBlinkDelta or 0) / 31 or 0
+  local fill = {
+    clamp(tone.r / 255 + delta),
+    clamp(tone.g / 255 + delta),
+    clamp(tone.b / 255 + delta),
+  }
   return {
     border = referenceColor(PROFILE_CARD.border),
     rim = referenceColor(selected and PROFILE_CARD.selectedRim or PROFILE_CARD.unselectedRim),
-    innerBorder = {
-      clamp(tone.r / 255 + delta),
-      clamp(tone.g / 255 + delta),
-      clamp(tone.b / 255 + delta),
-    },
+    innerBorder = fill,
+    fill = fill,
   }
 end
 
@@ -107,30 +109,34 @@ local function paletteColor(definition, slot)
   return { r = r * 255, g = g * 255, b = b * 255 }
 end
 
-local function drawFocusOutline(graphics, rect, scale, contentRect)
-  local thickness = math.max(3, math.floor(2 * scale + 0.5))
-  local interiorLimit = math.floor((math.min(rect.width, rect.height) - 1) / 2)
-  local contentLimit = math.floor(
-    math.min(
-      contentRect.x - rect.x,
-      contentRect.y - rect.y,
-      rect.x + rect.width - (contentRect.x + contentRect.width),
-      rect.y + rect.height - (contentRect.y + contentRect.height)
-    )
-  )
-  thickness = math.min(thickness, interiorLimit, contentLimit)
-  assert(thickness > 0, "Oak focus outline needs a positive interior")
-  local color = referenceColor(PROFILE_CARD.selectedRim)
-  graphics.setColor(color[1], color[2], color[3], 1)
-  graphics.rectangle("fill", rect.x, rect.y, rect.width, thickness)
-  graphics.rectangle("fill", rect.x, rect.y + rect.height - thickness, rect.width, thickness)
-  graphics.rectangle("fill", rect.x, rect.y + thickness, thickness, rect.height - thickness * 2)
+local function drawFocusOutline(graphics, rect, scale)
+  local whiteWidth = 5 * scale
+  local redWidth = 3 * scale
+  local margin = 1 * scale
+  local outerRadius = 3 * scale
+  local inset = margin + whiteWidth / 2
+  local radius = math.max(0, outerRadius - whiteWidth / 2)
+  graphics.setColor(1, 1, 1, 1)
+  graphics.setLineWidth(whiteWidth)
   graphics.rectangle(
-    "fill",
-    rect.x + rect.width - thickness,
-    rect.y + thickness,
-    thickness,
-    rect.height - thickness * 2
+    "line",
+    rect.x + inset,
+    rect.y + inset,
+    rect.width - inset * 2,
+    rect.height - inset * 2,
+    radius,
+    radius
+  )
+  graphics.setColor(1, 0, 0, 1)
+  graphics.setLineWidth(redWidth)
+  graphics.rectangle(
+    "line",
+    rect.x + inset,
+    rect.y + inset,
+    rect.width - inset * 2,
+    rect.height - inset * 2,
+    radius,
+    radius
   )
 end
 
@@ -354,18 +360,19 @@ function OakIntroRenderer:_draw(view)
       for gender = 0, 1 do
         local entry = assert(layout.genderButtons and layout.genderButtons[gender])
         local selected = view.genderFocus == gender
+        local palette = profilePalette(self.manifest, selected, selected and view.focusBlinkDelta or 0)
+        graphics.setColor(palette.fill[1], palette.fill[2], palette.fill[3], 1)
+        graphics.rectangle("fill", entry.rect.x, entry.rect.y, entry.rect.width, entry.rect.height)
         drawAsset(self, entry.portraitId, 1, entry.portraitRect)
-        drawFrame(
-          graphics,
-          entry.rect,
-          profilePalette(self.manifest, selected, selected and view.focusBlinkDelta or 0),
-          entry.scale
-        )
+        drawFrame(graphics, entry.rect, palette, entry.scale)
       end
     elseif layout.selectedProfileButton then
       local entry = layout.selectedProfileButton
+      local palette = profilePalette(self.manifest, true, 0)
+      graphics.setColor(palette.fill[1], palette.fill[2], palette.fill[3], 1)
+      graphics.rectangle("fill", entry.rect.x, entry.rect.y, entry.rect.width, entry.rect.height)
       drawAsset(self, entry.portraitId, 1, entry.portraitRect)
-      drawFrame(graphics, entry.rect, profilePalette(self.manifest, true, 0), entry.scale)
+      drawFrame(graphics, entry.rect, palette, entry.scale)
     end
   end
   if layout.confirmationButtons then
@@ -392,7 +399,7 @@ function OakIntroRenderer:_draw(view)
       graphics.setColor(background.r / 255, background.g / 255, background.b / 255, 1)
       graphics.rectangle("fill", contentRect.x, contentRect.y, contentRect.width, contentRect.height)
       if selected then
-        drawFocusOutline(graphics, entry.rect, entry.scale, contentRect)
+        drawFocusOutline(graphics, entry.rect, entry.scale)
       end
       drawConfirmationText(self, entry, assert(labels[choice]))
     end
@@ -419,11 +426,13 @@ function OakIntroRenderer:draw(view)
   local graphics = self.graphics
   local red, green, blue, alpha = graphics.getColor()
   local shader = graphics.getShader()
+  local lineWidth = graphics.getLineWidth()
   local ok, failure = xpcall(function()
     self:_draw(view)
   end, debug.traceback)
   graphics.setShader(shader)
   graphics.setColor(red, green, blue, alpha)
+  graphics.setLineWidth(lineWidth)
   if not ok then
     error(failure, 0)
   end

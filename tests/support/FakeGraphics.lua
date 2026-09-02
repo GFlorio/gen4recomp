@@ -20,13 +20,15 @@
 ---@field shaders table[]
 ---@field pushDepth fun(): integer
 ---@field newImage fun(data?: table): table
+---@field getLineWidth fun(): number
+---@field setLineWidth fun(width: number)
 local FakeGraphics = {}
 
 -- opts.canvas/shader/blendMode/... seed the settable state so tests can
 -- verify exact restoration after a draw. The returned table is structurally
 -- a love.Graphics subset plus the recording fields; call sites pass it as
 -- the renderers' injectable graphics namespace.
----@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer, failOnShaderCall?: integer, shaderReturnsNil?: boolean }
+---@param opts? { canvas?: any, shader?: any, blendMode?: any, blendAlpha?: any, depthMode?: any, depthWrite?: boolean, wireframe?: boolean, cullMode?: any, color?: number[], scissor?: number[], lineWidth?: number, imageSizes?: table[], failOnQuadCall?: integer, failOnDrawCall?: integer, failOnImageCall?: integer, failOnShaderCall?: integer, shaderReturnsNil?: boolean }
 ---@return FakeGraphics
 function FakeGraphics.new(opts)
   opts = opts or {}
@@ -49,6 +51,7 @@ function FakeGraphics.new(opts)
     cullMode = opts.cullMode,
     color = opts.color or { 1, 1, 1, 1 },
     scissor = opts.scissor,
+    lineWidth = opts.lineWidth or 1,
   }
   return {
     images = images,
@@ -149,9 +152,25 @@ function FakeGraphics.new(opts)
         error("injected draw failure")
       end
     end,
-    rectangle = function(mode, x, y, w, h)
+    rectangle = function(mode, x, y, w, h, rx, ry)
       primitives[#primitives + 1] = "rectangle"
-      rectangles[#rectangles + 1] = { mode = mode, x = x, y = y, w = w, h = h, color = state.color }
+      rectangles[#rectangles + 1] = {
+        mode = mode,
+        x = x,
+        y = y,
+        w = w,
+        h = h,
+        rx = rx,
+        ry = ry,
+        color = { state.color[1], state.color[2], state.color[3], state.color[4] },
+        lineWidth = state.lineWidth,
+      }
+    end,
+    getLineWidth = function()
+      return state.lineWidth
+    end,
+    setLineWidth = function(width)
+      state.lineWidth = width
     end,
     polygon = function()
       primitives[#primitives + 1] = "polygon"

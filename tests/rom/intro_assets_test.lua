@@ -58,8 +58,8 @@ end
 
 local function assertConfirmationSource(bundle, versionId)
   for _, expected in ipairs({
-    { id = "confirmation_yes", width = 115, height = 57, x = 6, y = 22 },
-    { id = "confirmation_no", width = 115, height = 56, x = 6, y = 20 },
+    { id = "confirmation_yes", width = 120, height = 56, x = 8, y = 16 },
+    { id = "confirmation_no", width = 120, height = 56, x = 8, y = 16 },
   }) do
     local widget = assert(bundle.manifest.widgets[expected.id], expected.id .. " is present")
     Assert.equal(widget.width, expected.width, expected.id .. " width is intrinsic")
@@ -76,15 +76,31 @@ local function assertConfirmationSource(bundle, versionId)
     local decodedWidth, decodedHeight, rgba = PngReader.rgba(assert(bundle.assets[frame.image]))
     Assert.equal(decodedWidth, expected.width, expected.id .. " PNG width matches the crop")
     Assert.equal(decodedHeight, expected.height, expected.id .. " PNG height matches the crop")
-    local visible = false
-    for offset = 1, #rgba, 4 do
-      local alpha = string.byte(rgba, offset + 3)
-      if alpha and alpha > 0 then
-        visible = true
-        break
+    local minX, minY, maxX, maxY = decodedWidth, decodedHeight, -1, -1
+    for y = 0, decodedHeight - 1 do
+      for x = 0, decodedWidth - 1 do
+        local _, _, _, a = PngReader.pixel(rgba, decodedWidth, x, y)
+        if a and a > 0 then
+          if x < minX then
+            minX = x
+          end
+          if x > maxX then
+            maxX = x
+          end
+          if y < minY then
+            minY = y
+          end
+          if y > maxY then
+            maxY = y
+          end
+        end
       end
     end
-    Assert.isTrue(visible, expected.id .. " has generated backing pixels")
+    Assert.isTrue(maxX >= 0, expected.id .. " has generated backing pixels")
+    Assert.isTrue(minX <= 2, expected.id .. " preserves left backing edge")
+    Assert.isTrue(maxX >= 117, expected.id .. " preserves right backing edge")
+    Assert.isTrue(minY <= 2, expected.id .. " preserves top backing edge")
+    Assert.isTrue(maxY >= 53, expected.id .. " preserves bottom backing edge")
   end
   for _, memberId in ipairs({ 48, 37, 33 }) do
     Assert.notNil(

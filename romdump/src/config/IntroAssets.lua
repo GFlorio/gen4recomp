@@ -48,12 +48,12 @@ local IntroAssets = {
     char = 37,
     palette = 33,
     crops = {
-      yes = { x = 10, y = 26, width = 115, height = 57 },
-      no = { x = 10, y = 108, width = 115, height = 56 },
+      yes = { x = 8, y = 32, width = 120, height = 56 },
+      no = { x = 8, y = 112, width = 120, height = 56 },
     },
     contentRects = {
-      yes = { x = 6, y = 22, width = 104, height = 24 },
-      no = { x = 6, y = 20, width = 104, height = 24 },
+      yes = { x = 8, y = 16, width = 104, height = 24 },
+      no = { x = 8, y = 16, width = 104, height = 24 },
     },
   },
   oak = { char = 10, palette = 11, screen = 9 },

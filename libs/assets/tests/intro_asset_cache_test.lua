@@ -98,8 +98,8 @@ local function confirmationWidget(manifest, id, width, height, contentRect)
 end
 
 local function addConfirmationWidgets(manifest)
-  confirmationWidget(manifest, "confirmation_yes", 115, 57, { x = 6, y = 22, width = 104, height = 24 })
-  confirmationWidget(manifest, "confirmation_no", 115, 56, { x = 6, y = 20, width = 104, height = 24 })
+  confirmationWidget(manifest, "confirmation_yes", 120, 56, { x = 8, y = 16, width = 104, height = 24 })
+  confirmationWidget(manifest, "confirmation_no", 120, 56, { x = 8, y = 16, width = 104, height = 24 })
 end
 
 local function reject(cache, mutate, label)
@@ -127,8 +127,8 @@ function T.complete_schema_manifest_loads_and_declares_closed_inventory()
   Assert.deepEqual(manifest.genderSelector.buttons.male.bounds, { x = 18, y = 25, width = 93, height = 148 })
   Assert.isNil(manifest.genderSelector.buttons.male.hitBounds)
   Assert.isNil(manifest.profileConfirmation)
-  Assert.deepEqual(manifest.widgets.confirmation_yes.contentRect, { x = 6, y = 22, width = 104, height = 24 })
-  Assert.deepEqual(manifest.widgets.confirmation_no.contentRect, { x = 6, y = 20, width = 104, height = 24 })
+  Assert.deepEqual(manifest.widgets.confirmation_yes.contentRect, { x = 8, y = 16, width = 104, height = 24 })
+  Assert.deepEqual(manifest.widgets.confirmation_no.contentRect, { x = 8, y = 16, width = 104, height = 24 })
 end
 
 function T.stale_and_malformed_manifests_fail_before_composition()
@@ -197,7 +197,7 @@ function T.stale_and_malformed_manifests_fail_before_composition()
     manifest.widgets.confirmation_yes.contentRect = nil
   end, "missing confirmation content rectangle")
   reject(cache, function(manifest)
-    manifest.widgets.confirmation_no.contentRect.width = 110
+    manifest.widgets.confirmation_no.contentRect.width = 113
   end, "confirmation content rectangle exceeding widget")
   reject(cache, function(manifest)
     manifest.widgets.confirmation_yes.contentRect.scroll = 1
