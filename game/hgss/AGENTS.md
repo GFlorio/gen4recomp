@@ -15,8 +15,8 @@ playable product.
   `FieldSession` remains the reusable field-simulation mechanism in `libs/hgss` and is not
   the game entry point.
 - `newgame/`, `menu/`, `audio/`, `save/`, and `dev/` contain application-specific policy or
-  composition. Reusable field, script, audio, presentation, UI, and save mechanisms remain
-  in `libs/hgss`.
+  composition. Reusable field, script, audio, presentation, and save mechanisms remain
+  in `libs/hgss`; reusable game-independent widgets belong in `libs/ui`.
 
 ## Dependencies and data
 

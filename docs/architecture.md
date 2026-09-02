@@ -14,9 +14,10 @@ libs/assets ──► codec, errors, math
 libs/nds ─────► codec, errors, math
 libs/script ──► assets, codec, errors, math, storage
 libs/hgss ────► nds, script, assets, codec, errors, math, storage
+libs/ui ──────► (leaf, no first-party dependencies)
 romdump ──────► nds, script, assets, codec, errors, math, storage
 game ─────────► codec, errors, math, storage
-game/hgss ────► game, hgss, assets, script, codec, errors, math, storage
+game/hgss ────► game, hgss, ui, assets, script, codec, errors, math, storage
 app ──────────► game, game/hgss, errors
 app ── provisioning only ──► romdump
 ```
@@ -34,6 +35,7 @@ the only runtime path that reaches `romdump`, and only for ROM provisioning.
 | Generic game host | `game/src/` | state lifecycle, host adapters, resize, input forwarding, and exit notification |
 | HGSS product | `game/hgss/` | menu, New Game/Oak, field composition, saves, application audio, and developer preview |
 | HGSS mechanisms | `libs/hgss/` | reusable field, script adapters, audio, presentation, and save behavior |
+| Shared widgets | `libs/ui/` | game-independent button primitives |
 | Mod scripting | `libs/script/` | the `gen4.script` runtime, composition, scheduling, and persistence |
 | Nintendo formats | `libs/nds/` | reusable DS, Nitro, NNS, graphics, and renderer mechanisms |
 | Asset contracts | `libs/assets/` | generated schemas, cache paths/readiness, validation, and mod-facing text forms |

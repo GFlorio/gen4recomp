@@ -11,7 +11,7 @@ Keep reviewer-facing mechanisms in these domain subpackages:
 - `script` — HGSS value/reference semantics and field-shaped script adapters.
 - `audio` — HGSS audio policy composed over the NDS sound mechanisms.
 - `presentation` — field scene, camera, queue, and presentation composition.
-- `ui` — reusable HGSS runtime UI mechanisms.
+- `ui` — reusable HGSS runtime UI mechanisms; game-independent button primitives belong in `libs/ui`.
 - `save` — HGSS save semantics.
 
 HGSS may consume `libs/nds`, `libs/script`, `libs/assets`, and foundation libraries when
