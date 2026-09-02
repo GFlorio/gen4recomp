@@ -164,6 +164,8 @@ local function validateTickCount(frames)
   assert(type(frames) == "number" and frames % 1 == 0 and frames >= 0, "Oak tick count must be a non-negative integer")
 end
 
+---@param index number
+---@return integer
 local function assertSelectionIndex(index)
   assert(
     type(index) == "number"
@@ -174,6 +176,7 @@ local function assertSelectionIndex(index)
     "selection index must be a finite integer"
   )
   assert(index >= 0 and index < 2, "selection index is out of range")
+  ---@cast index integer
   return index
 end
 
