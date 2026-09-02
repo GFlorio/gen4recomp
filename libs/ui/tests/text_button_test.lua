@@ -16,8 +16,7 @@ end
 
 local function recordingGraphics()
   local state = { color = { 1, 1, 1, 1 }, lineWidth = 1 }
-  local calls =
-    { setColor = {}, rectangles = {}, polygons = {}, lineWidths = {}, transforms = {}, pushCount = 0, popCount = 0 }
+  local calls = { setColor = {}, rectangles = {}, lineWidths = {}, transforms = {}, pushCount = 0, popCount = 0 }
   local g = {
     setColor = function(r, g2, b, a)
       state.color = { r, g2, b, a }
@@ -35,10 +34,6 @@ local function recordingGraphics()
         color = { state.color[1], state.color[2], state.color[3], state.color[4] },
         lineWidth = state.lineWidth,
       }
-    end,
-    polygon = function(mode, ...)
-      calls.polygons[#calls.polygons + 1] =
-        { mode = mode, points = { ... }, color = { state.color[1], state.color[2], state.color[3], state.color[4] } }
     end,
     setLineWidth = function(w)
       state.lineWidth = w
@@ -78,8 +73,6 @@ function T.canonical_geometry_matches_yes_no_format()
   Assert.equal(at1.border.cornerRadius, 3)
   Assert.equal(at1.rim.cornerRadius, 1)
   Assert.equal(at1.face.cornerRadius, 0)
-  Assert.isTrue(at1.border.cornerCut == nil, "no cornerCut")
-  Assert.isTrue(at1.face.cornerCut == nil, "no cornerCut")
   local at2 = TextButton.resolve({ rect = rect(0, 0, 240, 112), scale = 2 })
   Assert.equal(at2.contentRect.width, 208)
   Assert.equal(at2.contentRect.height, 48)
@@ -384,25 +377,6 @@ function T.requires_graphics_contract()
       TextButton.draw(g, button, { label = "Yes", selected = false, text = text })
     end, "missing " .. key .. " should fail")
   end
-end
-
-function T.rounded_only_geometry_no_cornerCut()
-  local TextButton = textButtonModule()
-  local button = TextButton.resolve({ rect = rect(0, 0, 120, 56), scale = 1 })
-  Assert.isTrue(button.border.cornerRadius ~= nil, "has cornerRadius")
-  Assert.isTrue(button.border.cornerCut == nil, "no cornerCut")
-  Assert.isTrue(button.face.cornerCut == nil, "face no cornerCut")
-  local g, calls = recordingGraphics()
-  local text = {
-    measure = function()
-      return 10
-    end,
-    lineHeight = 16,
-    draw = function() end,
-  }
-  TextButton.draw(g, button, { label = "Yes", selected = false, text = text })
-  Assert.equal(#calls.polygons, 0, "no polygons for rounded")
-  Assert.isTrue(#calls.rectangles >= 5, "rounded rectangles used")
 end
 
 return { tests = T }

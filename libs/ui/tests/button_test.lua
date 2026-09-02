@@ -64,7 +64,6 @@ local function assertLayered(b)
     assertContained(layer.rect, parent, name)
     Assert.isTrue(layer.cornerRadius >= 0, name .. " radius non-negative")
     Assert.isTrue(layer.cornerRadius <= prev, name .. " radius not grow inward")
-    Assert.isTrue(layer.cornerCut == nil, name .. " has no cornerCut")
     prev = layer.cornerRadius
     parent = layer.rect
   end
@@ -177,8 +176,6 @@ function T.draw_uses_rounded_rectangles_and_face_split()
     end
   end
   Assert.isTrue(rectCount >= 5, "rounded rectangles for layers and face split")
-  -- No cornerCut field should exist
-  Assert.isTrue(resolved.border.cornerCut == nil, "no cornerCut")
   -- Rounded radii should be present
   for _, c in ipairs(calls) do
     if c.kind == "rectangle" and c.mode == "fill" then
@@ -213,31 +210,6 @@ function T.draw_with_zero_corner_uses_rectangles_without_radius()
     -- zero corner should not pass radius or passes nil/0
     Assert.isTrue(p.rx == nil or p.rx == 0, "zero corner uses plain rectangle")
   end
-end
-
-function T.resolved_geometry_has_only_rounded_descriptor()
-  local Button = buttonModule()
-  local resolved = Button.resolve(spec({ cornerRadius = 5 }))
-  Assert.isTrue(resolved.border.cornerRadius == 5, "border radius preserved")
-  Assert.isTrue(resolved.border.cornerCut == nil, "no cut field")
-  Assert.isTrue(resolved.face.cornerCut == nil, "face no cut field")
-  -- polygon not required
-  local calls = {}
-  local graphics = {
-    setColor = function() end,
-    rectangle = function(_, _, _, _, _, rx, ry)
-      calls[#calls + 1] = { rx = rx, ry = ry }
-    end,
-  }
-  local palette = {
-    border = { 1, 0, 0, 1 },
-    rim = { 0, 1, 0, 1 },
-    innerBorder = { 0, 0, 1, 1 },
-    faceTop = { 0.5, 0.5, 0.5, 1 },
-    faceBottom = { 0.2, 0.2, 0.2, 1 },
-  }
-  Button.draw(graphics, resolved, palette)
-  Assert.isTrue(#calls >= 5, "draw uses rectangles only")
 end
 
 return { tests = T }

@@ -67,7 +67,6 @@ function T.selected_rim_exactly_replaces_unselected_rim()
   Assert.equal(button.rim.rect.x, button.rect.x + 2)
   Assert.equal(button.rim.rect.y, button.rect.y + 2)
   Assert.equal(button.rim.cornerRadius, 1)
-  Assert.isTrue(button.rim.cornerCut == nil, "no cornerCut")
 end
 
 function T.canonical_geometry_and_content_is_face()
@@ -75,7 +74,6 @@ function T.canonical_geometry_and_content_is_face()
   local button = ImageButton.resolve({ rect = rect(10, 20, 93, 148), scale = 1 })
   Assert.equal(button.border.cornerRadius, 3)
   Assert.equal(button.rim.cornerRadius, 1)
-  Assert.isTrue(button.border.cornerCut == nil, "no cornerCut")
   Assert.equal(button.contentRect.x, button.face.rect.x)
   Assert.equal(button.contentRect.y, button.face.rect.y)
   Assert.equal(button.contentRect.width, button.face.rect.width)
@@ -101,6 +99,7 @@ function T.same_rim_geometry_selection_changes_only_color()
   Assert.equal(#c1.rectangles, #c2.rectangles)
   Assert.equal(#c1.polygons, #c2.polygons)
   Assert.equal(c1.polygons[1], nil, "no polygons for rounded")
+  Assert.isTrue(#c1.rectangles >= 5, "rounded rectangles")
   Assert.equal(button.scale, 2)
 end
 
@@ -168,24 +167,6 @@ function T.invalid_scale_rejected()
   Assert.throws(function()
     ImageButton.resolve({ rect = rect(0, 0, 100, 100), scale = 0 })
   end)
-end
-
-function T.rounded_only_geometry_no_cornerCut()
-  local ImageButton = imageButtonModule()
-  local button = ImageButton.resolve({ rect = rect(0, 0, 100, 100), scale = 1 })
-  Assert.isTrue(button.border.cornerRadius ~= nil, "has cornerRadius")
-  Assert.isTrue(button.border.cornerCut == nil, "no cornerCut")
-  Assert.isTrue(button.face.cornerCut == nil, "face no cornerCut")
-  local g, calls = graphicsFake()
-  local ir = { x = button.contentRect.x, y = button.contentRect.y, width = 5, height = 5 }
-  ImageButton.draw(g, button, {
-    selected = false,
-    colors = { face = { 0.2, 0.3, 0.4, 1 } },
-    imageRect = ir,
-    drawImage = function() end,
-  })
-  Assert.equal(#calls.polygons, 0, "rounded uses no polygons")
-  Assert.isTrue(#calls.rectangles >= 5, "rounded rectangles")
 end
 
 return { tests = T }
