@@ -1610,4 +1610,217 @@ function T.actor_visual_with_malformed_polygon_is_not_ready()
   end, "missing cullMode")
 end
 
+function T.actor_geometry_with_non_triangle_indices_is_not_ready()
+  local function assertNonTriangle(isAtlas, label)
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = isAtlas and validAtlasRender(0, 1) or validStaticRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    local geom = isAtlas and visual.render.geometry or visual.render.parts[1].geometry
+    geom.indices = { 0, 1, 2, 0 }
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0), label .. " must fail")
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), label .. " must fail readiness")
+    -- also direct helper check without cache
+    local direct = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = isAtlas and validAtlasRender(0, 1) or validStaticRender(0, 1),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    local directGeom = isAtlas and direct.render.geometry or direct.render.parts[1].geometry
+    directGeom.indices = { 0, 1, 2, 0 }
+    Assert.isFalse(FieldActorCache.isValidVisual(direct, 0), label .. " direct must fail")
+  end
+
+  assertNonTriangle(true, "atlas non-triangle indices")
+  assertNonTriangle(false, "static non-triangle indices")
+end
+
+function T.actor_visual_with_incompatible_alpha_class_is_not_ready()
+  local cases = {
+    {
+      label = "atlas opaque with polygonAlpha 30",
+      make = function()
+        local r = validAtlasRender(0, 1)
+        r.alphaClass = "opaque"
+        r.polygon.polygonAlpha = 30
+        return r
+      end,
+      kind = "atlas",
+    },
+    {
+      label = "static textured opaque with polygonAlpha 30",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "opaque"
+        p.polygon.polygonAlpha = 30
+        p.textured = true
+        return validStaticRender(0, 1, { p })
+      end,
+      kind = "static",
+    },
+    {
+      label = "static wireframe with polygonAlpha 31",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "wireframe"
+        p.polygon.polygonAlpha = 31
+        p.polygon.polygonMode = "modulation"
+        return validStaticRender(0, 1, { p })
+      end,
+      kind = "static",
+    },
+    {
+      label = "static textured cutout with polygonAlpha 31 decal",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "cutout"
+        p.polygon.polygonAlpha = 31
+        p.polygon.polygonMode = "decal"
+        p.textured = true
+        return validStaticRender(0, 1, { p })
+      end,
+      kind = "static",
+    },
+    {
+      label = "static untextured cutout with polygonAlpha 31 modulation",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "cutout"
+        p.polygon.polygonAlpha = 31
+        p.polygon.polygonMode = "modulation"
+        p.textured = false
+        return validStaticRender(0, 1, { p })
+      end,
+      kind = "static",
+    },
+  }
+
+  for _, case in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = case.make(),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isFalse(
+      FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0),
+      case.label .. " must fail"
+    )
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), case.label .. " must fail readiness")
+    Assert.isFalse(FieldActorCache.isValidVisual(visual, 0), case.label .. " direct must fail")
+  end
+end
+
+function T.actor_visual_with_compatible_alpha_class_remains_valid()
+  local cases = {
+    {
+      label = "static translucent with polygonAlpha 30",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "translucent"
+        p.polygon.polygonAlpha = 30
+        return validStaticRender(0, 1, { p })
+      end,
+    },
+    {
+      label = "static wireframe with polygonAlpha 0",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "wireframe"
+        p.polygon.polygonAlpha = 0
+        return validStaticRender(0, 1, { p })
+      end,
+    },
+    {
+      label = "textured static cutout with polygonAlpha 31 modulation",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "cutout"
+        p.polygon.polygonAlpha = 31
+        p.polygon.polygonMode = "modulation"
+        p.textured = true
+        return validStaticRender(0, 1, { p })
+      end,
+    },
+    {
+      label = "opaque atlas with polygonAlpha 31 modulation",
+      make = function()
+        local r = validAtlasRender(0, 1)
+        r.alphaClass = "opaque"
+        r.polygon.polygonAlpha = 31
+        r.polygon.polygonMode = "modulation"
+        return r
+      end,
+    },
+    {
+      label = "cutout atlas with polygonAlpha 31 modulation",
+      make = function()
+        local r = validAtlasRender(0, 1)
+        r.alphaClass = "cutout"
+        r.polygon.polygonAlpha = 31
+        r.polygon.polygonMode = "modulation"
+        return r
+      end,
+    },
+    {
+      label = "static opaque decal with polygonAlpha 31",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "opaque"
+        p.polygon.polygonAlpha = 31
+        p.polygon.polygonMode = "decal"
+        return validStaticRender(0, 1, { p })
+      end,
+    },
+    {
+      label = "static mixed with polygonAlpha 31 modulation textured",
+      make = function()
+        local p = validStaticPart()
+        p.alphaClass = "mixed"
+        p.polygon.polygonAlpha = 31
+        p.polygon.polygonMode = "modulation"
+        p.textured = true
+        return validStaticRender(0, 1, { p })
+      end,
+    },
+  }
+
+  for _, case in ipairs(cases) do
+    local c = cache()
+    writeActorIndex(c, { 0 })
+    local visual = {
+      schema = FieldActorCache.SCHEMA,
+      spriteId = 0,
+      render = case.make(),
+      idlePresentation = { mode = "static", cadence = 0 },
+      directions = validDirections(),
+      gestures = {},
+    }
+    c:writeLua(FieldActorCache.visualPath(0), visual)
+    c:write(FieldActorCache.atlasPath(0), "atlas-bytes")
+    Assert.isTrue(
+      FieldActorCache.isValidVisual(c:loadLua(FieldActorCache.visualPath(0)), 0),
+      case.label .. " must pass"
+    )
+    Assert.isTrue(FieldActorCache.isReady(c, "m"), case.label .. " must pass readiness")
+  end
+end
+
 return { tests = T }

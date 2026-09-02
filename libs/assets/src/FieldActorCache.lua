@@ -213,6 +213,28 @@ local function isValidVertex(vertex)
   return true
 end
 
+local function isCompatibleAlphaClass(alphaClass, polygon, textured)
+  -- Mirrors the provable subset of AlphaClassifier semantics that can be
+  -- validated from the serialized cache fields alone. The full texture-aware
+  -- classification (opaque/cutout/translucent/mixed) is not reproducible
+  -- here without alphaUsage, so only impossible combinations are rejected.
+  local alpha = polygon.polygonAlpha
+  local mode = polygon.polygonMode
+  if alpha == 0 then
+    return alphaClass == "wireframe"
+  end
+  if alpha < 31 then
+    return alphaClass == "translucent"
+  end
+  if mode == "decal" then
+    return alphaClass == "opaque"
+  end
+  if not textured then
+    return alphaClass == "opaque"
+  end
+  return alphaClass ~= "wireframe"
+end
+
 local function isValidGeometry(geometry, isAtlas)
   if type(geometry) ~= "table" then
     return false
@@ -226,6 +248,9 @@ local function isValidGeometry(geometry, isAtlas)
     end
   end
   if not Validate.isArray(geometry.indices) or #geometry.indices == 0 then
+    return false
+  end
+  if #geometry.indices % 3 ~= 0 then
     return false
   end
   local vertexCount = #geometry.vertices
@@ -279,6 +304,9 @@ local function isValidRender(render, spriteId)
     if not isValidPolygon(render.polygon) then
       return false
     end
+    if not isCompatibleAlphaClass(render.alphaClass, render.polygon, true) then
+      return false
+    end
     if not isValidGeometry(render.geometry, true) then
       return false
     end
@@ -300,6 +328,9 @@ local function isValidRender(render, spriteId)
         return false
       end
       if not isValidPolygon(part.polygon) then
+        return false
+      end
+      if not isCompatibleAlphaClass(part.alphaClass, part.polygon, part.textured) then
         return false
       end
       if not isValidGeometry(part.geometry, false) then
