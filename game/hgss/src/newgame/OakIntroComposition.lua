@@ -136,6 +136,7 @@ function OakIntroComposition.compose(options)
   local audio
   local audioLifetime
   local textRenderer
+  local choiceText
   local dialogueRenderer
   local ok, state = pcall(function()
     assert(provider:acquireBank(219))
@@ -168,6 +169,7 @@ function OakIntroComposition.compose(options)
     local graphics = options.graphics or love.graphics
     ---@cast graphics love.Graphics|love.graphics
     textRenderer = FieldTextRenderer.new({ cacheFs = cacheFs, graphics = graphics })
+    choiceText = FieldTextRenderer.new({ cacheFs = cacheFs, fontId = 4, graphics = graphics })
     dialogueRenderer = FieldDialogueRenderer.new({
       cacheFs = cacheFs,
       manifest = uiManifest,
@@ -200,6 +202,7 @@ function OakIntroComposition.compose(options)
       controller = controller --[[@as any]],
       manifest = introManifest,
       textRenderer = textRenderer,
+      choiceText = choiceText,
       graphics = graphics,
       imageLoader = options.imageLoader or generatedImageLoader(cacheFs, graphics),
       textInputHost = options.textInputHost,
@@ -230,6 +233,9 @@ function OakIntroComposition.compose(options)
     end
     if textRenderer then
       pcall(textRenderer.release, textRenderer)
+    end
+    if choiceText then
+      pcall(choiceText.release, choiceText)
     end
     error(state, 0)
   end

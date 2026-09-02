@@ -293,7 +293,7 @@ function T.tests.profile_choice_activation_uses_one_selection_effect_on_composed
       enterGenderSelection(state)
       local buttons = assert(state:view().layout.genderButtons)
       local female = assert(buttons[1])
-      local rect = female.button.rect
+      local rect = female.rect
       local before = #trace
       state:mousepressed(rect.x + rect.width / 2, rect.y + rect.height / 2, 1)
       Assert.equal(state:view().phase, "gender_confirm")

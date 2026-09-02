@@ -21,7 +21,7 @@ end
 
 local function manifestWithWidth(sourceWidth)
   local data = {
-    schemaVersion = 8,
+    schemaVersion = 9,
     variant = "heartgold",
     sourceReference = { width = sourceWidth, height = 192 },
     background = { width = sourceWidth, height = 192, sampling = "linear" },
@@ -33,49 +33,28 @@ local function manifestWithWidth(sourceWidth)
       marill = widget(40, 30, { x = 20, y = 30 }, { x = 140, y = 50, width = 40, height = 30 }),
       gender_male = widget(40, 60, { x = 20, y = 30 }, { x = 0, y = 0, width = 40, height = 60 }),
       gender_female = widget(40, 60, { x = 20, y = 30 }, { x = 0, y = 0, width = 40, height = 60 }),
+      confirmation_yes = widget(115, 57, { x = 0, y = 0 }, { x = 138, y = 26, width = 115, height = 57 }),
+      confirmation_no = widget(115, 56, { x = 0, y = 0 }, { x = 138, y = 108, width = 115, height = 56 }),
     },
   }
   data.widgets.ball_open.sourceCenter = { x = 160, y = 80 }
   data.widgets.marill.sourceCenter = { x = 160, y = 80 }
   data.widgets.gender_male.sourceCenter = { x = 64, y = 104 }
   data.widgets.gender_female.sourceCenter = { x = 192, y = 104 }
+  data.widgets.confirmation_yes.contentRect = { x = 6, y = 22, width = 104, height = 24 }
+  data.widgets.confirmation_no.contentRect = { x = 6, y = 20, width = 104, height = 24 }
   data.genderSelector = {
     defaultTone = { r = 100, g = 101, b = 102 },
     buttons = {
       male = {
         bounds = { x = 18, y = 25, width = 93, height = 148 },
-        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
       },
       female = {
         bounds = { x = 144, y = 25, width = 95, height = 148 },
-        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
       },
     },
   }
-  data.profileConfirmation = {
-    buttons = {
-      male = {
-        yes = {
-          bounds = { x = 138, y = 26, width = 115, height = 57 },
-          textBounds = { x = 136, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 138, y = 108, width = 115, height = 56 },
-          textBounds = { x = 136, y = 128, width = 104, height = 24 },
-        },
-      },
-      female = {
-        yes = {
-          bounds = { x = 10, y = 26, width = 115, height = 57 },
-          textBounds = { x = 16, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 10, y = 108, width = 115, height = 56 },
-          textBounds = { x = 16, y = 128, width = 104, height = 24 },
-        },
-      },
-    },
-  }
+
   return data
 end
 
@@ -232,26 +211,28 @@ function T.tests.gender_selection_maps_source_geometry_and_centers_portraits()
     Assert.isTrue(inside(layout.oakRegion, layout.viewport))
     Assert.isTrue(inside(layout.selectorRegion, layout.viewport))
     Assert.isTrue(disjoint(layout.oakRegion, layout.selectorRegion))
-    local canvas = assert(layout.genderCanvas)
     for gender = 0, 1 do
       local id = gender == 0 and "gender_male" or "gender_female"
       local item = assert(layout.genderButtons[gender])
-      local button = item.button
+      local card = item.rect
       local source = data.genderSelector.buttons[gender == 0 and "male" or "female"].bounds
-      Assert.near((button.rect.x - canvas.origin.x) / canvas.scale, source.x)
-      Assert.near((button.rect.y - canvas.origin.y) / canvas.scale, source.y)
-      Assert.near(button.rect.width / canvas.scale, source.width)
-      Assert.near(button.rect.height / canvas.scale, source.height)
+      local canvasScale = math.min(layout.selectorRegion.width / 256, layout.selectorRegion.height / 192)
+      local canvasOriginX = layout.selectorRegion.x + (layout.selectorRegion.width - 256 * canvasScale) / 2
+      local canvasOriginY = layout.selectorRegion.y + (layout.selectorRegion.height - 192 * canvasScale) / 2
+      Assert.near((card.x - canvasOriginX) / canvasScale, source.x)
+      Assert.near((card.y - canvasOriginY) / canvasScale, source.y)
+      Assert.near(card.width / canvasScale, source.width)
+      Assert.near(card.height / canvasScale, source.height)
 
       local portrait = item.portraitRect
       local widgetValue = data.widgets[id]
       local center = widgetValue.sourceCenter
-      Assert.near((portrait.x + widgetValue.anchor.x * canvas.scale - canvas.origin.x) / canvas.scale, center.x)
-      Assert.near((portrait.y + widgetValue.anchor.y * canvas.scale - canvas.origin.y) / canvas.scale, center.y)
-      Assert.near(portrait.width / canvas.scale, widgetValue.width)
-      Assert.near(portrait.height / canvas.scale, widgetValue.height)
+      Assert.near((portrait.x + widgetValue.anchor.x * canvasScale - canvasOriginX) / canvasScale, center.x)
+      Assert.near((portrait.y + widgetValue.anchor.y * canvasScale - canvasOriginY) / canvasScale, center.y)
+      Assert.near(portrait.width / canvasScale, widgetValue.width)
+      Assert.near(portrait.height / canvasScale, widgetValue.height)
     end
-    Assert.isTrue(disjoint(layout.genderButtons[0].button.rect, layout.genderButtons[1].button.rect))
+    Assert.isTrue(disjoint(layout.genderButtons[0].rect, layout.genderButtons[1].rect))
   end
 end
 
@@ -266,33 +247,98 @@ function T.tests.gender_confirmation_maps_selected_card_and_source_side_choices(
       genderCompositionProgress = 1,
       confirmationChoice = { kind = "gender", selected = 0 },
     }, {}, data)
-    local canvas = assert(layout.genderCanvas)
     local profile = assert(layout.selectedProfileButton)
-    local profileSource = data.genderSelector.buttons[gender].bounds
     Assert.equal(profile.key, gender)
-    Assert.near((profile.button.rect.x - canvas.origin.x) / canvas.scale, profileSource.x)
-    Assert.near((profile.button.rect.y - canvas.origin.y) / canvas.scale, profileSource.y)
 
     local choices = assert(layout.confirmationButtons)
-    local sourceChoices = data.profileConfirmation.buttons[gender]
+    local previousBottom
     for choice, key in pairs({ [0] = "yes", [1] = "no" }) do
       local entry = assert(choices[choice])
-      local source = sourceChoices[key]
       Assert.equal(entry.key, key)
-      Assert.near((entry.button.rect.x - canvas.origin.x) / canvas.scale, source.bounds.x)
-      Assert.near((entry.button.rect.y - canvas.origin.y) / canvas.scale, source.bounds.y)
-      Assert.near(entry.button.rect.width / canvas.scale, source.bounds.width)
-      Assert.near(entry.button.rect.height / canvas.scale, source.bounds.height)
-      Assert.near((entry.textRect.x - canvas.origin.x) / canvas.scale, source.textBounds.x)
-      Assert.near((entry.textRect.y - canvas.origin.y) / canvas.scale, source.textBounds.y)
-      Assert.near(entry.textRect.width / canvas.scale, source.textBounds.width)
-      Assert.near(entry.textRect.height / canvas.scale, source.textBounds.height)
-      Assert.equal(entry.textScale, canvas.scale)
+      Assert.isTrue(entry.rect.width > 0 and entry.rect.height > 0)
+      if previousBottom then
+        Assert.near((entry.rect.y - previousBottom) / entry.scale, 8)
+      end
+      previousBottom = entry.rect.y + entry.rect.height
+    end
+    Assert.isTrue(inside(profile.rect, layout.selectorRegion))
+    Assert.isTrue(inside(choices[0].rect, layout.selectorRegion))
+    Assert.isTrue(inside(choices[1].rect, layout.selectorRegion))
+    if gender == "male" then
+      Assert.isTrue(profile.rect.x + profile.rect.width <= choices[0].rect.x)
+    else
+      Assert.isTrue(choices[0].rect.x + choices[0].rect.width <= profile.rect.x)
     end
   end
 end
 
-function T.tests.name_confirmation_preserves_source_choice_group_in_ordinary_scene()
+function T.tests.profile_controls_emit_final_rectangles_without_generic_button_geometry()
+  local data = manifest()
+  local layout = OakIntroLayout.compute(800, 600, {
+    phase = "gender_confirm",
+    visual = "oak",
+    primaryWidget = "oak",
+    genderFocus = 0,
+    genderCompositionProgress = 1,
+    confirmationChoice = { kind = "gender", selected = 0 },
+  }, {}, data)
+
+  local profile = assert(layout.selectedProfileButton)
+  local yes = assert(layout.confirmationButtons[0])
+  local no = assert(layout.confirmationButtons[1])
+  Assert.notNil(profile.rect, "selected profile presentation must expose its final rectangle")
+  Assert.notNil(profile.portraitRect, "selected profile presentation must retain portrait geometry")
+  Assert.notNil(yes.rect, "YES presentation must expose its final rectangle")
+  Assert.notNil(no.rect, "NO presentation must expose its final rectangle")
+  Assert.equal(nil, profile.button, "selected profile presentation must not expose generic button geometry")
+  Assert.equal(nil, yes.button, "YES presentation must not expose generic button geometry")
+  Assert.equal(nil, no.button, "NO presentation must not expose generic button geometry")
+  Assert.isTrue(inside(profile.rect, layout.selectorRegion))
+  Assert.isTrue(inside(yes.rect, layout.selectorRegion))
+  Assert.isTrue(inside(no.rect, layout.selectorRegion))
+  Assert.isTrue(OakIntroLayout.contains(yes.rect, yes.rect.x + yes.rect.width / 2, yes.rect.y + yes.rect.height / 2))
+  Assert.isFalse(OakIntroLayout.contains(yes.rect, yes.rect.x + yes.rect.width, yes.rect.y + yes.rect.height / 2))
+end
+
+function T.tests.name_confirmation_is_side_by_side_and_falls_back_only_below_minimum_target()
+  local data = manifest()
+  local function view()
+    return {
+      phase = "name_confirm",
+      visual = "oak",
+      primaryWidget = "oak",
+      genderFocus = 0,
+      confirmationChoice = { kind = "name", selected = 0 },
+      genderCompositionProgress = 0,
+      oakBgScrollX = 0,
+    }
+  end
+
+  local ordinary = OakIntroLayout.compute(800, 600, view(), {}, data)
+  local ordinaryYes = assert(ordinary.confirmationButtons[0])
+  local ordinaryNo = assert(ordinary.confirmationButtons[1])
+  Assert.isTrue(ordinaryYes.rect.x + ordinaryYes.rect.width <= ordinaryNo.rect.x)
+  Assert.isTrue(ordinaryYes.rect.height >= 44)
+  Assert.isTrue(ordinaryNo.rect.height >= 44)
+
+  local constrained = OakIntroLayout.compute(96, 96, view(), {}, data)
+  local constrainedYes = assert(constrained.confirmationButtons[0])
+  local constrainedNo = assert(constrained.confirmationButtons[1])
+  Assert.isTrue(constrainedYes.rect.y + constrainedYes.rect.height <= constrainedNo.rect.y)
+  Assert.isTrue(inside(constrainedYes.rect, constrained.stageContent))
+  Assert.isTrue(inside(constrainedNo.rect, constrained.stageContent))
+
+  for _, size in ipairs({ { 1, 1 }, { 2, 3 }, { 10, 10 } }) do
+    local tiny = OakIntroLayout.compute(size[1], size[2], view(), {}, data)
+    for choice = 0, 1 do
+      local entry = assert(tiny.confirmationButtons[choice])
+      Assert.isTrue(entry.rect.width > 0 and entry.rect.height > 0)
+      Assert.isTrue(inside(entry.rect, tiny.stageContent), "tiny confirmation must remain inside safe content")
+    end
+  end
+end
+
+function T.tests.name_confirmation_is_centered_side_by_side_in_ordinary_scene()
   local data = manifest()
   for _, gender in ipairs({ "male", "female" }) do
     local layout = OakIntroLayout.compute(800, 600, {
@@ -308,24 +354,13 @@ function T.tests.name_confirmation_preserves_source_choice_group_in_ordinary_sce
     Assert.isNil(layout.oakRegion)
     Assert.isNil(layout.selectorRegion)
     local choices = assert(layout.confirmationButtons)
-    local scale = assert(layout.confirmationScale)
-    local sourceChoices = data.profileConfirmation.buttons[gender]
-    local previousBottom
     for choice, key in pairs({ [0] = "yes", [1] = "no" }) do
       local entry = assert(choices[choice])
-      local source = sourceChoices[key]
       Assert.equal(entry.key, key)
-      Assert.near(entry.button.rect.width / scale, source.bounds.width)
-      Assert.near(entry.button.rect.height / scale, source.bounds.height)
-      Assert.near(entry.textRect.width / scale, source.textBounds.width)
-      Assert.near(entry.textRect.height / scale, source.textBounds.height)
-      Assert.near(entry.textScale, scale)
-      Assert.isTrue(inside(entry.button.rect, layout.stageContent))
-      if previousBottom then
-        Assert.near((entry.button.rect.y - previousBottom) / scale, 25)
-      end
-      previousBottom = entry.button.rect.y + entry.button.rect.height
+      Assert.isTrue(inside(entry.rect, layout.stageContent))
+      Assert.isTrue(entry.rect.height >= 44)
     end
+    Assert.isTrue(choices[0].rect.x + choices[0].rect.width <= choices[1].rect.x)
   end
 end
 
@@ -480,20 +515,21 @@ end
 local function driveControllerToNameEdit(state)
   state:start()
   advanceControllerUntilPhase(state, "greeting")
-  state:press("confirm")
+  state:messageCompleted(assert(state:view().messageKey))
   advanceControllerUntilPhase(state, "oak_welcome")
-  state:press("confirm")
+  state:messageCompleted(assert(state:view().messageKey))
   advanceControllerUntilPhase(state, "oak_world_inhabited")
-  state:press("confirm")
+  state:messageCompleted(assert(state:view().messageKey))
   advanceControllerUntilPhase(state, "oak_live_alongside")
-  state:press("confirm")
+  state:messageCompleted(assert(state:view().messageKey))
   advanceControllerUntilPhase(state, "oak_tell_about_yourself")
-  state:press("confirm")
-  state:press("confirm")
+  state:messageCompleted(assert(state:view().messageKey))
+  state:messageCompleted(assert(state:view().messageKey))
   state:tick(26)
   state:press("confirm")
+  state:messageCompleted(assert(state:view().messageKey))
   state:press("confirm")
-  state:press("confirm")
+  state:messageCompleted(assert(state:view().messageKey))
   advanceControllerUntilPhase(state, "name_edit")
 end
 

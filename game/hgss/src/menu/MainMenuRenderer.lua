@@ -1,60 +1,12 @@
 -- Responsive renderer for the product Main Menu. It consumes the state view
 -- and its precomputed rectangles; it never performs hit testing or persistence.
 
-local Button = require("libs.ui.src.Button")
-local ButtonPainter = require("game.hgss.src.ui.ButtonPainter")
-
 ---@class MainMenuRenderer
 ---@field new fun(): MainMenuRenderer
 ---@field draw fun(self: MainMenuRenderer, view: table)
 ---@field dispose? fun(self: MainMenuRenderer)
 local MainMenuRenderer = {}
 MainMenuRenderer.__index = MainMenuRenderer
-
-local BUTTON_BORDER_WIDTH = 1
-local BUTTON_RIM_WIDTH = 1
-local BUTTON_INNER_BORDER_WIDTH = 1
-local BUTTON_CORNER_CUT = 1
-local BUTTON_FACE_SPLIT = 0.5
-local BUTTON_CONTENT_INSET_X = 4
-local BUTTON_CONTENT_INSET_Y = 2
-
-local function actionButton(rect)
-  local minimum = math.min(rect.width, rect.height)
-  local layerWidth = math.min(1, math.max(0, (minimum - 1) / 6))
-  local cornerCut = math.min(1, math.max(0, (minimum - 1) / 2))
-  local totalLayerWidth = layerWidth * 3
-  return Button.resolve({
-    rect = rect,
-    borderWidth = math.min(BUTTON_BORDER_WIDTH, layerWidth),
-    rimWidth = math.min(BUTTON_RIM_WIDTH, layerWidth),
-    innerBorderWidth = math.min(BUTTON_INNER_BORDER_WIDTH, layerWidth),
-    cornerCut = math.min(BUTTON_CORNER_CUT, cornerCut),
-    faceSplit = BUTTON_FACE_SPLIT,
-    contentInsetX = math.min(BUTTON_CONTENT_INSET_X, math.max(0, (rect.width - totalLayerWidth * 2 - 1) / 2)),
-    contentInsetY = math.min(BUTTON_CONTENT_INSET_Y, math.max(0, (rect.height - totalLayerWidth * 2 - 1) / 2)),
-  })
-end
-
-local function drawActionButton(rect, label, textColor, faceColor, highlightColor, shadowColor)
-  local button = actionButton(rect)
-  local lg = love.graphics
-  ButtonPainter.draw(lg, button, {
-    border = shadowColor,
-    rim = highlightColor,
-    innerBorder = highlightColor,
-    faceTop = faceColor,
-    faceBottom = faceColor,
-  })
-  lg.setColor(textColor[1], textColor[2], textColor[3], textColor[4])
-  lg.printf(
-    label,
-    button.contentRect.x,
-    button.contentRect.y + math.floor((button.contentRect.height - 14) / 2),
-    button.contentRect.width,
-    "center"
-  )
-end
 
 local function cardTitle(item)
   if item.id == "new-game" then
@@ -120,14 +72,10 @@ function MainMenuRenderer:draw(view)
         end
 
         if card.delete then
-          drawActionButton(
-            card.delete,
-            "Delete",
-            { 1, 0.8, 0.8, 1 },
-            { 0.28, 0.18, 0.22, 1 },
-            { 0.45, 0.3, 0.34, 1 },
-            { 0.12, 0.08, 0.1, 1 }
-          )
+          lg.setColor(0.28, 0.18, 0.22, 1)
+          lg.rectangle("fill", card.delete.x, card.delete.y, card.delete.width, card.delete.height)
+          lg.setColor(1, 0.8, 0.8, 1)
+          lg.printf("Delete", card.delete.x, card.delete.y + 14, card.delete.width, "center")
         end
       end
     end
@@ -151,22 +99,13 @@ function MainMenuRenderer:draw(view)
     lg.printf("Delete this save?", dialog.box.x + 12, dialog.box.y + 14, dialog.box.width - 24, "center")
     lg.setColor(0.75, 0.8, 0.88, 1)
     lg.printf("" .. tostring(view.dialog.saveId), dialog.box.x + 12, dialog.box.y + 38, dialog.box.width - 24, "center")
-    drawActionButton(
-      dialog.cancel,
-      "Cancel",
-      { 1, 1, 1, 1 },
-      { view.dialog.focusedAction == "cancel" and 0.3 or 0.2, 0.35, 0.45, 1 },
-      { 0.55, 0.65, 0.8, 1 },
-      { 0.08, 0.1, 0.15, 1 }
-    )
-    drawActionButton(
-      dialog.delete,
-      "Delete",
-      { 1, 1, 1, 1 },
-      { view.dialog.focusedAction == "delete" and 0.55 or 0.3, 0.2, 0.25, 1 },
-      { 0.8, 0.45, 0.45, 1 },
-      { 0.18, 0.08, 0.1, 1 }
-    )
+    lg.setColor(view.dialog.focusedAction == "cancel" and 0.3 or 0.2, 0.35, 0.45, 1)
+    lg.rectangle("fill", dialog.cancel.x, dialog.cancel.y, dialog.cancel.width, dialog.cancel.height)
+    lg.setColor(view.dialog.focusedAction == "delete" and 0.55 or 0.3, 0.2, 0.25, 1)
+    lg.rectangle("fill", dialog.delete.x, dialog.delete.y, dialog.delete.width, dialog.delete.height)
+    lg.setColor(1, 1, 1, 1)
+    lg.printf("Cancel", dialog.cancel.x, dialog.cancel.y + 10, dialog.cancel.width, "center")
+    lg.printf("Delete", dialog.delete.x, dialog.delete.y + 10, dialog.delete.width, "center")
   end
 end
 

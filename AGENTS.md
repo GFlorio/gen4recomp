@@ -32,7 +32,6 @@ Read the narrowest authoritative source instead of duplicating it:
 - `libs/script/AGENTS.md`: mod scripting platform ownership and injected game meaning.
 - `libs/hgss/AGENTS.md`: recreated HGSS runtime mechanism ownership.
 - `libs/assets/AGENTS.md`: generated/mod-facing asset contract rules.
-- `libs/ui/AGENTS.md`: game-independent, LÖVE-independent UI mechanisms.
 - `app/AGENTS.md`: process, launcher, and provisioning rules.
 - `game/AGENTS.md`: game-agnostic lifecycle and host-adapter rules.
 - `game/hgss/AGENTS.md`: concrete HGSS application composition and policy rules.
@@ -112,8 +111,6 @@ source-grounded domain concept.
 - `libs/nds`, `libs/script`, and `libs/hgss` are the runtime package owners described by
   their package guidance. `game/hgss` depends on HGSS mechanisms, not Nintendo implementation
   details; direct imports of `libs.nds` from either game package are forbidden.
-- `libs/ui` owns game-independent, LÖVE-independent UI mechanisms and is consumed only by
-  concrete current features that need them.
 - Normal `game/hgss` runtime consumes generated assets and HGSS-facing mechanisms; generic
   `game` owns only lifecycle and host adapters. Neither game package decodes ROM formats or
   imports decomp-derived references. The `app` launcher/import UI is the sole provisioning

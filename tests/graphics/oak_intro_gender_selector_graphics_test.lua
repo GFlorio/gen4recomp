@@ -20,6 +20,16 @@ local function textRenderer()
   }
 end
 
+local function choiceTextRenderer()
+  local renderer = textRenderer()
+  renderer.fontDef = { lineHeight = 16, palette = {} }
+  for slot = 1, 16 do
+    renderer.fontDef.palette[slot] = { r = 1, g = 1, b = 1 }
+  end
+  renderer.drawTextWithPalette = function() end
+  return renderer
+end
+
 local function readyManifests()
   local result = {}
   for _, versionId in ipairs(GameVersion.ORDER) do
@@ -48,6 +58,7 @@ local function rendererFor(scope, cache, manifest)
       return newImage(cache, path)
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
   scope:own({
     release = function()
@@ -92,7 +103,7 @@ local function quantize(value)
   return math.floor(value * 255 + 0.5)
 end
 
-function T.button_faces_replace_source_chrome_and_keep_background_gaps(scope)
+function T.card_interiors_preserve_background_while_frames_and_portraits_remain_visible(scope)
   for _, entry in ipairs(readyManifests()) do
     local view = selectorView(entry.manifest, 256, 192)
     local renderer = rendererFor(scope, entry.cache, entry.manifest)
@@ -102,14 +113,27 @@ function T.button_faces_replace_source_chrome_and_keep_background_gaps(scope)
     backgroundView.layout = OakIntroLayout.compute(256, 192, backgroundView, {}, entry.manifest)
     local background = render(scope, renderer, backgroundView)
     for gender = 0, 1 do
-      local button = view.layout.genderButtons[gender].button
-      local x, y = math.floor(button.face.rect.x + 1), math.floor(button.face.rect.y + 1)
-      local br, bg, bb = background:getPixel(x, y)
-      local ar, ag, ab = actual:getPixel(x, y)
-      Assert.isTrue(quantize(ar) ~= quantize(br) or quantize(ag) ~= quantize(bg) or quantize(ab) ~= quantize(bb))
+      local cardEntry = view.layout.genderButtons[gender]
+      local card, portrait = cardEntry.rect, cardEntry.portraitRect
+      for y = math.floor(card.y + 4), math.ceil(card.y + card.height - 4) - 1 do
+        for x = math.floor(card.x + 4), math.ceil(card.x + card.width - 4) - 1 do
+          if
+            x < portrait.x
+            or x >= portrait.x + portrait.width
+            or y < portrait.y
+            or y >= portrait.y + portrait.height
+          then
+            local br, bg, bb = background:getPixel(x, y)
+            local ar, ag, ab = actual:getPixel(x, y)
+            Assert.equal(quantize(ar), quantize(br), entry.versionId .. " card interior red channel")
+            Assert.equal(quantize(ag), quantize(bg), entry.versionId .. " card interior green channel")
+            Assert.equal(quantize(ab), quantize(bb), entry.versionId .. " card interior blue channel")
+          end
+        end
+      end
     end
-    local left = view.layout.genderButtons[0].button.rect
-    local right = view.layout.genderButtons[1].button.rect
+    local left = view.layout.genderButtons[0].rect
+    local right = view.layout.genderButtons[1].rect
     local x, y = math.floor((left.x + left.width + right.x) / 2), math.floor(left.y + left.height / 2)
     local br, bg, bb, ba = background:getPixel(x, y)
     local ar, ag, ab, aa = actual:getPixel(x, y)
@@ -120,17 +144,17 @@ function T.button_faces_replace_source_chrome_and_keep_background_gaps(scope)
   end
 end
 
-function T.selected_primitive_focus_changes_without_recoloring_portraits(scope)
+function T.selected_frame_changes_without_recoloring_portraits(scope)
   for _, entry in ipairs(readyManifests()) do
     local renderer = rendererFor(scope, entry.cache, entry.manifest)
     local focusedView = selectorView(entry.manifest, 256, 192, 0, 0)
     local unfocusedView = selectorView(entry.manifest, 256, 192, 1, 0)
     local focused = render(scope, renderer, focusedView)
     local unfocused = render(scope, renderer, unfocusedView)
-    local button = focusedView.layout.genderButtons[0].button
+    local card = focusedView.layout.genderButtons[0].rect
     local changed = false
-    for y = math.floor(button.rim.rect.y), math.ceil(button.rim.rect.y + button.rim.rect.height) - 1 do
-      for x = math.floor(button.rim.rect.x), math.ceil(button.rim.rect.x + button.rim.rect.width) - 1 do
+    for y = math.floor(card.y), math.ceil(card.y + card.height) - 1 do
+      for x = math.floor(card.x), math.ceil(card.x + card.width) - 1 do
         local fr, fg, fb = focused:getPixel(x, y)
         local ur, ug, ub = unfocused:getPixel(x, y)
         if quantize(fr) ~= quantize(ur) or quantize(fg) ~= quantize(ug) or quantize(fb) ~= quantize(ub) then
@@ -143,10 +167,22 @@ function T.selected_primitive_focus_changes_without_recoloring_portraits(scope)
       end
     end
     Assert.isTrue(changed, "focused card rim must differ from its unfocused rendering")
+    for gender = 0, 1 do
+      local portrait = focusedView.layout.genderButtons[gender].portraitRect
+      for y = math.floor(portrait.y), math.ceil(portrait.y + portrait.height) - 1 do
+        for x = math.floor(portrait.x), math.ceil(portrait.x + portrait.width) - 1 do
+          local fr, fg, fb = focused:getPixel(x, y)
+          local ur, ug, ub = unfocused:getPixel(x, y)
+          Assert.equal(quantize(fr), quantize(ur), "focus must not recolor portrait red channel")
+          Assert.equal(quantize(fg), quantize(ug), "focus must not recolor portrait green channel")
+          Assert.equal(quantize(fb), quantize(ub), "focus must not recolor portrait blue channel")
+        end
+      end
+    end
   end
 end
 
-function T.both_source_gender_portraits_remain_visible_inside_button_content(scope)
+function T.both_source_gender_portraits_remain_visible_inside_cards(scope)
   for _, entry in ipairs(readyManifests()) do
     local view = selectorView(entry.manifest, 256, 192)
     local renderer = rendererFor(scope, entry.cache, entry.manifest)
@@ -158,10 +194,10 @@ function T.both_source_gender_portraits_remain_visible_inside_button_content(sco
     for gender = 0, 1 do
       local entryLayout = view.layout.genderButtons[gender]
       local portrait = entryLayout.portraitRect
-      local content = entryLayout.button.contentRect
-      Assert.isTrue(portrait.x >= content.x and portrait.y >= content.y)
-      Assert.isTrue(portrait.x + portrait.width <= content.x + content.width)
-      Assert.isTrue(portrait.y + portrait.height <= content.y + content.height)
+      local card = entryLayout.rect
+      Assert.isTrue(portrait.x >= card.x and portrait.y >= card.y)
+      Assert.isTrue(portrait.x + portrait.width <= card.x + card.width)
+      Assert.isTrue(portrait.y + portrait.height <= card.y + card.height)
       local visible = false
       for y = math.floor(portrait.y), math.ceil(portrait.y + portrait.height) - 1 do
         for x = math.floor(portrait.x), math.ceil(portrait.x + portrait.width) - 1 do

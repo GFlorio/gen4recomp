@@ -6,7 +6,6 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 local OakIntroRenderer = require("game.hgss.src.newgame.OakIntroRenderer")
-local Button = require("libs.ui.src.Button")
 
 local T = {}
 
@@ -20,35 +19,29 @@ local function textRenderer()
   }
 end
 
+local function choiceTextRenderer()
+  local text = textRenderer()
+  text.fontDef.palette = {}
+  for slot = 1, 16 do
+    text.fontDef.palette[slot] = { r = slot / 16, g = slot / 16, b = slot / 16 }
+  end
+  text.drawTextWithPalette = function() end
+  return text
+end
+
 local function genderButtons()
   return {
     [0] = {
       key = "male",
-      button = Button.resolve({
-        rect = { x = 10, y = 10, width = 60, height = 80 },
-        borderWidth = 2,
-        rimWidth = 2,
-        innerBorderWidth = 1,
-        cornerCut = 2,
-        faceSplit = 0.5,
-        contentInsetX = 4,
-        contentInsetY = 4,
-      }),
+      rect = { x = 10, y = 10, width = 60, height = 80 },
+      scale = 1,
       portraitId = "gender_male",
       portraitRect = { x = 20, y = 20, width = 40, height = 60 },
     },
     [1] = {
       key = "female",
-      button = Button.resolve({
-        rect = { x = 90, y = 10, width = 60, height = 80 },
-        borderWidth = 2,
-        rimWidth = 2,
-        innerBorderWidth = 1,
-        cornerCut = 2,
-        faceSplit = 0.5,
-        contentInsetX = 4,
-        contentInsetY = 4,
-      }),
+      rect = { x = 90, y = 10, width = 60, height = 80 },
+      scale = 1,
       portraitId = "gender_female",
       portraitRect = { x = 100, y = 20, width = 40, height = 60 },
     },
@@ -74,6 +67,8 @@ local function manifest()
     "shrink_male",
     "shrink_female",
     "ball_open",
+    "confirmation_yes",
+    "confirmation_no",
     "gender_male",
     "gender_female",
   }) do
@@ -88,6 +83,22 @@ local function manifest()
   assets.oak.frames = {
     { image = "oak.png", x = 0, y = 0, width = 4, height = 4, duration = 1 },
     { image = "oak.png", x = 0, y = 4, width = 4, height = 4, duration = 1 },
+  }
+  assets.confirmation_yes = {
+    image = "confirmation_yes.png",
+    width = 4,
+    height = 4,
+    sampling = "nearest",
+    contentRect = { x = 1, y = 1, width = 2, height = 2 },
+    frames = { { image = "confirmation_yes.png", x = 0, y = 0, width = 4, height = 4, duration = 1 } },
+  }
+  assets.confirmation_no = {
+    image = "confirmation_no.png",
+    width = 4,
+    height = 4,
+    sampling = "nearest",
+    contentRect = { x = 1, y = 1, width = 2, height = 2 },
+    frames = { { image = "confirmation_no.png", x = 0, y = 0, width = 4, height = 4, duration = 1 } },
   }
   local background = assets.background
   assets.background = nil
@@ -188,6 +199,7 @@ T.responsive_renderer_uses_declared_sampling_and_identity_tint = function()
       return image
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
   local normal = view()
   normal.primaryWidget = "oak"
@@ -230,6 +242,7 @@ T.background_gradient_stretches_to_the_host_viewport = function()
       return image
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
   local oakView = view()
   oakView.layout.viewport = { x = 13, y = 17, width = 1600, height = 900 }
@@ -263,6 +276,7 @@ T.gender_gradient_covers_the_full_viewport_not_a_composition_region = function()
       return image
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
   local gender = view()
   gender.phase = "gender_select"
@@ -296,6 +310,7 @@ T.background_only_view_draws_the_gradient_once_without_a_subject = function()
       return image
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
   local controller = backgroundOnlyController()
   local background = controller:view() --[[@as table]]
@@ -310,6 +325,108 @@ T.background_only_view_draws_the_gradient_once_without_a_subject = function()
   renderer:dispose()
 end
 
+function T.confirmation_uses_font_zero_metrics_and_font_four_source_palette()
+  local graphics = FakeGraphics.new()
+  local manifestValue = manifest()
+  local measuredLabels = {}
+  local palettes = {}
+  local font0 = textRenderer()
+  font0.textWidth = function(_, label)
+    measuredLabels[#measuredLabels + 1] = label
+    return 8
+  end
+  local font4 = choiceTextRenderer()
+  font4.fontDef.palette[1] = { r = 32, g = 64, b = 96 }
+  font4.fontDef.palette[2] = { r = 7, g = 8, b = 9 }
+  font4.fontDef.palette[16] = { r = 200, g = 210, b = 220 }
+  font4.drawTextWithPalette = function(_, label, _, _, palette)
+    palettes[#palettes + 1] = { label = label, value = palette }
+  end
+  local renderer = OakIntroRenderer.new({
+    manifest = manifestValue,
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = font0,
+    choiceText = font4,
+  })
+  local confirmation = view()
+  confirmation.phase = "gender_confirm"
+  confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
+  confirmation.confirmationChoice = { kind = "gender", selected = 0 }
+  confirmation.layout.confirmationButtons = {
+    [0] = { key = "yes", rect = { x = 10, y = 20, width = 24, height = 30 }, scale = 1 },
+    [1] = { key = "no", rect = { x = 40, y = 20, width = 24, height = 30 }, scale = 1 },
+  }
+
+  renderer:draw(confirmation)
+
+  Assert.deepEqual(measuredLabels, { "YES", "NO" })
+  Assert.equal(#palettes, 2)
+  for _, entry in ipairs(palettes) do
+    Assert.deepEqual(entry.value.foreground, { r = 200, g = 210, b = 220 })
+    Assert.deepEqual(entry.value.shadow, { r = 7, g = 8, b = 9 })
+    Assert.deepEqual(entry.value.background, { r = 32, g = 64, b = 96 })
+  end
+  local fill
+  for _, rectangle in ipairs(graphics.rectangles) do
+    if
+      rectangle.mode == "fill"
+      and rectangle.x == 11
+      and rectangle.y == 21
+      and rectangle.w == 2
+      and rectangle.h == 2
+    then
+      fill = rectangle
+      break
+    end
+  end
+  Assert.notNil(fill, "confirmation content window must be filled")
+  Assert.deepEqual(assert(fill).color, { 32 / 255, 64 / 255, 96 / 255, 1 })
+  renderer:dispose()
+end
+
+function T.selected_confirmation_focus_stays_outside_label_content()
+  local graphics = FakeGraphics.new()
+  local manifestValue = manifest()
+  manifestValue.widgets.confirmation_yes.contentRect = { x = 2, y = 2, width = 6, height = 6 }
+  manifestValue.widgets.confirmation_no.contentRect = { x = 2, y = 2, width = 6, height = 6 }
+  local renderer = OakIntroRenderer.new({
+    manifest = manifestValue,
+    graphics = graphics,
+    imageLoader = function(path)
+      local image = graphics.newImage()
+      image.path = path
+      return image
+    end,
+    text = textRenderer(),
+    choiceText = choiceTextRenderer(),
+  })
+  local confirmation = view()
+  confirmation.phase = "gender_confirm"
+  confirmation.choiceLabels = { [0] = "YES", [1] = "NO" }
+  confirmation.confirmationChoice = { kind = "gender", selected = 0 }
+  confirmation.layout.confirmationButtons = {
+    [0] = { key = "yes", rect = { x = 10, y = 20, width = 10, height = 10 }, scale = 1 },
+    [1] = { key = "no", rect = { x = 30, y = 20, width = 10, height = 10 }, scale = 1 },
+  }
+
+  renderer:draw(confirmation)
+
+  for _, rectangle in ipairs(graphics.rectangles) do
+    if rectangle.color[1] == 1 and rectangle.color[2] == 58 / 255 and rectangle.color[3] == 58 / 255 then
+      Assert.isTrue(
+        rectangle.x + rectangle.w <= 12 or rectangle.x >= 18 or rectangle.y + rectangle.h <= 22 or rectangle.y >= 28,
+        "focus outline must not cover the label content rectangle"
+      )
+    end
+  end
+  renderer:dispose()
+end
+
 function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(_)
   local graphics = FakeGraphics.new({ imageSizes = { { 8, 8 }, { 4, 8 } } })
   local renderer = OakIntroRenderer.new({
@@ -319,6 +436,7 @@ function T.nonzero_atlas_frame_is_drawn_with_a_reusable_quad(_)
       return graphics.newImage()
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
   renderer:draw(view())
   Assert.equal(#graphics.draws, 2)
@@ -338,6 +456,7 @@ function T.constructor_releases_images_when_quad_creation_fails()
         return graphics.newImage()
       end,
       text = textRenderer(),
+      choiceText = choiceTextRenderer(),
     })
   end)
   Assert.isFalse(ok)
@@ -357,6 +476,7 @@ function T.constructor_rejects_nil_shader_and_releases_each_image_once()
         return graphics.newImage()
       end,
       text = textRenderer(),
+      choiceText = choiceTextRenderer(),
     })
   end)
   Assert.isFalse(ok)
@@ -386,6 +506,7 @@ function T.animated_frames_use_distinct_images_and_release_unique_paths()
       return image
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
 
   local first = view()
@@ -419,6 +540,7 @@ function T.image_construction_failure_releases_every_prior_image()
         return graphics.newImage()
       end,
       text = textRenderer(),
+      choiceText = choiceTextRenderer(),
     })
   end)
   Assert.isFalse(ok)
@@ -444,6 +566,7 @@ T.gender_focus_leaves_portrait_draw_color_untinted = function()
       return image
     end,
     text = textRenderer(),
+    choiceText = choiceTextRenderer(),
   })
   local gender = view()
   gender.phase = "gender_select"
@@ -469,12 +592,13 @@ T.gender_focus_leaves_portrait_draw_color_untinted = function()
   renderer:dispose()
 end
 
-T.renderer_does_not_require_generated_profile_control_surfaces = function()
+T.constructor_rejects_missing_confirmation_widget = function()
   local graphics = FakeGraphics.new({
     imageSizes = { { 1, 192 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 }, { 4, 8 } },
   })
   local manifestValue = manifest()
-  local ok = pcall(function()
+  manifestValue.widgets.confirmation_yes = nil
+  local ok, failure = pcall(function()
     OakIntroRenderer.new({
       manifest = manifestValue,
       graphics = graphics,
@@ -484,9 +608,11 @@ T.renderer_does_not_require_generated_profile_control_surfaces = function()
         return image
       end,
       text = textRenderer(),
+      choiceText = choiceTextRenderer(),
     })
   end)
-  Assert.isTrue(ok, "primitive controls do not require generated profile control surfaces")
+  Assert.isFalse(ok)
+  Assert.isTrue(tostring(failure):find("confirmation_yes", 1, true) ~= nil)
 end
 
 return GraphicsSmoke.suite(T)

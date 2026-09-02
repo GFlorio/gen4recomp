@@ -40,45 +40,20 @@ local DIALOGUE_CURSOR_PLACEMENT = { x = 240, y = 168, width = 16, height = 16 }
 ---@field dispose fun(self: OakIntroStateTest.Renderer)
 
 local INTRO_MANIFEST = {
-  schemaVersion = 8,
+  schemaVersion = 9,
   sourceReference = { width = 256, height = 192 },
   genderSelector = {
     defaultTone = { r = 100, g = 101, b = 102 },
     buttons = {
       male = {
         bounds = { x = 18, y = 25, width = 93, height = 148 },
-        hitBounds = { x = 18, y = 25, width = 93, height = 148 },
       },
       female = {
         bounds = { x = 144, y = 25, width = 95, height = 148 },
-        hitBounds = { x = 144, y = 25, width = 95, height = 148 },
       },
     },
   },
-  profileConfirmation = {
-    buttons = {
-      male = {
-        yes = {
-          bounds = { x = 138, y = 26, width = 115, height = 57 },
-          textBounds = { x = 136, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 138, y = 108, width = 115, height = 56 },
-          textBounds = { x = 136, y = 128, width = 104, height = 24 },
-        },
-      },
-      female = {
-        yes = {
-          bounds = { x = 10, y = 26, width = 115, height = 57 },
-          textBounds = { x = 16, y = 48, width = 104, height = 24 },
-        },
-        no = {
-          bounds = { x = 10, y = 108, width = 115, height = 56 },
-          textBounds = { x = 16, y = 128, width = 104, height = 24 },
-        },
-      },
-    },
-  },
+
   background = { width = 256, height = 192, sampling = "linear" },
   widgets = {
     oak = {
@@ -112,6 +87,20 @@ local INTRO_MANIFEST = {
       anchor = { x = 32, y = 48 },
       sourceBounds = { x = 0, y = 0, width = 64, height = 96 },
       sourceCenter = { x = 192, y = 104 },
+    },
+    confirmation_yes = {
+      width = 115,
+      height = 57,
+      anchor = { x = 0, y = 0 },
+      sourceBounds = { x = 138, y = 26, width = 115, height = 57 },
+      contentRect = { x = 6, y = 22, width = 104, height = 24 },
+    },
+    confirmation_no = {
+      width = 115,
+      height = 56,
+      anchor = { x = 0, y = 0 },
+      sourceBounds = { x = 138, y = 108, width = 115, height = 56 },
+      contentRect = { x = 6, y = 20, width = 104, height = 24 },
     },
   },
 }
@@ -185,10 +174,15 @@ local function stateHarness()
   function renderer:dispose()
     self.disposed = self.disposed + 1
   end
+  local choiceText = { releases = 0 }
+  function choiceText:release()
+    self.releases = self.releases + 1
+  end
   local state = OakIntroState.new({
     controller = controller --[[@as OakIntroController]],
     manifest = INTRO_MANIFEST,
     textRenderer = {},
+    choiceText = choiceText,
     renderer = renderer,
     textInputHost = input,
     dialogueFormatter = {
@@ -204,7 +198,7 @@ local function stateHarness()
     height = 480,
     dialogueCursorPlacement = DIALOGUE_CURSOR_PLACEMENT,
   })
-  return state, controller, input, renderer
+  return state, controller, input, renderer, choiceText
 end
 
 function T.text_input_is_owned_only_by_the_name_editor_and_released_on_dispose()
@@ -235,8 +229,8 @@ function T.pointer_hits_the_same_button_geometry_used_by_presentation()
   controller.phase = "gender_select"
   local genderLayout = state:view().layout
   state:mousepressed(
-    genderLayout.genderButtons[1].button.rect.x + genderLayout.genderButtons[1].button.rect.width / 2,
-    genderLayout.genderButtons[1].button.rect.y + genderLayout.genderButtons[1].button.rect.height / 2,
+    genderLayout.genderButtons[1].rect.x + genderLayout.genderButtons[1].rect.width / 2,
+    genderLayout.genderButtons[1].rect.y + genderLayout.genderButtons[1].rect.height / 2,
     1
   )
   Assert.deepEqual(controller.pressed, { "female" })
@@ -246,21 +240,13 @@ function T.pointer_hits_the_same_button_geometry_used_by_presentation()
   local layout = state:view().layout
   Assert.isNil(layout.genderButtons)
   state:mousepressed(
-    layout.selectedProfileButton.button.rect.x + layout.selectedProfileButton.button.rect.width / 2,
-    layout.selectedProfileButton.button.rect.y + layout.selectedProfileButton.button.rect.height / 2,
+    layout.selectedProfileButton.rect.x + layout.selectedProfileButton.rect.width / 2,
+    layout.selectedProfileButton.rect.y + layout.selectedProfileButton.rect.height / 2,
     1
   )
   Assert.deepEqual(controller.pressed, { "female" })
-  state:mousepressed(
-    layout.confirmationButtons[0].button.rect.x + 1,
-    layout.confirmationButtons[0].button.rect.y + 1,
-    1
-  )
-  state:mousepressed(
-    layout.confirmationButtons[1].button.rect.x + 1,
-    layout.confirmationButtons[1].button.rect.y + 1,
-    1
-  )
+  state:mousepressed(layout.confirmationButtons[0].rect.x + 1, layout.confirmationButtons[0].rect.y + 1, 1)
+  state:mousepressed(layout.confirmationButtons[1].rect.x + 1, layout.confirmationButtons[1].rect.y + 1, 1)
   Assert.deepEqual(controller.pressed, { "female", "yes", "no" })
 end
 
@@ -333,6 +319,13 @@ function T.audio_lifetime_is_released_once_with_the_state()
   Assert.equal(lifetime.releases, 1)
   Assert.equal(controller.disposed, 1)
   Assert.equal(renderer.disposed, 1)
+end
+
+function T.choice_text_renderer_is_released_once_with_the_state()
+  local state, _, _, _, choiceText = stateHarness()
+  state:dispose()
+  state:dispose()
+  Assert.equal(choiceText.releases, 1)
 end
 
 function T.shared_dialogue_stack_is_advanced_and_drawn_by_the_state()
@@ -524,6 +517,7 @@ local function stateAtFreshFullArtHold(frameDuration, frameCount)
     controller = controller,
     manifest = SHRINK_MANIFEST,
     textRenderer = {},
+    choiceText = { release = function() end },
     renderer = renderer,
     glyphs = { "A", "B", "C", "D", "E", "F", "G", "O", "L" },
     width = 640,
