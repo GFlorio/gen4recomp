@@ -9,6 +9,7 @@ local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
 local ScriptIdentity = require("libs.assets.src.ScriptIdentity")
+local SignpostTrace = require("tests.acceptance.support.SignpostTrace")
 
 local T = {
   metadata = {
@@ -20,6 +21,7 @@ local T = {
 
 local TOWN = "MAP_NEW_BARK"
 local LAB_2F = "MAP_NEW_BARK_ELMS_LAB_2F"
+local MAILBOX_SCRIPT = "vanilla.hgss.scr_seq.0842.script_016"
 local VAR_UNK_407C = FieldScriptSymbols.variablesByName.VAR_UNK_407C
 
 local function withGame(map, fn, fieldOptions)
@@ -309,6 +311,150 @@ function T.tests.mid_step_direction_edge_cannot_start_passive_sign()
 
     Assert.equal(#game:recordsNamed("script.started"), before, "a fresh direction edge must not probe while walking")
     Assert.equal(game:snapshot().player.facing, establishedFacing, "the mid-step probe must not change facing")
+  end, { recordingScriptHosts = true })
+end
+
+-- One traced opening must show exactly one activation, one wipe-in run, and a
+-- single monotonic hidden-to-visible climb with a coherent hidden pair on the
+-- activation frame. Returns the endpoint sample index so the caller can
+-- delimit dismissal and repeat windows on the same trace.
+local function assertSingleMonotonicWipe(trace, fromIndex, label)
+  local samples = trace.samples
+  local firstActive
+  for index = fromIndex, #samples do
+    if samples[index].signpost.active then
+      firstActive = index
+      break
+    end
+  end
+  Assert.notNil(firstActive, label .. " must present the signpost window")
+  local opening = samples[firstActive].signpost
+  Assert.equal(opening.logicalYOffset, -48, label .. " must start hidden")
+  Assert.equal(opening.previousLogicalYOffset, -48, label .. " must open with a coherent hidden interpolation pair")
+  Assert.equal(
+    samples[firstActive].wipe.alpha0,
+    samples[firstActive].wipe.alpha1,
+    label .. " must stay hidden for every render alpha on the activation frame"
+  )
+
+  local activations = 0
+  local wipeRuns = 0
+  local currents = {}
+  local endpoint = nil
+  local index = firstActive
+  while index <= #samples do
+    local sample = samples[index]
+    local previous = samples[index - 1]
+    if index == firstActive or not previous.signpost.active then
+      activations = activations + 1
+    end
+    if sample.signpost.command == "wipe_in" and previous.signpost.command ~= "wipe_in" then
+      wipeRuns = wipeRuns + 1
+    end
+    local lastCurrent = currents[#currents]
+    if lastCurrent == nil or lastCurrent ~= sample.signpost.logicalYOffset then
+      currents[#currents + 1] = sample.signpost.logicalYOffset
+    end
+    if sample.signpost.command == "nop" and sample.signpost.logicalYOffset == 0 then
+      endpoint = index
+      break
+    end
+    index = index + 1
+  end
+  Assert.notNil(endpoint, label .. " must complete its wipe-in to the presented position")
+  Assert.equal(activations, 1, label .. " must activate the window exactly once")
+  Assert.equal(wipeRuns, 1, label .. " must run a single wipe-in")
+  Assert.deepEqual(currents, { -48, -32, -16, 0 }, label .. " must climb hidden to visible exactly once")
+  for position = 2, #currents do
+    Assert.isTrue(
+      currents[position] >= currents[position - 1],
+      label .. " must never reverse direction while wiping in"
+    )
+  end
+  return endpoint
+end
+
+function T.tests.passive_mailbox_signpost_wipes_in_once_and_repeats_cleanly()
+  withGame(TOWN, function(game)
+    OpeningLifecycle.settleNewBarkFriendScene(game)
+    -- The friend-house mailbox is a real type-1 background event: select it
+    -- by canonical script identity and derive its tile from generated
+    -- metadata, never from a magic coordinate.
+    local bank = assert(game.runtime.runtimeMap.fieldData.scriptBankId, "generated map must declare its script bank id")
+    local mailbox
+    for _, event in ipairs(game.runtime.runtimeMap.fieldData.events.background) do
+      if
+        event.type == 1
+        and event.scriptId ~= 0
+        and ScriptIdentity.formatVanilla(bank, event.scriptId - 1) == MAILBOX_SCRIPT
+      then
+        mailbox = event
+      end
+    end
+    Assert.notNil(mailbox, "New Bark must expose the type-1 friend-house mailbox")
+    game:moveTo({ fieldX = mailbox.x, fieldZ = mailbox.z + 2 })
+    game:face("north")
+
+    local trace = SignpostTrace.attach(game)
+    local function approachAndOpen(label)
+      local baseline = #game:recordsForScript(MAILBOX_SCRIPT)
+      local totalBaseline = #game:recordsNamed("script.started")
+      trace:step({ direction = "north" })
+      trace:advanceUntil(label .. " owns the field", function(snapshot)
+        return snapshot.fieldLocked
+      end, 120)
+      local arrived = game:snapshot()
+      Assert.deepEqual(
+        { arrived.player.fieldX, arrived.player.fieldZ },
+        { mailbox.x, mailbox.z + 1 },
+        label .. " must settle one tile south of the mailbox"
+      )
+      Assert.equal(arrived.player.facing, "north", label .. " must keep facing the mailbox")
+      Assert.equal(
+        #game:recordsForScript(MAILBOX_SCRIPT),
+        baseline + 1,
+        label .. " must start the mailbox script exactly once"
+      )
+      Assert.equal(#game:recordsNamed("script.started"), totalBaseline + 1, label .. " must start no other script")
+    end
+
+    approachAndOpen("the northward approach")
+    trace:advanceUntil("the mailbox signpost presents", function()
+      return game.runtime.signpost:status().active
+    end, 120)
+    trace:advanceUntil("the first wipe-in completes", function()
+      local status = game.runtime.signpost:status()
+      return status.command == "nop" and status.logicalYOffset == 0
+    end, 120)
+    local firstEndpoint = assertSingleMonotonicWipe(trace, 1, "the first opening")
+
+    local dismissed = nil
+    for _ = 1, 480 do
+      game.runtime:pressAction()
+      trace:step()
+      game.runtime:releaseAction()
+      local snapshot = game:snapshot()
+      if not snapshot.fieldLocked and not game.runtime.signpost:status().active then
+        dismissed = snapshot
+        break
+      end
+    end
+    Assert.notNil(dismissed, "the mailbox signpost must dismiss through normal confirmation")
+    local dismissEnd = #trace.samples
+    Assert.isTrue(firstEndpoint < dismissEnd, "the dismissal must extend the trace past the first wipe")
+
+    game:moveTo({ fieldX = mailbox.x, fieldZ = mailbox.z + 2 })
+    game:face("north")
+    trace:sample()
+    approachAndOpen("the repeated northward approach")
+    trace:advanceUntil("the repeated mailbox signpost presents", function()
+      return game.runtime.signpost:status().active
+    end, 120)
+    trace:advanceUntil("the repeated wipe-in completes", function()
+      local status = game.runtime.signpost:status()
+      return status.command == "nop" and status.logicalYOffset == 0
+    end, 120)
+    assertSingleMonotonicWipe(trace, dismissEnd + 1, "the second opening")
   end, { recordingScriptHosts = true })
 end
 

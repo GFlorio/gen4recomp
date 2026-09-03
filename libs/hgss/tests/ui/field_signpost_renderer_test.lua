@@ -719,6 +719,62 @@ function T.release_frees_all_owned_images_and_noops_drawing()
   text:release()
 end
 
+-- Reopening after a completed wipe-out must present a coherent hidden pair:
+-- the activation frame stays at the hidden entry position for every render
+-- alpha, and the following wipe moves monotonically toward visible with no
+-- reversal, jump back to hidden, or second pass through the entry range.
+-- Driven through a real controller lifecycle, never a hand-set offset.
+function T.reopened_activation_stays_hidden_and_wipes_monotonically()
+  local lines = FieldSignpostFixture.textLines()
+  local controller = FieldSignpostFixture.shown(lines, { type = 2 })
+  controller:setCommand("wipe_in")
+  for _ = 1, 4 do
+    controller:updateFixed()
+  end
+  Assert.equal(controller:status().logicalYOffset, 0, "the first wipe must reach the presented position")
+  controller:setCommand("wipe_out")
+  for _ = 1, 4 do
+    controller:updateFixed()
+  end
+  Assert.equal(controller:status().active, false, "the wipe-out endpoint check must close the window")
+
+  controller:setCommand("show")
+  controller:updateFixed()
+  local status = controller:status()
+  Assert.equal(status.active, true, "the second SHOW must present the window")
+  Assert.equal(status.logicalYOffset, -48, "the second SHOW must start hidden")
+
+  local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 48, 128 } } })
+  local r = renderer(lg)
+  local viewport = FieldViewport.new(256, 192, { mode = "expanded" })
+  local fieldScale = viewport:logicalPixelScale(1)
+  local function fillY(alpha)
+    r:draw(controller, viewport, alpha, fieldScale)
+    return lg.rectangles[#lg.rectangles].y
+  end
+  local hiddenY = fillY(1)
+  for _, alpha in ipairs({ 0, 0.25, 0.5, 0.75, 1, -1, 2 }) do
+    Assert.equal(fillY(alpha), hiddenY, "the reopened activation frame must stay hidden at alpha " .. tostring(alpha))
+  end
+
+  controller:setCommand("wipe_in")
+  local restY = hiddenY - 48
+  local presented = {}
+  for _ = 1, 3 do
+    controller:updateFixed()
+    presented[#presented + 1] = fillY(1)
+  end
+  Assert.deepEqual(
+    presented,
+    { hiddenY - 16, hiddenY - 32, restY },
+    "the wipe must move one 16px step per update from hidden to rest"
+  )
+  controller:updateFixed()
+  Assert.equal(fillY(1), restY, "the endpoint check must hold the presented position")
+  Assert.equal(fillY(0), restY, "the endpoint check must rest the interpolation pair coherently")
+  r:release()
+end
+
 local focusToken = FieldDialogueFixture.focusToken
 local focusDraws = FieldDialogueFixture.focusDraws
 

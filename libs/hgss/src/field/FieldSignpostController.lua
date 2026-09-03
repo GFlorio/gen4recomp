@@ -223,7 +223,9 @@ end
 -- the renderer's interpolation pair, executes the current command, then
 -- advances the active printer. SHOW and HIDE complete on this same update
 -- (source cases 1 and 4 clear the command within the case; HIDE also resets
--- the stored BG offset to 0); wipes move one 16px step, hold the command on
+-- the stored BG offset to 0); SHOW additionally rebases the captured pair
+-- to hidden because the surface was inactive, so the first active frame
+-- never interpolates from the prior rest 0 down to -48; wipes move one 16px step, hold the command on
 -- the update that reaches the endpoint, and complete on the following
 -- endpoint-check update.
 ---@param input table|nil
@@ -233,6 +235,11 @@ function FieldSignpostController:updateFixed(input)
   if command == "show" then
     self._active = true
     self._offset = HIDDEN_OFFSET
+    -- The surface was inactive, so the captured history may hold the rest
+    -- 0 across the discontinuity. Rebase the presentation pair to hidden
+    -- so the first active frame is degenerate -48 -> -48; the stored
+    -- inactive rest state is unchanged apart from this activation.
+    self._previousOffset = HIDDEN_OFFSET
     self._command = "nop"
   elseif command == "hide" then
     self:_resetPresentation()

@@ -703,6 +703,53 @@ function T.every_reset_path_rests_the_history_pair_together()
   Assert.equal(c4:status().logicalYOffset, -48)
 end
 
+-- Reopening after a completed presentation must rebase the interpolation
+-- history to the hidden offset: the second SHOW presents at -48 with a
+-- degenerate -48 -> -48 pair, so no visible path exists from the prior rest
+-- 0 down to -48, and the following wipe is exactly -48 -> -32 -> -16 -> 0
+-- with the existing endpoint-check semantics.
+function T.reopened_show_rebases_presentation_history_to_hidden()
+  local c = controller({})
+  c:setCommand("show")
+  c:updateFixed()
+  c:setCommand("wipe_in")
+  for _ = 1, 3 do
+    c:updateFixed()
+  end
+  c:updateFixed()
+  Assert.equal(c:status().logicalYOffset, 0, "the first wipe must reach the presented position")
+  Assert.equal(c:status().command, "nop", "the endpoint check must clear the first wipe")
+  c:printInstant(message({ line({ glyph("A", 1) }) }))
+  c:setCommand("wipe_out")
+  for _ = 1, 3 do
+    c:updateFixed()
+  end
+  c:updateFixed()
+  local reset = c:status()
+  Assert.equal(reset.active, false, "the wipe-out endpoint check must close the window")
+  Assert.equal(reset.logicalYOffset, 0, "the wipe-out endpoint check must reset the stored offset")
+
+  c:setCommand("show")
+  c:updateFixed()
+  local status = c:status()
+  Assert.equal(status.active, true, "the second SHOW must present the window")
+  Assert.equal(status.command, "nop", "SHOW clears the command on its own update")
+  Assert.equal(status.logicalYOffset, -48, "the second SHOW must start hidden")
+  Assert.equal(status.previousLogicalYOffset, -48, "the second SHOW must rebase the interpolation history to hidden")
+
+  c:setCommand("wipe_in")
+  local offsets = {}
+  for _ = 1, 3 do
+    c:updateFixed()
+    offsets[#offsets + 1] = c:status().logicalYOffset
+    Assert.equal(c:status().command, "wipe_in", "the command is held during the motion updates")
+  end
+  Assert.deepEqual(offsets, { -32, -16, 0 })
+  c:updateFixed()
+  Assert.equal(c:status().logicalYOffset, 0)
+  Assert.equal(c:status().command, "nop", "the endpoint-check update returns the command to nop")
+end
+
 -- A typed print of an empty message is instantly complete and leaves no live
 -- printer behind, so a fill or a later update stays harmless.
 function T.typed_print_of_an_empty_message_is_instantly_complete_and_harmless()
