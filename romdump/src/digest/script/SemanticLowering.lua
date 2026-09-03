@@ -428,6 +428,9 @@ function SemanticLowering.lowerScript(script, memberIr, opts)
           step = withProvenance(step, { ins.offset }, { ins.opcode })
           pushLabel(ins)
           items[#items + 1] = step
+          if step.op == "unsupported" then
+            unsupported[#unsupported + 1] = step
+          end
         end
       end
     end

@@ -618,19 +618,30 @@ local function processSoundplate()
 end
 
 local function actorOscillate(ins)
-  local function normalizeAmplitude(value)
-    if type(value) == "number" then
-      return value / 16
-    end
-    return value
+  local sourceAmplitudeX = Operands.varRef(ins.operands[4])
+  local sourceAmplitudeZ = Operands.varRef(ins.operands[5])
+  if type(sourceAmplitudeX) ~= "number" or type(sourceAmplitudeZ) ~= "number" then
+    return {
+      op = "unsupported",
+      command = 523,
+      arguments = {
+        Operands.operandValue(ins.operands[1]),
+        Operands.operandValue(ins.operands[2]),
+        Operands.operandValue(ins.operands[3]),
+        Operands.operandValue(ins.operands[4]),
+        Operands.operandValue(ins.operands[5]),
+      },
+      sourceOffset = ins.offset,
+      reason = "ScrCmd_523 variable amplitude operands are unsupported",
+    }
   end
   return {
     op = "actor_oscillate",
     actor = actorRef(ins.operands[1]),
     cycles = Operands.varRef(ins.operands[2]),
     degreesPerTick = Operands.varRef(ins.operands[3]),
-    amplitudeX = normalizeAmplitude(Operands.varRef(ins.operands[4])),
-    amplitudeZ = normalizeAmplitude(Operands.varRef(ins.operands[5])),
+    amplitudeX = sourceAmplitudeX / 16,
+    amplitudeZ = sourceAmplitudeZ / 16,
   }
 end
 

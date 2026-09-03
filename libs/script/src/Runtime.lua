@@ -897,17 +897,10 @@ end
 
 local function handleActorOscillate(node, run)
   local actorId = semanticsFor(run).requireActor(node.actor, run)
-  local function resolveAmplitude(field)
-    local raw = node[field]
-    if type(raw) == "table" and raw.value ~= nil then
-      return semanticsFor(run).evaluateValue(raw, run) / 16
-    end
-    return semanticsFor(run).evaluateValue(raw, run)
-  end
   local cycles = semanticsFor(run).evaluateValue(node.cycles, run)
   local degreesPerTick = semanticsFor(run).evaluateValue(node.degreesPerTick, run)
-  local amplitudeX = resolveAmplitude("amplitudeX")
-  local amplitudeZ = resolveAmplitude("amplitudeZ")
+  local amplitudeX = semanticsFor(run).evaluateValue(node.amplitudeX, run)
+  local amplitudeZ = semanticsFor(run).evaluateValue(node.amplitudeZ, run)
   return blockOnTask(run, "actor_oscillation", {
     actor = actorId,
     cycles = cycles,

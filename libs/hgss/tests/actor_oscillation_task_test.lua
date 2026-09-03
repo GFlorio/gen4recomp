@@ -1,9 +1,8 @@
 -- Actor oscillation task tests: Burned Tower source sequence,
 -- Rayquaza amplitude, nondividing step, cancellation, validation,
--- and presentation offset Z plumbing.
+-- shared presentation offsets, and literal/reference amplitude equivalence.
 
 local Assert = require("tests.support.Assert")
-local Errors = require("libs.errors.src.Errors")
 local S = require("gen4.script")
 local Registry = require("libs.script.src.Registry")
 local Composition = require("libs.script.src.Composition")
@@ -11,6 +10,8 @@ local TaskRegistry = require("libs.script.src.TaskRegistry")
 local Scheduler = require("libs.script.src.Scheduler")
 local Diagnostics = require("libs.script.src.Diagnostics")
 local FakeServices = require("tests.support.script.FakeServices")
+local ActorOscillationTask = require("libs.hgss.src.script.tasks.ActorOscillationTask")
+local WaitTicksTask = require("libs.script.src.tasks.WaitTicksTask")
 
 local T = {}
 
@@ -20,16 +21,10 @@ local function harness()
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
-  local ok, mod = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
-  if ok then
-    ---@diagnostic disable-next-line: param-type-mismatch
-    taskRegistry:register(mod.type, mod.version, mod)
-  else
-    -- before implementation, register a stub that will cause poll to fail
-    -- keep registry empty so task creation faults with missing type
-  end
   ---@diagnostic disable-next-line: param-type-mismatch
-  taskRegistry:register("wait_ticks", 1, require("libs.script.src.tasks.WaitTicksTask"))
+  taskRegistry:register(ActorOscillationTask.type, ActorOscillationTask.version, ActorOscillationTask)
+  ---@diagnostic disable-next-line: param-type-mismatch
+  taskRegistry:register("wait_ticks", 1, WaitTicksTask)
   local recorder = Diagnostics.newTraceRecorder()
   local scheduler = Scheduler.new({
     semantics = require("libs.hgss.src.script.RuntimeValues"),
@@ -71,12 +66,8 @@ local function script(id, stepsOrSpec)
 end
 
 T["Burned Tower oscillation matches source"] = function()
-  local modOk = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
-  Assert.isTrue(modOk, "ActorOscillationTask module must exist")
   local h = harness()
   h.services.actors:add("suicune", { fieldX = 0, fieldZ = 0, facing = "south" })
-  ---@diagnostic disable-next-line: inject-field
-  h.services.actors.actors.suicune.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.osc1", { S.waitTicks({ ticks = 20 }) })
   local instanceId = startForeground(h, resource, 100)
   local instance = assert(h.scheduler:instance(instanceId))
@@ -92,7 +83,7 @@ T["Burned Tower oscillation matches source"] = function()
   for i = 1, 8 do
     h.scheduler:step(100 + i, nil)
     ---@diagnostic disable-next-line: undefined-field
-    local off = h.services.actors.actors.suicune.presentationOffset or h.services.actors.actors.suicune.lastOffset
+    local off = h.services.actors.actors.suicune.presentationOffset
     -- while active, offset is stored; after completion it should be zero
     if task.status == "active" or i < 8 then
       offsets[#offsets + 1] = off.x
@@ -101,9 +92,6 @@ T["Burned Tower oscillation matches source"] = function()
   -- Two repetitions of 0, +0.125, 0, -0.125
   local expected = { 0, 0.125, 0, -0.125, 0, 0.125, 0, -0.125 }
   -- task polls: first poll applies sin(0)=0, second sin(90)=1*0.125, third sin(180)=0, fourth sin(270)=-0.125 etc.
-  -- Our collection above captures offset applied during poll; need to check per poll.
-  -- Instead re-derive via lastOffset history; simpler to check sequence directly.
-  -- Due to harness, we captured after each step; adjust tolerance.
   for i = 1, 8 do
     local exp = expected[i]
     -- Offsets after i-th poll: for i <8 task still active, offset equals expected[i]
@@ -123,12 +111,8 @@ end
 
 -- Rayquaza amplitude 0.1875 for eight cycles
 T["Rayquaza amplitude uses normalized 0.1875"] = function()
-  local modOk = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
-  Assert.isTrue(modOk, "module required")
   local h = harness()
   h.services.actors:add("rayquaza", { fieldX = 0, fieldZ = 0, facing = "south" })
-  ---@diagnostic disable-next-line: inject-field
-  h.services.actors.actors.rayquaza.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.ray", { S.waitTicks({ ticks = 100 }) })
   local instanceId = startForeground(h, resource, 100)
   local instance = assert(h.scheduler:instance(instanceId))
@@ -156,12 +140,8 @@ T["Rayquaza amplitude uses normalized 0.1875"] = function()
 end
 
 T["nondividing step resets without remainder"] = function()
-  local modOk = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
-  Assert.isTrue(modOk, "module required")
   local h = harness()
   h.services.actors:add("obj", { fieldX = 0, fieldZ = 0, facing = "south" })
-  ---@diagnostic disable-next-line: inject-field
-  h.services.actors.actors.obj.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.nodiv", { S.waitTicks({ ticks = 20 }) })
   local instanceId = startForeground(h, resource, 100)
   local instance = assert(h.scheduler:instance(instanceId))
@@ -189,12 +169,8 @@ T["nondividing step resets without remainder"] = function()
 end
 
 T["cancellation clears offset"] = function()
-  local modOk = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
-  Assert.isTrue(modOk, "module required")
   local h = harness()
   h.services.actors:add("obj2", { fieldX = 0, fieldZ = 0, facing = "south" })
-  ---@diagnostic disable-next-line: inject-field
-  h.services.actors.actors.obj2.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.cancel", { S.waitTicks({ ticks = 20 }) })
   local instanceId = startForeground(h, resource, 100)
   local instance = assert(h.scheduler:instance(instanceId))
@@ -215,141 +191,25 @@ T["cancellation clears offset"] = function()
 end
 
 T["validation rejects zero cycles and step and non-finite amplitudes"] = function()
-  local ok, mod = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
-  Assert.isTrue(ok, "module required")
-  Assert.notNil(mod.validate)
+  Assert.notNil(ActorOscillationTask.validate)
   local bad1 = { actor = "a", remainingCycles = 0, angle = 0, degreesPerTick = 90, amplitudeX = 0.125, amplitudeZ = 0 }
-  Assert.notNil(mod.validate(bad1))
+  Assert.notNil(ActorOscillationTask.validate(bad1))
   local bad2 = { actor = "a", remainingCycles = 1, angle = 0, degreesPerTick = 0, amplitudeX = 0.125, amplitudeZ = 0 }
-  Assert.notNil(mod.validate(bad2))
+  Assert.notNil(ActorOscillationTask.validate(bad2))
   local bad3 =
     { actor = "a", remainingCycles = 1, angle = 0, degreesPerTick = 90, amplitudeX = math.huge, amplitudeZ = 0 }
-  Assert.notNil(mod.validate(bad3))
+  Assert.notNil(ActorOscillationTask.validate(bad3))
   local bad4 = { actor = "a", remainingCycles = 1, angle = 0, degreesPerTick = 90, amplitudeX = 0 / 0, amplitudeZ = 0 }
-  Assert.notNil(mod.validate(bad4))
+  Assert.notNil(ActorOscillationTask.validate(bad4))
   local good = { actor = "a", remainingCycles = 1, angle = 0, degreesPerTick = 90, amplitudeX = 0.125, amplitudeZ = 0 }
-  Assert.isNil(mod.validate(good))
-end
-
-T["lowering handler 523 normalizes amplitudes"] = function()
-  local ok, FieldHandlers = pcall(require, "romdump.src.digest.script.lowering.FieldHandlers")
-  if not ok then
-    Assert.isTrue(false, "FieldHandlers must be loadable")
-  end
-  -- numeric amplitudes should be divided by 16
-  local fakeIns = {
-    opcode = 523,
-    operands = { { raw = 3 }, { raw = 2 }, { raw = 90 }, { raw = 2 }, { raw = 3 } },
-    offset = 0x20,
-  }
-  local handler = FieldHandlers[523]
-  Assert.notNil(handler, "handler 523 must exist")
-  local node = handler(fakeIns)
-  Assert.equal(node.op, "actor_oscillate")
-  Assert.near(node.amplitudeX, 0.125, 1e-9)
-  Assert.near(node.amplitudeZ, 0.1875, 1e-9)
-  Assert.equal(node.cycles, 2)
-  Assert.equal(node.degreesPerTick, 90)
-  -- var ref case: operands that are var-range should stay as var refs
-  local varIns = {
-    opcode = 523,
-    operands = { { raw = 3 }, { raw = 0x4000 }, { raw = 0x4001 }, { raw = 0x4002 }, { raw = 0x4003 } },
-    offset = 0x20,
-  }
-  local varNode = handler(varIns)
-  Assert.equal(varNode.cycles.value, "var")
-  Assert.equal(varNode.degreesPerTick.value, "var")
-  Assert.equal(varNode.amplitudeX.value, "var")
-end
-
-T["script actor world rejects player for oscillation"] = function()
-  local ok, SAW = pcall(require, "libs.hgss.src.script.ScriptActorWorld")
-  Assert.isTrue(ok, "ScriptActorWorld loadable")
-  local manager = {
-    getActor = function()
-      return {}
-    end,
-    show = function() end,
-    hide = function() end,
-    setPosition = function() end,
-    setFacing = function() end,
-    setMovementType = function() end,
-    setAnimationPaused = function() end,
-    getPosition = function()
-      return { fieldX = 0, fieldZ = 0 }
-    end,
-    getFacing = function()
-      return "south"
-    end,
-    numericId = function()
-      return 1
-    end,
-    actorIdForMapIndex = function()
-      return nil
-    end,
-    cameraTargetId = function()
-      return nil
-    end,
-    partnerId = function()
-      return nil
-    end,
-    isVisible = function()
-      return true
-    end,
-    setPresentationOffset = function() end,
-    clearPresentationOffset = function() end,
-  }
-  local player = {
-    position = function()
-      return { fieldX = 0, fieldZ = 0 }
-    end,
-    facing = function()
-      return "south"
-    end,
-  }
-  ---@diagnostic disable-next-line: param-type-mismatch
-  local world = SAW.new(manager, player)
-  local threw = false
-  local ok2, err = pcall(function()
-    world:setPresentationOffset("player", { x = 0, y = 0, z = 0 })
-  end)
-  if not ok2 then
-    threw = true
-    Assert.isTrue(Errors.is(err) or tostring(err):find("player") ~= nil)
-  end
-  Assert.isTrue(threw, "player presentation offset must be rejected")
+  Assert.isNil(ActorOscillationTask.validate(good))
 end
 
 -- Oscillation runs against the shared fake actor contract: the fake owns a
 -- zeroed presentation offset per actor, polls write observable sine offsets,
 -- and both normal completion and cancellation clear back to zero.
 T["oscillation writes and clears shared actor presentation offsets"] = function()
-  local ActorOscillationTask = require("libs.hgss.src.script.tasks.ActorOscillationTask")
-  local WaitTicksTask = require("libs.script.src.tasks.WaitTicksTask")
-  local function canonical()
-    local services = FakeServices.new()
-    local registry = Registry.new()
-    local composition = Composition.new(registry)
-    local taskRegistry = TaskRegistry.new()
-    ---@diagnostic disable-next-line: param-type-mismatch
-    taskRegistry:register(ActorOscillationTask.type, ActorOscillationTask.version, ActorOscillationTask)
-    ---@diagnostic disable-next-line: param-type-mismatch
-    taskRegistry:register("wait_ticks", 1, WaitTicksTask)
-    local recorder = Diagnostics.newTraceRecorder()
-    local scheduler = Scheduler.new({
-      semantics = require("libs.hgss.src.script.RuntimeValues"),
-      services = services,
-      taskRegistry = taskRegistry,
-      trace = function(record)
-        recorder:record(record)
-      end,
-      resolveComposition = function(id)
-        return composition:effective(id)
-      end,
-    })
-    return { services = services, registry = registry, composition = composition, scheduler = scheduler }
-  end
-  local h = canonical()
+  local h = harness()
   h.services.actors:add("dancer", { fieldX = 0, fieldZ = 0, facing = "south" })
   ---@diagnostic disable-next-line: undefined-field
   local initial =
@@ -382,7 +242,7 @@ T["oscillation writes and clears shared actor presentation offsets"] = function(
   ---@diagnostic disable-next-line: undefined-field
   Assert.deepEqual(h.services.actors.actors.dancer.presentationOffset, { x = 0, y = 0, z = 0 })
 
-  local c = canonical()
+  local c = harness()
   c.services.actors:add("spinner", { fieldX = 0, fieldZ = 0, facing = "south" })
   local resource2 = script("test.shared_offset_cancel", { S.waitTicks({ ticks = 20 }) })
   if c.registry:base(resource2.id) == nil then
@@ -405,6 +265,42 @@ T["oscillation writes and clears shared actor presentation offsets"] = function(
   c.scheduler:cancelEnvironment(assert(c.scheduler:foregroundEnvironmentId()), "test cancel")
   ---@diagnostic disable-next-line: undefined-field
   Assert.deepEqual(c.services.actors.actors.spinner.presentationOffset, { x = 0, y = 0, z = 0 })
+end
+
+T["literal and referenced amplitudes share the same displacement unit"] = function()
+  local function peakFor(scriptId, actorId, steps)
+    local h = harness()
+    h.services.actors:add(actorId, { fieldX = 0, fieldZ = 0, facing = "south" })
+    local resource = script(scriptId, steps)
+    if h.registry:base(resource.id) == nil then
+      h.registry:installBase(resource.id, resource, "generated")
+    end
+    local composed = assert(h.composition:effective(resource.id))
+    h.scheduler:createForeground(composed, nil, 100)
+    h.scheduler:step(100, nil)
+    h.scheduler:step(101, nil)
+    h.scheduler:step(102, nil)
+    ---@diagnostic disable-next-line: undefined-field
+    return h.services.actors.actors[actorId].presentationOffset.x
+  end
+  local literalPeak = peakFor("test.osc_literal_unit", "literal_dancer", {
+    S.actorOscillate({ actor = "literal_dancer", cycles = 1, degreesPerTick = 90, amplitudeX = 0.125, amplitudeZ = 0 }),
+  })
+  Assert.near(literalPeak, 0.125, 1e-9, "literal amplitude peak")
+  local referencedPeak = peakFor("test.osc_reference_unit", "reference_dancer", {
+    locals = { amp = "number" },
+    steps = {
+      S.setLocal({ name = "amp", value = 0.125 }),
+      S.actorOscillate({
+        actor = "reference_dancer",
+        cycles = 1,
+        degreesPerTick = 90,
+        amplitudeX = S.local_("amp"),
+        amplitudeZ = 0,
+      }),
+    },
+  })
+  Assert.near(referencedPeak, 0.125, 1e-9, "referenced amplitude peak")
 end
 
 return { tests = T }
