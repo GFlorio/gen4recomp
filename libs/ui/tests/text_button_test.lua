@@ -414,6 +414,7 @@ function T.face_divider_is_source_pixel_chrome()
   TextButton.draw(g1, button1, { label = "Yes", selected = false, text = textAdapter() })
   local divider1 = findDivider(calls1, button1)
   Assert.notNil(divider1, "scale 1 divider must be present at face split with innerBorder color")
+  assert(divider1)
   Assert.equal(divider1.w, button1.face.rect.width)
   Assert.equal(divider1.h, 1)
   Assert.equal(divider1.x, button1.face.rect.x)
@@ -427,6 +428,7 @@ function T.face_divider_is_source_pixel_chrome()
   TextButton.draw(g2, button2, { label = "Yes", selected = false, text = textAdapter() })
   local divider2 = findDivider(calls2, button2)
   Assert.notNil(divider2, "scale 2 divider must be present and scaled")
+  assert(divider2)
   Assert.equal(divider2.h, 2)
   Assert.equal(divider2.w, button2.face.rect.width)
   Assert.equal(divider2.x, button2.face.rect.x)
@@ -436,6 +438,7 @@ function T.face_divider_is_source_pixel_chrome()
   TextButton.draw(g3, button1, { label = "Yes", selected = true, text = textAdapter() })
   local divider3 = findDivider(calls3, button1)
   Assert.notNil(divider3, "selected button must still have divider")
+  assert(divider3)
   local lineRects = {}
   for _, r in ipairs(calls3.rectangles) do
     if r.mode == "line" then
@@ -446,7 +449,9 @@ function T.face_divider_is_source_pixel_chrome()
   -- divider color must be innerBorder, not face colors
   local faceTopR, faceTopG, faceTopB = 49 / 255, 222 / 255, 230 / 255
   Assert.isTrue(
-    math.abs(divider1.color[1] - faceTopR) > 1e-6 or math.abs(divider1.color[2] - faceTopG) > 1e-6,
+    math.abs(divider1.color[1] - faceTopR) > 1e-6
+      or math.abs(divider1.color[2] - faceTopG) > 1e-6
+      or math.abs(divider1.color[3] - faceTopB) > 1e-6,
     "divider must not use faceTop color"
   )
 end

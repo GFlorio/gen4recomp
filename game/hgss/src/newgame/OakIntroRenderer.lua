@@ -12,6 +12,8 @@ local TextButton = require("libs.ui.src.TextButton")
 ---@field assets table
 ---@field bindings table
 ---@field manifest table
+---@field draw fun(self: OakIntroRenderer, view: table)
+---@field dispose fun(self: OakIntroRenderer)
 local REQUIRED_ASSETS = {
   "oak",
   "marill",

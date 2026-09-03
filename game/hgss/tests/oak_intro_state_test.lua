@@ -30,7 +30,7 @@ local DIALOGUE_CURSOR_PLACEMENT = { x = 240, y = 168, width = 16, height = 16 }
 ---@field result fun(self: OakIntroStateTest.Controller): table?
 ---@field dispose fun(self: OakIntroStateTest.Controller)
 ---@field view fun(self: OakIntroStateTest.Controller): table
----@field messageCompleted fun(self: OakIntroStateTest.Controller, key: string)
+---@field messageCompleted fun(self: OakIntroStateTest.Controller, key: string): boolean
 ---@class OakIntroStateTest.Input: OakIntroStateTextInputHost
 ---@field calls boolean[]
 ---@field setTextInput fun(self: OakIntroStateTest.Input, enabled: boolean)
@@ -734,6 +734,7 @@ function T.dialogue_completion_edge_does_not_enter_the_new_choice()
   controller.messageCompleted = function(_, key)
     Assert.equal(key, "profile.gender_confirm.male")
     modal = false
+    return true
   end
   local dialogue = {
     open = function()
@@ -879,7 +880,7 @@ function T.completed_name_question_stays_visible_through_real_close_sequence()
       oakBgScrollX = 0,
     }
   end
-  semantic.messageCompleted = function(self, key)
+  semantic.messageCompleted = function(_, key)
     Assert.equal(key, "profile.name_confirm.male")
     modal = false
     return true
