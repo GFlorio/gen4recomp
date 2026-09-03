@@ -270,4 +270,44 @@ T.tests["one-shot reveal retires after exactly seven fixed frames"] = function()
   Assert.equal(#effects:status().instances, 0)
 end
 
+T.tests["failed second emission preserves the live instance"] = function()
+  local calls = 0
+  local function factory(kind, _)
+    calls = calls + 1
+    if calls > 1 then
+      error("boom-model-" .. kind)
+    end
+    local player = { frameFx = 0, frameCount = 7, complete = false }
+    function player:isComplete()
+      return self.complete
+    end
+    local instance = {}
+    function instance:play()
+      return { player = player }
+    end
+    function instance:updateFixed() end
+    return instance
+  end
+  local effects = FieldTerrainEffectController.new({
+    effects = {
+      trainer_reveal = {
+        definition = "renderer-trainer_reveal",
+        lifecycle = { mode = "once", frameCount = 7 },
+        placementOffset = { x = 0, y = 0, z = 0.5 },
+        model = { kind = "nitro-dynamic", animations = { { name = "reveal", frameCount = 7 } } },
+      },
+    },
+    modelFactory = factory,
+  })
+  local firstId = effects:emit({ kind = "trainer_reveal", fieldX = 2, fieldZ = 5, worldY = 3 })
+  local ok, err = pcall(function()
+    effects:emit({ kind = "trainer_reveal", fieldX = 2, fieldZ = 5, worldY = 3 })
+  end)
+  Assert.isFalse(ok, "the second emission must raise")
+  Assert.notNil(err)
+  local instances = effects:status().instances
+  Assert.equal(#instances, 1, "a failed emission must not destroy the live instance")
+  Assert.equal(instances[1].id, firstId)
+end
+
 return T

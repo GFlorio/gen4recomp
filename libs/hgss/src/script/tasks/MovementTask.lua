@@ -80,7 +80,6 @@ function MovementTask.create(spec, ctx)
     progressTicks = 0,
     durationTicks = 0,
     completed = false,
-    revealOwnerId = nil,
     revealEffectId = nil,
   }
 end
@@ -162,23 +161,12 @@ local function advanceAction(state, action, ctx)
       end
       assert(effects ~= nil)
       local pos = ctx.services.actors:getPosition(state.actor)
-      local ownerId = type(state.actor) == "string" and state.actor or tostring(state.actor)
-      local handle
-      local ok, result = pcall(function()
-        return effects:emit({
-          kind = "trainer_reveal",
-          fieldX = pos.fieldX,
-          fieldZ = pos.fieldZ,
-          worldY = pos.worldY or 0,
-          ownerId = ownerId,
-        })
-      end)
-      if not ok then
-        error(result, 0)
-      end
-      handle = result
-      state.revealOwnerId = ownerId
-      state.revealEffectId = handle
+      state.revealEffectId = effects:emit({
+        kind = "trainer_reveal",
+        fieldX = pos.fieldX,
+        fieldZ = pos.fieldZ,
+        worldY = pos.worldY or 0,
+      })
     end
     if kind == "trajectory_segment" and ctx.services.actors:isVisible(state.actor) then
       assert(ctx.services.audio, "trajectory segment with visible actor requires audio service"):play("SEQ_SE_DP_DANSA")
@@ -237,7 +225,6 @@ local function advanceAction(state, action, ctx)
   elseif kind == "emote" or kind == "gesture" or kind == "reveal_trainer" then
     -- pose-only; the renderer consumes the recorded action.
     if kind == "reveal_trainer" then
-      state.revealOwnerId = nil
       state.revealEffectId = nil
     end
   elseif kind == "delay" then
@@ -326,22 +313,16 @@ function MovementTask.cancel(state, _, ctx)
   if not ok and Errors.is(err) then
     error(err, 0)
   end
-  if state.revealOwnerId ~= nil and ctx.services.effects ~= nil then
+  if state.revealEffectId ~= nil then
     local effects = ctx.services.effects
-    local ownerId = state.revealOwnerId
-    local handle = state.revealEffectId
-    -- Prefer handle removal when available, fallback to owner removal.
-    if handle ~= nil and type(effects.remove) == "function" then
-      pcall(function()
-        effects:remove(handle)
-      end)
+    if effects == nil then
+      Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "missing effects service for reveal cleanup", {
+        scriptId = ctx.instance.scriptId,
+        actor = state.actor,
+      })
     end
-    if type(effects.removeByOwner) == "function" then
-      pcall(function()
-        effects:removeByOwner(ownerId, "trainer_reveal")
-      end)
-    end
-    state.revealOwnerId = nil
+    assert(effects ~= nil)
+    effects:remove(state.revealEffectId)
     state.revealEffectId = nil
   end
 end

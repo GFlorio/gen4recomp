@@ -52,16 +52,6 @@ function FieldTerrainEffectController:emit(response)
     assert(lifecycle.frameCount == animation.frameCount)
   end
   local modelFactory = assert(self.modelFactory, "terrain effect model factory is not configured")
-  -- Owner replacement: remove prior same-kind same-owner instance before publishing new one.
-  local ownerId = response.ownerId or response.ownerKey
-  if ownerId ~= nil then
-    for index = #self.instances, 1, -1 do
-      local existing = self.instances[index]
-      if existing.kind == response.kind and existing.ownerId == ownerId then
-        table.remove(self.instances, index)
-      end
-    end
-  end
   local modelInstance = assert(modelFactory(response.kind, definition), "terrain effect model factory returned nil")
   local handle = modelInstance:play(animation.name, { loopMode = "once" })
   self.nextId = self.nextId + 1
@@ -76,7 +66,6 @@ function FieldTerrainEffectController:emit(response)
     sourceWorldY = response.worldY + (response.originY or 0),
     worldY = response.worldY,
     direction = response.direction,
-    ownerId = ownerId,
     age = 0,
     sourceFrame = 0,
     lifecycle = lifecycle,
@@ -126,16 +115,6 @@ function FieldTerrainEffectController:updateFixed(owner)
   end
 end
 
-function FieldTerrainEffectController:removeByOwner(ownerId, kind)
-  assert(type(ownerId) == "string" and ownerId ~= "", "owner id is required")
-  for index = #self.instances, 1, -1 do
-    local instance = self.instances[index]
-    if instance.ownerId == ownerId and (kind == nil or instance.kind == kind) then
-      table.remove(self.instances, index)
-    end
-  end
-end
-
 function FieldTerrainEffectController:remove(handleOrId)
   if handleOrId == nil then
     return
@@ -168,7 +147,6 @@ function FieldTerrainEffectController:status()
       sourceSurfaceId = instance.sourceSurfaceId,
       sourceWorldY = instance.sourceWorldY,
       direction = instance.direction,
-      ownerId = instance.ownerId,
       age = instance.age,
       frame = instance.animationHandle.player.frameFx / 4096,
       frameCount = instance.animationHandle.player.frameCount,

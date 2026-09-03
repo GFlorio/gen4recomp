@@ -936,4 +936,80 @@ T["trajectory cries follow fresh visibility at start and arrival"] = function()
   )
 end
 
+T["cancelling a live trainer reveal removes only the emitted effect"] = function()
+  local h = harness()
+  h.services.actors:add("rival", { fieldX = 2, fieldZ = 5, facing = "south" })
+  local live = { [41] = true }
+  local removed = {}
+  local ownerRemovals = {}
+  ---@diagnostic disable-next-line: inject-field
+  h.services.effects = {
+    emit = function(_, request)
+      Assert.equal(request.kind, "trainer_reveal")
+      live[77] = true
+      return 77
+    end,
+    remove = function(_, handle)
+      removed[#removed + 1] = handle
+      live[handle] = nil
+    end,
+    removeByOwner = function(_, ownerId, kind)
+      ownerRemovals[#ownerRemovals + 1] = { ownerId = ownerId, kind = kind }
+    end,
+  }
+  local resource = script("test.reveal_cancel", { S.waitTicks({ ticks = 500 }) })
+  local instanceId = startForeground(h, resource, 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  h.scheduler:createTask(
+    "movement",
+    { actor = "rival", sequence = { { action = "reveal_trainer" } } },
+    instance,
+    100,
+    nil
+  )
+  h.scheduler:step(101, nil)
+  local envId = assert(h.scheduler:foregroundEnvironmentId())
+  Assert.notNil(
+    h.scheduler:activeMovementForActor(envId, "rival"),
+    "the reveal task owns the actor after its first poll"
+  )
+  h.scheduler:cancelEnvironment(envId, "cancelled")
+  Assert.deepEqual(removed, { 77 }, "cancellation removes exactly the emitted reveal handle")
+  Assert.equal(#ownerRemovals, 0, "cancellation must not fall back to owner-wide removal")
+  Assert.isTrue(live[41], "an unrelated effect survives another task's cancellation")
+  Assert.isNil(h.services.events:eventFor("script.error", instanceId), "exact cleanup cancels without faulting")
+end
+
+T["failed reveal cleanup faults the owning script"] = function()
+  local h = harness()
+  h.services.actors:add("rival", { fieldX = 2, fieldZ = 5, facing = "south" })
+  ---@diagnostic disable-next-line: inject-field
+  h.services.effects = {
+    emit = function(_)
+      return 77
+    end,
+    remove = function(_)
+      error("boom-remove-77")
+    end,
+  }
+  local resource = script("test.reveal_cleanup_fault", { S.waitTicks({ ticks = 500 }) })
+  local instanceId = startForeground(h, resource, 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  h.scheduler:createTask(
+    "movement",
+    { actor = "rival", sequence = { { action = "reveal_trainer" } } },
+    instance,
+    100,
+    nil
+  )
+  h.scheduler:step(101, nil)
+  local envId = assert(h.scheduler:foregroundEnvironmentId())
+  h.scheduler:cancelEnvironment(envId, "cancelled")
+  local fault = assert(
+    h.services.events:eventFor("script.error", instanceId),
+    "a cleanup failure must fault the owning script instead of cancelling quietly"
+  )
+  Assert.equal(fault.code, "SCRIPT_TASK_CALLBACK_FAULT")
+end
+
 return { tests = T }
