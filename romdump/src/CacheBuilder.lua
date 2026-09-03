@@ -17,6 +17,9 @@ local FieldMapDataCacheWriter = require("romdump.src.digest.FieldMapDataCacheWri
 local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
 local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter")
+local FollowingMonVisualCompiler = require("romdump.src.digest.FollowingMonVisualCompiler")
+local MonCatalogCompiler = require("romdump.src.digest.MonCatalogCompiler")
+local MonCacheWriter = require("romdump.src.digest.MonCacheWriter")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local FieldMessageCacheWriter = require("romdump.src.digest.FieldMessageCacheWriter")
 local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
@@ -159,11 +162,57 @@ function CacheBuilder.buildVersions(versionIds, options)
       if not actorBundle then
         return versionFailure(actorErr)
       end
+      local followerBundle, followerErr = FollowingMonVisualCompiler.compile(romFs)
+      if not followerBundle then
+        return versionFailure(followerErr)
+      end
+      FollowingMonVisualCompiler.mergeIntoActorBundle(actorBundle, followerBundle)
       if forced or not FieldActorCacheWriter.isReady(cacheFs, actorBundle.marker) then
         FieldActorCacheWriter.write(cacheFs, actorBundle)
         log(string.format("build-cache: %s field actors compiled (%d sprites)", version, #actorBundle.index.spriteIds))
       else
         log(string.format("build-cache: %s field actors current", version))
+      end
+      local monBundle, monErr = MonCatalogCompiler.compileAll(romFs)
+      if not monBundle then
+        return versionFailure(monErr)
+      end
+      local actorSpriteIds = {}
+      for _, spriteId in ipairs(actorBundle.index.spriteIds) do
+        actorSpriteIds[spriteId] = true
+      end
+      local monSpecies = 0
+      for speciesKey, species in pairs(monBundle.catalog.species) do
+        monSpecies = monSpecies + 1
+        for formId, form in pairs(species.forms) do
+          if form.follower ~= nil then
+            local followerRefs = { form.follower.visualId }
+            if form.follower.female ~= nil then
+              followerRefs[#followerRefs + 1] = form.follower.female.visualId
+            end
+            for _, visualId in ipairs(followerRefs) do
+              if not actorSpriteIds[visualId] then
+                return versionFailure(
+                  Errors.new(
+                    "MON_CATALOG_FOLLOWER_UNRESOLVED",
+                    "catalog follower visual is absent from the actor index",
+                    {
+                      species = speciesKey,
+                      form = formId,
+                      visualId = visualId,
+                    }
+                  )
+                )
+              end
+            end
+          end
+        end
+      end
+      if forced or not MonCacheWriter.isReady(cacheFs, monBundle.marker) then
+        MonCacheWriter.write(cacheFs, monBundle)
+        log(string.format("build-cache: %s mons compiled (%d species)", version, monSpecies))
+      else
+        log(string.format("build-cache: %s mons current", version))
       end
       local fieldBundles, fieldErr = FieldMapDataCompiler.compileAll(romFs)
       if not fieldBundles then

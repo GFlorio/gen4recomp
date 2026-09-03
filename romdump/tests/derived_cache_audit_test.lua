@@ -22,6 +22,7 @@ local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
 local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
 local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local MonCache = require("libs.assets.src.MonCache")
 
 local T = {}
 
@@ -39,6 +40,7 @@ local function publishedCache()
     FieldEmoteAssetCache.markerPath(),
     NewGameInitCache.markerPath(),
     FieldCellCache.markerPath(),
+    MonCache.markerPath(),
     ScriptCache.markerPath(),
     AudioCache.markerPath(),
     MapAssetCache.mapDir(7) .. "/complete",
