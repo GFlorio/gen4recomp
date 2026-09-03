@@ -29,6 +29,8 @@
 ---@field isPausable fun(self: ScriptActorManager, actorId: string): boolean
 ---@field allPausable fun(self: ScriptActorManager): boolean
 ---@field syncEventStateChanges fun(self: ScriptActorManager)?
+---@field setPresentationOffset fun(self: ScriptActorManager, actorId: string, offset: { x: number, y: number, z: number })
+---@field clearPresentationOffset fun(self: ScriptActorManager, actorId: string)
 
 -- The manager methods the actor world calls; every one must be present.
 -- `syncEventStateChanges` is forwarded only when the manager provides it, so
@@ -48,6 +50,9 @@ local REQUIRED_MANAGER_METHODS = {
   "cameraTargetId",
   "partnerId",
 }
+
+local Errors = require("libs.errors.src.Errors")
+local ScriptErrors = require("libs.script.src.errors")
 
 ---@class ScriptActorWorld
 ---@field private _manager ScriptActorManager
@@ -288,6 +293,51 @@ function ScriptActorWorld:syncPresence()
   if self._manager.syncEventStateChanges then
     self._manager:syncEventStateChanges()
   end
+end
+
+---@param actorId string
+---@param offset { x: number, y: number, z: number }
+function ScriptActorWorld:setPresentationOffset(actorId, offset)
+  if actorId == "player" then
+    Errors.raise(ScriptErrors.SCRIPT_INVALID_REFERENCE, "actor oscillation does not support the player", {
+      actor = actorId,
+    })
+  end
+  assert(
+    type(offset) == "table" and type(offset.x) == "number" and type(offset.y) == "number" and type(offset.z) == "number",
+    "presentation offset requires x,y,z"
+  )
+  if self._manager.setPresentationOffset == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      "actor manager missing setPresentationOffset",
+      { actor = actorId }
+    )
+  end
+  if self._manager:getActor(actorId) == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  self._manager:setPresentationOffset(actorId, offset)
+end
+
+---@param actorId string
+function ScriptActorWorld:clearPresentationOffset(actorId)
+  if actorId == "player" then
+    Errors.raise(ScriptErrors.SCRIPT_INVALID_REFERENCE, "actor oscillation does not support the player", {
+      actor = actorId,
+    })
+  end
+  if self._manager.clearPresentationOffset == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      "actor manager missing clearPresentationOffset",
+      { actor = actorId }
+    )
+  end
+  if self._manager:getActor(actorId) == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  self._manager:clearPresentationOffset(actorId)
 end
 
 ---@param actorId string

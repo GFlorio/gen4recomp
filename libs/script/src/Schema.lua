@@ -667,6 +667,15 @@ Schema.OPERATIONS = {
       count = { type = "integer", required = true },
     },
   },
+  actor_oscillate = {
+    fields = {
+      actor = { type = "actor", required = true },
+      cycles = { type = "scalar_or_value", required = true },
+      degreesPerTick = { type = "scalar_or_value", required = true },
+      amplitudeX = { type = "scalar_or_value", required = true },
+      amplitudeZ = { type = "scalar_or_value", required = true },
+    },
+  },
   random = {
     fields = {
       maxExclusive = { type = "integer", required = true },

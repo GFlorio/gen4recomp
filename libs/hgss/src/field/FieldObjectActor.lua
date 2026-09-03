@@ -32,7 +32,7 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field private _visual table
 ---@field private _idlePresentation { mode: "static"|"animated", cadence: integer }
 ---@field private _scriptedPresentationAdvanced boolean
----@field presentationOffset { x: number, y: number } render-only action or idle display offset
+---@field presentationOffset { x: number, y: number, z: number } render-only action or idle display offset
 ---@field private _gesturePose string?
 ---@field private _gestureTick integer?
 ---@field private _gestureOffsetY number
@@ -161,7 +161,7 @@ function FieldObjectActor.new(opts)
     _scriptedPresentationAdvanced = false,
     -- Render-only locomotion presentation offset (walk-in-place bob); never
     -- mutates worldX/worldY/worldZ, which stay the logical/committed anchor.
-    presentationOffset = { x = 0, y = 0 },
+    presentationOffset = { x = 0, y = 0, z = 0 },
     _gesturePose = nil,
     _gestureTick = nil,
     _gestureOffsetY = 0,
@@ -273,6 +273,7 @@ function FieldObjectActor:beginAction(descriptor, owner)
   -- walk_in_place's advance re-populates it while it is the active action.
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self.presentationOffset.z = 0
   -- The emote indicator is active only for the action instance that carries
   -- it; every other action (including a later emote with a different kind)
   -- starts from a clean slate.
@@ -411,6 +412,7 @@ function FieldObjectActor:commitAction()
   -- render-only state never survives the action boundary.
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self.presentationOffset.z = 0
   self.activeEmoteKind = nil
   self._motion = nil
   applyIdlePresentation(self, false)
@@ -439,6 +441,7 @@ function FieldObjectActor:cancelAction()
   self._gestureOffsetY = m.startGestureOffsetY or 0
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self.presentationOffset.z = 0
   self.activeEmoteKind = nil
   self._motion = nil
   applyIdlePresentation(self, false)
@@ -470,6 +473,7 @@ function FieldObjectActor:settlePresentation()
   self.poseTick = 0
   self.presentationOffset.x = 0
   self.presentationOffset.y = 0
+  self.presentationOffset.z = 0
   self._gesturePose = nil
   self._gestureTick = nil
   self._gestureOffsetY = 0

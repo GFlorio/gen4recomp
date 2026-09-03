@@ -1678,7 +1678,7 @@ function FieldActorManager:drawRecords()
       record.spriteId = actor.spriteId
       record.world.x = actor.worldX + (offset and offset.x or 0)
       record.world.y = actor.worldY + (offset and offset.y or 0) + gestureOffsetY
-      record.world.z = actor.worldZ
+      record.world.z = actor.worldZ + (offset and offset.z or 0)
       record.facing = actor.facing
       record.pose = actor.pose
       record.poseTick = actor.poseTick
@@ -2011,6 +2011,39 @@ end
 function FieldActorManager:setAnimationPaused(actorId, paused)
   local actor = requireActor(self, actorId)
   actor.animationPaused = paused == true
+end
+
+---@param actorId string
+---@param offset { x: number, y: number, z: number }
+---@param self FieldActorManager
+function FieldActorManager:setPresentationOffset(actorId, offset)
+  local actor = requireActor(self, actorId)
+  assert(
+    type(offset) == "table" and type(offset.x) == "number" and type(offset.y) == "number" and type(offset.z) == "number",
+    "presentation offset requires x,y,z"
+  )
+  if offset.x ~= offset.x or offset.y ~= offset.y or offset.z ~= offset.z then
+    Errors.raise(FieldErrors.ACTOR_FACING_INVALID, "presentation offset must be finite", { actorId = actorId })
+  end
+  if
+    offset.x == math.huge
+    or offset.x == -math.huge
+    or offset.y == math.huge
+    or offset.y == -math.huge
+    or offset.z == math.huge
+    or offset.z == -math.huge
+  then
+    Errors.raise(FieldErrors.ACTOR_FACING_INVALID, "presentation offset must be finite", { actorId = actorId })
+  end
+  actor.presentationOffset.x = offset.x
+  actor.presentationOffset.y = offset.y
+  actor.presentationOffset.z = offset.z
+end
+
+---@param actorId string
+---@param self FieldActorManager
+function FieldActorManager:clearPresentationOffset(actorId)
+  self:setPresentationOffset(actorId, { x = 0, y = 0, z = 0 })
 end
 
 -- --- Scripted motion presentation (manager owns occupancy/terrain) -------

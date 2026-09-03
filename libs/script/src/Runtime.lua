@@ -895,6 +895,28 @@ local function handleWarp(node, run)
   return blockOnTask(run, "warp", { node = node })
 end
 
+local function handleActorOscillate(node, run)
+  local actorId = semanticsFor(run).requireActor(node.actor, run)
+  local function resolveAmplitude(field)
+    local raw = node[field]
+    if type(raw) == "table" and raw.value ~= nil then
+      return semanticsFor(run).evaluateValue(raw, run) / 16
+    end
+    return semanticsFor(run).evaluateValue(raw, run)
+  end
+  local cycles = semanticsFor(run).evaluateValue(node.cycles, run)
+  local degreesPerTick = semanticsFor(run).evaluateValue(node.degreesPerTick, run)
+  local amplitudeX = resolveAmplitude("amplitudeX")
+  local amplitudeZ = resolveAmplitude("amplitudeZ")
+  return blockOnTask(run, "actor_oscillation", {
+    actor = actorId,
+    cycles = cycles,
+    degreesPerTick = degreesPerTick,
+    amplitudeX = amplitudeX,
+    amplitudeZ = amplitudeZ,
+  })
+end
+
 local function handleUnsupported(node, run)
   Errors.raise(ScriptErrors.SCRIPT_UNSUPPORTED_REACHABLE, "reachable unsupported node", {
     scriptId = run.instance.scriptId,
@@ -1231,6 +1253,7 @@ HANDLERS.trainer_tips_print = handleTrainerTipsPrint
 HANDLERS.wait_signpost = handleWaitSignpost
 HANDLERS.sign = handleSign
 HANDLERS.trainer_tip = handleTrainerTip
+HANDLERS.actor_oscillate = handleActorOscillate
 HANDLERS.close_message = handleCloseMessage
 HANDLERS.hold_message = handleHoldMessage
 HANDLERS.show_waiting_icon = handleShowWaitingIcon

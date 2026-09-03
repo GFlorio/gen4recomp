@@ -614,6 +614,23 @@ local function processSoundplate()
   return { op = "process_soundplate" }
 end
 
+local function actorOscillate(ins)
+  local function normalizeAmplitude(value)
+    if type(value) == "number" then
+      return value / 16
+    end
+    return value
+  end
+  return {
+    op = "actor_oscillate",
+    actor = actorRef(ins.operands[1]),
+    cycles = Operands.varRef(ins.operands[2]),
+    degreesPerTick = Operands.varRef(ins.operands[3]),
+    amplitudeX = normalizeAmplitude(Operands.varRef(ins.operands[4])),
+    amplitudeZ = normalizeAmplitude(Operands.varRef(ins.operands[5])),
+  }
+end
+
 return {
   [44] = nonNpcMessage,
   [45] = npcMessage,
@@ -685,6 +702,7 @@ return {
   [747] = showAuxiliaryUi,
   [748] = contextChoice,
   [726] = processSoundplate,
+  [523] = actorOscillate,
   [181] = flashEffect,
   [401] = flashAction,
   [402] = defogAction,

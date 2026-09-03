@@ -666,6 +666,9 @@ end
 function M.shakeCamera(spec)
   return op("shake_camera", spec)
 end
+function M.actorOscillate(spec)
+  return op("actor_oscillate", spec)
+end
 
 -- Random and diagnostic constructors
 
