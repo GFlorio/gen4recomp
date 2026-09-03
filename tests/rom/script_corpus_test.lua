@@ -1,10 +1,14 @@
 -- ROM-gated script-corpus verification: decodes every scr_seq member of the
--- real dump in one traversal, validates the produced semantic scripts, and
--- pins the closed sound-opcode partition and opcode 726 soundplate lowering.
+-- real dump in one traversal, validates the produced semantic scripts, pins
+-- the closed sound-opcode partition and opcode 726 soundplate lowering, and
+-- owns the source script-audio player-role invariants derived from that
+-- traversal and one parsed source SDAT.
 
 local Assert = require("tests.support.Assert")
 local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local FieldScripts = require("tests.rom.support.FieldScripts")
+local MapCatalog = require("romdump.src.digest.MapCatalog")
+local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local Verifier = require("romdump.src.digest.script.Verifier")
 local S = require("gen4.script")
 
@@ -16,6 +20,8 @@ local ABSENT_OPS = { 83, 86, 88, 93, 544, 575, 664, 665, 666 }
 local REACHABLE_EXCLUDED_OPS = { 218, 779 }
 local SOUND_NAME_KEYWORDS = { "SE", "BGM", "Fanfare", "Cry", "Chatot", "Music", "Sound" }
 
+local SDAT_PATH = "data/sound/gs_sound_data.sdat"
+
 local ALLOWED_REACHABLE_SOUND = {}
 for _, op in ipairs(SUPPORTED_OPS) do
   ALLOWED_REACHABLE_SOUND[op] = true
@@ -26,6 +32,11 @@ end
 for _, op in ipairs(REACHABLE_EXCLUDED_OPS) do
   ALLOWED_REACHABLE_SOUND[op] = true
 end
+
+local ALLOWED_VERIFIER_MESSAGES = {
+  ["return below an empty script stack"] = true,
+  ["return with no matching call"] = true,
+}
 
 local function soundRelated(name)
   for _, keyword in ipairs(SOUND_NAME_KEYWORDS) do
@@ -44,11 +55,49 @@ local function scrub(step)
 end
 
 T["corpus decodes validates and sound partition remains closed"] = function(romFs)
+  local sdatBytes = assert(romFs:readSourcePath(SDAT_PATH), "cannot read " .. SDAT_PATH)
+  local sdat, parseErr = Sdat.open(sdatBytes, SDAT_PATH)
+  Assert.notNil(sdat, "cannot parse " .. SDAT_PATH .. ": " .. tostring(parseErr))
+  sdat = assert(sdat)
+
+  local sequenceIdBySymbol = {}
+  for id = 0, sdat.counts.sequences - 1 do
+    local record = sdat.sequences[id]
+    if record ~= nil and record.fileId ~= nil then
+      local symbol = sdat.symbols.sequences[id]
+      Assert.notNil(symbol, "used sequence " .. id .. " has a symbol")
+      Assert.isTrue(type(symbol) == "string" and #symbol > 0, "used sequence " .. id .. " symbol non-empty")
+      if sequenceIdBySymbol[symbol] ~= nil then
+        error(
+          "duplicate sequence symbol " .. symbol .. " for ids " .. tostring(sequenceIdBySymbol[symbol]) .. " and " .. id,
+          0
+        )
+      end
+      sequenceIdBySymbol[symbol] = id
+    end
+  end
+
+  local function resolvePlayerId(symbol)
+    local sequenceId = sequenceIdBySymbol[symbol]
+    Assert.notNil(sequenceId, "script audio reference " .. tostring(symbol) .. " resolves to a used sequence")
+    local record = sdat.sequences[assert(sequenceId)]
+    Assert.notNil(record, "sequence " .. tostring(sequenceId) .. " record present")
+    return record.playerId
+  end
+
+  local players = {
+    bgm = {},
+    fanfare = {},
+    effect = {},
+    waitEffect = {},
+  }
+  local variableFanfares = 0
+  local unexpectedProblems = {}
+
   local archive, memberIrs = FieldScripts.decode(romFs)
 
   local scriptCount = 0
   local decodeNotes = 0
-  local problems = {}
   local reachable = {}
   local raw726 = 0
   local unsupported726 = 0
@@ -62,7 +111,22 @@ T["corpus decodes validates and sound partition remains closed"] = function(romF
     end
     local report = Verifier.verifyScript(steps, script, memberIrs[member], lowered.omissions)
     if not report.ok then
-      problems[#problems + 1] = { member = member, scriptIndex = index, messages = report.problems }
+      local isAllowedLocation = (member == 151 and index == 5)
+      local allAllowed = true
+      for _, problem in ipairs(report.problems) do
+        local message = problem.message
+        if type(problem) == "string" then
+          message = problem
+        end
+        if not ALLOWED_VERIFIER_MESSAGES[message] then
+          allAllowed = false
+          break
+        end
+      end
+      if not (isAllowedLocation and allAllowed) then
+        unexpectedProblems[#unexpectedProblems + 1] =
+          { member = member, scriptIndex = index, messages = report.problems }
+      end
     end
     for _, ins in ipairs(script.instructions) do
       local sites = reachable[ins.opcode]
@@ -88,6 +152,22 @@ T["corpus decodes validates and sound partition remains closed"] = function(romF
       if step.op == "process_soundplate" then
         semanticCount = semanticCount + 1
       end
+      local op = step.op
+      if op == "play_music" then
+        players.bgm[resolvePlayerId(step.music)] = true
+      elseif op == "play_fanfare" then
+        if type(step.fanfare) == "string" then
+          players.fanfare[resolvePlayerId(step.fanfare)] = true
+        else
+          variableFanfares = variableFanfares + 1
+        end
+      elseif op == "play_sound" or op == "stop_sound" then
+        Assert.isTrue(type(step.sound) == "string", op .. " operands are constants")
+        players.effect[resolvePlayerId(step.sound)] = true
+      elseif op == "wait_sound" then
+        Assert.isTrue(type(step.sound) == "string", "wait_sound operands are constants")
+        players.waitEffect[resolvePlayerId(step.sound)] = true
+      end
     end)
     FieldScripts.eachStep(steps, scrub)
     local ok, err = S.validate({ api = 1, id = "check", steps = steps })
@@ -98,9 +178,21 @@ T["corpus decodes validates and sound partition remains closed"] = function(romF
 
   Assert.isTrue(scriptCount > 2000, "expected the full script corpus")
   Assert.equal(decodeNotes, 0)
-  Assert.equal(#problems, 1)
-  Assert.equal(problems[1].member, 151)
-  Assert.equal(problems[1].scriptIndex, 5)
+  do
+    local lines = {}
+    for _, entry in ipairs(unexpectedProblems) do
+      local msgs = {}
+      for _, problem in ipairs(entry.messages) do
+        local m = problem.message
+        if type(problem) == "string" then
+          m = problem
+        end
+        msgs[#msgs + 1] = tostring(m)
+      end
+      lines[#lines + 1] = ("member %d script %d: %s"):format(entry.member, entry.scriptIndex, table.concat(msgs, ", "))
+    end
+    Assert.equal(#unexpectedProblems, 0, "unexpected verifier problems: " .. table.concat(lines, " | "))
+  end
 
   local missing = {}
   for _, op in ipairs(SUPPORTED_OPS) do
@@ -150,6 +242,54 @@ T["corpus decodes validates and sound partition remains closed"] = function(romF
   Assert.equal(unsupported726, 0, "no 726 callsite may lower as unsupported")
   Assert.isTrue(semanticCount >= 1, "at least one semantic process_soundplate must originate from 726")
   Assert.equal(semanticCount, raw726, "every raw 726 callsite must survive as a semantic process_soundplate")
+
+  Assert.isTrue(variableFanfares >= 1, "retail scripts select fanfares dynamically")
+  Assert.isTrue(next(players.bgm) ~= nil, "field scripts play BGM")
+  Assert.isTrue(next(players.effect) ~= nil, "field scripts play effects")
+
+  local function intersects(a, b)
+    for playerId in pairs(a) do
+      if b[playerId] then
+        return true
+      end
+    end
+    return false
+  end
+
+  Assert.isFalse(intersects(players.bgm, players.fanfare), "a fanfare never shares a player id with the BGM players")
+  Assert.isFalse(intersects(players.bgm, players.effect), "an effect never shares a player id with the BGM players")
+  for playerId in pairs(players.waitEffect) do
+    Assert.isTrue(players.effect[playerId] == true, "WaitSE observes only effect players")
+  end
+
+  local mapPlayers = {}
+  for record in MapCatalog.all() do
+    for _, field in ipairs({ "dayMusic", "nightMusic" }) do
+      local symbol = "SEQ_" .. record[field]
+      local sequenceId = sequenceIdBySymbol[symbol]
+      Assert.notNil(
+        sequenceId,
+        record.symbol .. " " .. field .. " " .. tostring(record[field]) .. " resolves to a sequence"
+      )
+      mapPlayers[sdat.sequences[assert(sequenceId)].playerId] = true
+    end
+  end
+  local count = 0
+  local only = nil
+  for playerId in pairs(mapPlayers) do
+    count = count + 1
+    only = playerId
+  end
+  Assert.equal(count, 1, "map music always plays on one fixed player id")
+  Assert.isTrue(players.bgm[assert(only)] == true, "the map-music player is a BGM player")
+
+  for role, set in pairs(players) do
+    for playerId in pairs(set) do
+      local player = sdat.players[playerId]
+      Assert.notNil(player, role .. " player " .. playerId .. " exists")
+      Assert.equal(player.maxSequences, 1, role .. " player " .. playerId .. " declares exactly one sequence slot")
+    end
+  end
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

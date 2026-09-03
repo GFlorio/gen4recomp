@@ -11,9 +11,8 @@
 -- resulting bundle; playback over these assets is the engine runtime suites'
 -- and the acceptance field-music scenarios' contract, not asserted here.
 -- The suite also pins the compiled runtime vocabulary, one active sequence per
--- field player id, field-script BGM/fanfare/effect player roles never
--- colliding with the BGM players, and derived sample metadata carrying no
--- source rate or payload path. Counts are derived from the dump, never
+-- field player id, and derived sample metadata carrying no source rate or
+-- payload path. Counts are derived from the dump, never
 -- guessed, and the suite runs for every ready version (soulsilver included
 -- when its dump lands). Retail source-distribution facts belong to the corpus
 -- census suite.
@@ -27,7 +26,6 @@ local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
-local FieldScripts = require("tests.rom.support.FieldScripts")
 local Errors = require("libs.errors.src.Errors")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
@@ -151,15 +149,6 @@ local function forEachVersion(fn)
       error(ctx.versionId .. ": " .. tostring(err), 0)
     end
   end
-end
-
--- Every structured step of every field script of the version context,
--- through the production decoder/lowering/structuring pipeline.
-local function eachScriptStep(ctx, fn)
-  local archive, memberIrs = FieldScripts.decode(ctx.romFs)
-  FieldScripts.eachScript(archive, memberIrs, function(_, _, steps)
-    FieldScripts.eachStep(steps, fn)
-  end)
 end
 
 -- The real archive compiles into the full E1-shaped bundle: every section the
@@ -501,95 +490,6 @@ function T.only_the_intro_player_declares_multiple_sequence_slots()
   end)
 end
 
--- The field-script audio roles of the real archive: every constant
--- BGM/fanfare/effect reference resolves to a compiled sequence, map music
--- always plays on one fixed player id, the fanfare and effect player ids
--- never intersect the BGM player ids (so no fanfare or effect can collide
--- with the active BGM player), and every player a role can reach declares
--- exactly one sequence slot. Fanfares may also be selected dynamically
--- (variable operands), while BGM/effect references are always constants.
--- The BGM role spans two player ids (the field slot and the special
--- scripted-music slot), so replacing the current BGM can switch active
--- player slots and must explicitly stop the previous one.
-function T.field_script_audio_roles_never_collide_with_the_bgm_player()
-  forEachVersion(function(ctx)
-    local bySymbol = ctx.bundle.index.sequenceBySymbol
-    local players = {
-      bgm = {},
-      fanfare = {},
-      effect = {},
-      waitEffect = {},
-    }
-    local variableFanfares = 0
-    local function resolve(operand)
-      local sequenceId = bySymbol[operand]
-      Assert.notNil(sequenceId, "script audio reference " .. operand .. " resolves to a compiled sequence")
-      return ctx.sdat.sequences[assert(sequenceId)].playerId
-    end
-    eachScriptStep(ctx, function(step)
-      local op = step.op
-      if op == "play_music" then
-        players.bgm[resolve(step.music)] = true
-      elseif op == "play_fanfare" then
-        if type(step.fanfare) == "string" then
-          players.fanfare[resolve(step.fanfare)] = true
-        else
-          variableFanfares = variableFanfares + 1
-        end
-      elseif op == "play_sound" or op == "stop_sound" then
-        Assert.isTrue(type(step.sound) == "string", op .. " operands are constants")
-        players.effect[resolve(step.sound)] = true
-      elseif op == "wait_sound" then
-        Assert.isTrue(type(step.sound) == "string", "wait_sound operands are constants")
-        players.waitEffect[resolve(step.sound)] = true
-      end
-    end)
-    Assert.isTrue(variableFanfares >= 1, "retail scripts select fanfares dynamically")
-    Assert.isTrue(next(players.bgm) ~= nil, "field scripts play BGM")
-    Assert.isTrue(next(players.effect) ~= nil, "field scripts play effects")
-    local function intersects(a, b)
-      for playerId in pairs(a) do
-        if b[playerId] then
-          return true
-        end
-      end
-      return false
-    end
-    Assert.isFalse(intersects(players.bgm, players.fanfare), "a fanfare never shares a player id with the BGM players")
-    Assert.isFalse(intersects(players.bgm, players.effect), "an effect never shares a player id with the BGM players")
-    for playerId in pairs(players.waitEffect) do
-      Assert.isTrue(players.effect[playerId] == true, "WaitSE observes only effect players")
-    end
-
-    local mapPlayers = {}
-    for record in MapCatalog.all() do
-      for _, field in ipairs({ "dayMusic", "nightMusic" }) do
-        local sequenceId = bySymbol["SEQ_" .. record[field]]
-        Assert.notNil(sequenceId, record.symbol .. " " .. field .. " resolves to a compiled sequence")
-        mapPlayers[ctx.sdat.sequences[assert(sequenceId)].playerId] = true
-      end
-    end
-    local count = 0
-    local only = nil
-    for playerId in pairs(mapPlayers) do
-      count = count + 1
-      only = playerId
-    end
-    Assert.equal(count, 1, "map music always plays on one fixed player id")
-    Assert.isTrue(players.bgm[assert(only)] == true, "the map-music player is a BGM player")
-
-    for role in pairs(players) do
-      for playerId in pairs(players[role]) do
-        Assert.equal(
-          ctx.sdat.players[playerId].maxSequences,
-          1,
-          role .. " player " .. playerId .. " declares exactly one sequence slot"
-        )
-      end
-    end
-  end)
-end
-
 return {
   metadata = { capabilities = { "rom_dump" } },
   beforeAll = T.beforeAll,
@@ -603,6 +503,5 @@ return {
     every_referenced_sample_resolves = T.every_referenced_sample_resolves,
     all_map_day_night_music_references_resolve = T.all_map_day_night_music_references_resolve,
     only_the_intro_player_declares_multiple_sequence_slots = T.only_the_intro_player_declares_multiple_sequence_slots,
-    field_script_audio_roles_never_collide_with_the_bgm_player = T.field_script_audio_roles_never_collide_with_the_bgm_player,
   },
 }
