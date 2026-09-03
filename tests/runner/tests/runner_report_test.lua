@@ -131,4 +131,58 @@ function T.listing_shows_layer_capabilities_tags_and_broken_modules()
   Assert.isTrue(contains(lines, "2 suites"), "totals the listing")
 end
 
+function T.slowest_suites_are_ranked_by_total_and_slowest_tests_remain()
+  local results = {}
+  for index = 1, 3 do
+    results[index] = {
+      module = "libs.unit.a_test",
+      test = "case " .. index,
+      status = "pass",
+      layer = "unit",
+      duration = index / 100,
+    }
+  end
+  local runData = run(results, {
+    passed = 3,
+    byLayer = { unit = { passed = 3, failed = 0, skipped = 0, duration = 0.06 } },
+    suiteTimings = {
+      { module = "libs.unit.heavy_test", layer = "unit", beforeAll = 0.2, tests = 0.05, afterAll = 0.01, total = 0.26 },
+      { module = "libs.unit.light_test", layer = "unit", beforeAll = 0, tests = 0.02, afterAll = 0, total = 0.02 },
+      { module = "libs.unit.medium_test", layer = "unit", beforeAll = 0.01, tests = 0.03, afterAll = 0, total = 0.04 },
+    },
+  })
+  local lines = Report.lines(runData)
+  Assert.isTrue(contains(lines, "slowest suite 1: libs.unit.heavy_test"), "heaviest suite first")
+  local heavyIdx, mediumIdx, lightIdx
+  for i, line in ipairs(lines) do
+    if line:find("slowest suite 1: libs.unit.heavy_test", 1, true) then
+      heavyIdx = i
+    end
+    if line:find("slowest suite 2: libs.unit.medium_test", 1, true) then
+      mediumIdx = i
+    end
+    if line:find("slowest suite 3: libs.unit.light_test", 1, true) then
+      lightIdx = i
+    end
+  end
+  Assert.notNil(heavyIdx)
+  Assert.notNil(mediumIdx)
+  Assert.notNil(lightIdx)
+  Assert.isTrue(heavyIdx < mediumIdx and mediumIdx < lightIdx, "suite ranking is descending by total")
+  Assert.isTrue(contains(lines, "slowest 1:"), "existing slowest test output remains")
+end
+
+function T.report_tolerates_missing_suite_timings()
+  local results = {
+    { module = "libs.unit.a_test", test = "a", status = "pass", layer = "unit", duration = 0.01 },
+  }
+  local runData = run(results, {
+    passed = 1,
+    byLayer = { unit = { passed = 1, failed = 0, skipped = 0, duration = 0.01 } },
+  })
+  local lines = Report.lines(runData)
+  Assert.isFalse(contains(lines, "slowest suite"), "no suite lines when timings absent")
+  Assert.isTrue(contains(lines, "slowest 1:"), "still shows slowest tests")
+end
+
 return { tests = T }

@@ -128,7 +128,6 @@ local function tally(run, entry)
     run.byLayer[entry.layer] = layer
   end
   layer = assert(layer)
-  layer.duration = layer.duration + entry.duration
   if entry.status == "pass" then
     run.passed = run.passed + 1
     layer.passed = layer.passed + 1
@@ -150,6 +149,7 @@ end
 ---@field byLayer table<string, { passed: integer, failed: integer, skipped: integer, duration: number }>
 ---@field capabilities table<string, boolean>
 ---@field versions string[]|nil ready game versions the run exercised, when known
+---@field suiteTimings table[]|nil per-suite hook-inclusive timing rows
 
 ---@return RunnerRun
 ---@param options table
@@ -166,6 +166,7 @@ function TestRunner.run(options)
     duration = 0,
     byLayer = {},
     capabilities = config.capabilities,
+    suiteTimings = {},
   }
   local function record(entry)
     entry = assert(entry)
@@ -179,8 +180,25 @@ function TestRunner.run(options)
       record(item.failure)
     else
       local suite = assert(item.suite, "collected item carries neither a suite nor a failure")
-      for _, entry in ipairs(Execution.runSuite(suite, config)) do
+      local results, timing = Execution.runSuite(suite, config)
+      for _, entry in ipairs(results) do
         record(assert(entry))
+      end
+      if timing ~= nil and #results > 0 then
+        local layer = run.byLayer[suite.layer]
+        if layer == nil then
+          layer = { passed = 0, failed = 0, skipped = 0, duration = 0 }
+          run.byLayer[suite.layer] = layer
+        end
+        layer.duration = layer.duration + timing.total
+        run.suiteTimings[#run.suiteTimings + 1] = {
+          module = suite.module,
+          layer = suite.layer,
+          beforeAll = timing.beforeAll,
+          tests = timing.tests,
+          afterAll = timing.afterAll,
+          total = timing.total,
+        }
       end
     end
   end

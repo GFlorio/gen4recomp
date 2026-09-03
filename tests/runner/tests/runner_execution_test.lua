@@ -4,7 +4,9 @@
 -- runner crash, and cleanup hooks run on every terminal path.
 
 local Assert = require("tests.support.Assert")
+local Execution = require("tests.runner.Execution")
 local FakeCorpus = require("tests.runner.tests.support.FakeCorpus")
+local Suite = require("tests.runner.Suite")
 local TestRunner = require("tests.runner.TestRunner")
 
 local T = {}
@@ -259,6 +261,137 @@ function T.report_summarises_counts_and_durations_by_layer()
   Assert.equal(run.byLayer.rom.skipped, 1)
   Assert.equal(type(run.duration), "number")
   Assert.equal(type(resultFor(run, "fake.unit.alpha_test", "passes").duration), "number")
+end
+
+local function withFakeClock(fn)
+  local t = 0
+  local function tick()
+    t = t + 0.05
+    return t
+  end
+  local savedClock = os.clock
+  local savedLove = nil
+  local hasLove = love ~= nil and love.timer ~= nil and love.timer.getTime ~= nil
+  if hasLove then
+    savedLove = love.timer.getTime
+    love.timer.getTime = tick
+  end
+  os.clock = tick
+  local ok, err = pcall(fn)
+  os.clock = savedClock
+  if hasLove then
+    love.timer.getTime = savedLove
+  end
+  if not ok then
+    error(err, 0)
+  end
+end
+
+local function assertTimingInvariants(timing)
+  Assert.notNil(timing, "suite timing must be returned")
+  Assert.equal(type(timing.beforeAll), "number")
+  Assert.equal(type(timing.tests), "number")
+  Assert.equal(type(timing.afterAll), "number")
+  Assert.equal(type(timing.total), "number")
+  Assert.isTrue(timing.beforeAll >= 0, "beforeAll is not negative")
+  Assert.isTrue(timing.tests >= 0, "tests is not negative")
+  Assert.isTrue(timing.afterAll >= 0, "afterAll is not negative")
+  Assert.isTrue(timing.total >= 0, "total is not negative")
+  local sum = timing.beforeAll + timing.tests + timing.afterAll
+  Assert.isTrue(math.abs(sum - timing.total) < 1e-9, "total equals sum of segments")
+end
+
+function T.execution_returns_hook_inclusive_timing_with_controlled_clock()
+  withFakeClock(function()
+    local suite = Suite.normalize({
+      beforeAll = function() end,
+      afterAll = function() end,
+      tests = { ["a"] = function() end, ["b"] = function() end },
+    }, "fake.unit.timed_test", "unit")
+    local results, timing = Execution.runSuite(suite, { capabilities = {} })
+    Assert.equal(#results, 2)
+    assertTimingInvariants(timing)
+    Assert.isTrue(timing.beforeAll > 0, "successful beforeAll must contribute")
+    Assert.isTrue(timing.afterAll > 0, "successful afterAll must contribute")
+    Assert.isTrue(timing.tests > 0, "tests must contribute")
+  end)
+end
+
+function T.layer_duration_is_suite_total_not_sum_of_result_durations()
+  withFakeClock(function()
+    local corpus = FakeCorpus.new({
+      ["fake/unit/hooked_test.lua"] = {
+        beforeAll = function() end,
+        afterAll = function() end,
+        tests = { ["a"] = function() end, ["b"] = function() end },
+      },
+    })
+    local run = TestRunner.run({ roots = { corpus:root("fake/unit", "unit") }, fs = corpus.fs, load = corpus.load })
+    Assert.equal(run.passed, 2)
+    Assert.notNil(run.suiteTimings, "run should expose suite timings")
+    Assert.equal(#run.suiteTimings, 1)
+    local timing = run.suiteTimings[1]
+    assertTimingInvariants(timing)
+    local resultSum = 0
+    for _, entry in ipairs(run.results) do
+      resultSum = resultSum + entry.duration
+    end
+    Assert.isTrue(timing.total > resultSum, "hook-inclusive total must exceed sum of result durations")
+    Assert.isTrue(math.abs(run.byLayer.unit.duration - timing.total) < 1e-9, "layer duration equals suite total")
+    Assert.isTrue(run.duration >= timing.total, "outer wall clock is at least suite total")
+  end)
+end
+
+function T.filtered_suite_produces_no_timing_entry()
+  withFakeClock(function()
+    local corpus = FakeCorpus.new({
+      ["fake/unit/alpha_test.lua"] = {
+        beforeAll = function()
+          error("hook must not run for filtered suite", 0)
+        end,
+        tests = { ["a"] = function() end },
+      },
+    })
+    local run = TestRunner.run({
+      roots = { corpus:root("fake/unit", "unit") },
+      fs = corpus.fs,
+      load = corpus.load,
+      filter = "no such test",
+    })
+    Assert.equal(#run.results, 0)
+    if run.suiteTimings ~= nil then
+      Assert.equal(#run.suiteTimings, 0, "filtered suite must not produce timing")
+    end
+    Assert.isTrue(run.byLayer.unit == nil or run.byLayer.unit.duration == 0, "no layer duration for filtered suite")
+  end)
+end
+
+function T.missing_capability_suite_has_zero_hook_timing()
+  withFakeClock(function()
+    local corpus = FakeCorpus.new({
+      ["fake/rom/needs_dump_test.lua"] = {
+        metadata = { capabilities = { "rom_dump" } },
+        beforeAll = function()
+          error("hook must not run without capability", 0)
+        end,
+        tests = { ["a"] = function() end },
+      },
+    })
+    local run = TestRunner.run({
+      roots = { corpus:root("fake/rom", "rom") },
+      fs = corpus.fs,
+      load = corpus.load,
+      capabilities = {},
+    })
+    Assert.equal(run.skipped, 1)
+    if run.suiteTimings ~= nil and #run.suiteTimings > 0 then
+      local timing = run.suiteTimings[1]
+      Assert.equal(timing.beforeAll, 0)
+      Assert.equal(timing.afterAll, 0)
+      Assert.equal(timing.tests, 0)
+      Assert.equal(timing.total, 0)
+    end
+  end)
 end
 
 return { tests = T }

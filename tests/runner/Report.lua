@@ -113,6 +113,24 @@ function Report.lines(run)
     end
   end
 
+  local timings = run.suiteTimings
+  if timings ~= nil and #timings > 0 then
+    local sorted = {}
+    for _, entry in ipairs(timings) do
+      sorted[#sorted + 1] = entry
+    end
+    table.sort(sorted, function(a, b)
+      if a.total == b.total then
+        return a.module < b.module
+      end
+      return a.total > b.total
+    end)
+    for index = 1, math.min(SLOWEST_WHEN_GREEN, #sorted) do
+      local entry = sorted[index]
+      add(string.format("  slowest suite %d: %s (%s)", index, entry.module, seconds(entry.total)))
+    end
+  end
+
   return lines
 end
 

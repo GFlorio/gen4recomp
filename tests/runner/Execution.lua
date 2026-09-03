@@ -68,11 +68,11 @@ end
 -- the filter excluded the whole suite and nothing was executed.
 ---@param suite RunnerSuite
 ---@param options { filter: string|nil, capabilities: table<string, boolean> }
----@return table[] results
+---@return table[] results, table timing
 function Execution.runSuite(suite, options)
   local selected = Selection.tests(suite, options.filter)
   if #selected == 0 then
-    return {}
+    return {}, { beforeAll = 0, tests = 0, afterAll = 0, total = 0 }
   end
 
   local available = options.capabilities or {}
@@ -82,16 +82,21 @@ function Execution.runSuite(suite, options)
     for _, name in ipairs(selected) do
       results[#results + 1] = result(suite, name, "skip", "missing capability: " .. missing, 0)
     end
-    return results
+    return results, { beforeAll = 0, tests = 0, afterAll = 0, total = 0 }
   end
 
   local context = newContext(available)
   local results = {}
   local runTests = true
+  local beforeAll = 0
+  local tests = 0
+  local afterAll = 0
 
   if suite.beforeAll ~= nil then
     local started = now()
     local status, message = protected(suite.beforeAll, context)
+    local elapsed = now() - started
+    beforeAll = elapsed
     if status == "skip" then
       -- Setup owns the suite-wide precondition, so its skip skips every test.
       runTests = false
@@ -100,8 +105,7 @@ function Execution.runSuite(suite, options)
       end
     elseif status == "fail" then
       runTests = false
-      results[#results + 1] =
-        result(suite, "<beforeAll>", "fail", "beforeAll failed: " .. tostring(message), now() - started)
+      results[#results + 1] = result(suite, "<beforeAll>", "fail", "beforeAll failed: " .. tostring(message), elapsed)
     end
   end
 
@@ -109,7 +113,9 @@ function Execution.runSuite(suite, options)
     for _, name in ipairs(selected) do
       local started = now()
       local status, message = protected(suite.fns[name], context)
-      results[#results + 1] = result(suite, name, status, message, now() - started)
+      local elapsed = now() - started
+      tests = tests + elapsed
+      results[#results + 1] = result(suite, name, status, message, elapsed)
     end
   end
 
@@ -117,13 +123,15 @@ function Execution.runSuite(suite, options)
     local started = now()
     -- A skip in cleanup is meaningless, so anything but a pass is a failure.
     local status, message = protected(suite.afterAll, context)
+    local elapsed = now() - started
+    afterAll = elapsed
     if status ~= "pass" then
-      results[#results + 1] =
-        result(suite, "<afterAll>", "fail", "afterAll failed: " .. tostring(message), now() - started)
+      results[#results + 1] = result(suite, "<afterAll>", "fail", "afterAll failed: " .. tostring(message), elapsed)
     end
   end
 
-  return results
+  local total = beforeAll + tests + afterAll
+  return results, { beforeAll = beforeAll, tests = tests, afterAll = afterAll, total = total }
 end
 
 return Execution
