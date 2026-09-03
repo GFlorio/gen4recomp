@@ -3634,6 +3634,11 @@ function T.warp_gestures_remain_idle_while_vertical_offset_progresses_through_co
       partnerId = function()
         return nil
       end,
+      isVisible = function()
+        return true
+      end,
+      setPresentationOffset = function() end,
+      clearPresentationOffset = function() end,
     }
     local facade = {
       position = function()

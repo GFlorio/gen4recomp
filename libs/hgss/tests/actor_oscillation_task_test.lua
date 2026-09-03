@@ -16,29 +16,7 @@ local T = {}
 
 local function harness()
   local services = FakeServices.new()
-  -- Extend fake actors with presentation offset support.
   local actors = services.actors
-  for _, actor in pairs(actors.actors) do
-    ---@diagnostic disable-next-line: inject-field
-    actor.presentationOffset = { x = 0, y = 0, z = 0 }
-  end
-  function actors:setPresentationOffset(actorId, offset)
-    local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
-    if actorId == "player" then
-      Errors.raise("SCRIPT_ACTOR_NOT_FOUND", "player not supported for oscillation", { actor = actorId })
-    end
-    ---@diagnostic disable-next-line: inject-field
-    actor.presentationOffset = { x = offset.x or 0, y = offset.y or 0, z = offset.z or 0 }
-    ---@diagnostic disable-next-line: inject-field
-    actor.lastOffset =
-      { x = actor.presentationOffset.x, y = actor.presentationOffset.y, z = actor.presentationOffset.z }
-  end
-  function actors:clearPresentationOffset(actorId)
-    self:setPresentationOffset(actorId, { x = 0, y = 0, z = 0 })
-  end
-  -- Also support manager-style direct if ScriptActorWorld delegates.
-  ---@diagnostic disable-next-line: inject-field
-  actors._offsets = {}
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
@@ -315,6 +293,9 @@ T["script actor world rejects player for oscillation"] = function()
     partnerId = function()
       return nil
     end,
+    isVisible = function()
+      return true
+    end,
     setPresentationOffset = function() end,
     clearPresentationOffset = function() end,
   }
@@ -337,6 +318,93 @@ T["script actor world rejects player for oscillation"] = function()
     Assert.isTrue(Errors.is(err) or tostring(err):find("player") ~= nil)
   end
   Assert.isTrue(threw, "player presentation offset must be rejected")
+end
+
+-- Oscillation runs against the shared fake actor contract: the fake owns a
+-- zeroed presentation offset per actor, polls write observable sine offsets,
+-- and both normal completion and cancellation clear back to zero.
+T["oscillation writes and clears shared actor presentation offsets"] = function()
+  local ActorOscillationTask = require("libs.hgss.src.script.tasks.ActorOscillationTask")
+  local WaitTicksTask = require("libs.script.src.tasks.WaitTicksTask")
+  local function canonical()
+    local services = FakeServices.new()
+    local registry = Registry.new()
+    local composition = Composition.new(registry)
+    local taskRegistry = TaskRegistry.new()
+    ---@diagnostic disable-next-line: param-type-mismatch
+    taskRegistry:register(ActorOscillationTask.type, ActorOscillationTask.version, ActorOscillationTask)
+    ---@diagnostic disable-next-line: param-type-mismatch
+    taskRegistry:register("wait_ticks", 1, WaitTicksTask)
+    local recorder = Diagnostics.newTraceRecorder()
+    local scheduler = Scheduler.new({
+      semantics = require("libs.hgss.src.script.RuntimeValues"),
+      services = services,
+      taskRegistry = taskRegistry,
+      trace = function(record)
+        recorder:record(record)
+      end,
+      resolveComposition = function(id)
+        return composition:effective(id)
+      end,
+    })
+    return { services = services, registry = registry, composition = composition, scheduler = scheduler }
+  end
+  local h = canonical()
+  h.services.actors:add("dancer", { fieldX = 0, fieldZ = 0, facing = "south" })
+  ---@diagnostic disable-next-line: undefined-field
+  local initial =
+    ---@diagnostic disable-next-line: undefined-field
+    assert(h.services.actors.actors.dancer.presentationOffset, "the shared fake owns a presentation offset")
+  Assert.deepEqual(initial, { x = 0, y = 0, z = 0 })
+  local resource = script("test.shared_offset_complete", { S.waitTicks({ ticks = 20 }) })
+  if h.registry:base(resource.id) == nil then
+    h.registry:installBase(resource.id, resource, "generated")
+  end
+  local composed = assert(h.composition:effective(resource.id))
+  local instanceId = h.scheduler:createForeground(composed, nil, 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  local taskId = h.scheduler:createTask("actor_oscillation", {
+    actor = "dancer",
+    cycles = 2,
+    degreesPerTick = 90,
+    amplitudeX = 0.125,
+    amplitudeZ = 0,
+  }, instance, 100, nil)
+  local task = assert(h.scheduler:taskById(taskId))
+  h.scheduler:step(101, nil)
+  h.scheduler:step(102, nil)
+  ---@diagnostic disable-next-line: undefined-field
+  Assert.near(h.services.actors.actors.dancer.presentationOffset.x, 0.125, 1e-9)
+  for tick = 103, 108 do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.equal(task.status, "completed")
+  ---@diagnostic disable-next-line: undefined-field
+  Assert.deepEqual(h.services.actors.actors.dancer.presentationOffset, { x = 0, y = 0, z = 0 })
+
+  local c = canonical()
+  c.services.actors:add("spinner", { fieldX = 0, fieldZ = 0, facing = "south" })
+  local resource2 = script("test.shared_offset_cancel", { S.waitTicks({ ticks = 20 }) })
+  if c.registry:base(resource2.id) == nil then
+    c.registry:installBase(resource2.id, resource2, "generated")
+  end
+  local composed2 = assert(c.composition:effective(resource2.id))
+  local instanceId2 = c.scheduler:createForeground(composed2, nil, 200)
+  local instance2 = assert(c.scheduler:instance(instanceId2))
+  c.scheduler:createTask("actor_oscillation", {
+    actor = "spinner",
+    cycles = 5,
+    degreesPerTick = 90,
+    amplitudeX = 0.125,
+    amplitudeZ = 0.125,
+  }, instance2, 200, nil)
+  c.scheduler:step(201, nil)
+  c.scheduler:step(202, nil)
+  ---@diagnostic disable-next-line: undefined-field
+  Assert.near(c.services.actors.actors.spinner.presentationOffset.x, 0.125, 1e-9)
+  c.scheduler:cancelEnvironment(assert(c.scheduler:foregroundEnvironmentId()), "test cancel")
+  ---@diagnostic disable-next-line: undefined-field
+  Assert.deepEqual(c.services.actors.actors.spinner.presentationOffset, { x = 0, y = 0, z = 0 })
 end
 
 return { tests = T }

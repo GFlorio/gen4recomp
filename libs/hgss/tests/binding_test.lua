@@ -217,6 +217,15 @@ T["actor world adapter"] = function()
     partnerId = function()
       return nil
     end,
+    isVisible = function(_, id)
+      return actors[id].visible ~= false
+    end,
+    setPresentationOffset = function(_, id, offset)
+      actors[id].presentationOffset = { x = offset.x, y = offset.y, z = offset.z }
+    end,
+    clearPresentationOffset = function(_, id)
+      actors[id].presentationOffset = { x = 0, y = 0, z = 0 }
+    end,
   }
   local player = {
     position = function()
@@ -251,6 +260,123 @@ T["actor world adapter"] = function()
   Assert.equal(world:getPosition("player").fieldX, 10)
 end
 
+-- Actor visibility and presentation offsets are public delegated capabilities:
+-- the adapter requires them at construction and routes NPC queries to the
+-- manager instead of reading records or probing for optional methods.
+T["actor visibility and presentation offsets delegate through the required contract"] = function()
+  local Errors = require("libs.errors.src.Errors")
+  local actors = {}
+  actors.elm = { id = "elm", fieldX = 4, fieldZ = 5, facing = "north", visible = true, mapId = 61 }
+  local forcedVisible = { elm = false }
+  local calls = { isVisible = 0, set = 0, clear = 0 }
+  local lastOffset = nil
+  local function baseManager()
+    return {
+      getActor = function(_, id)
+        return actors[id]
+      end,
+      getPosition = function(_, id)
+        return { fieldX = actors[id].fieldX, fieldZ = actors[id].fieldZ, worldY = 0 }
+      end,
+      getFacing = function(_, id)
+        return actors[id].facing
+      end,
+      show = function(_, id)
+        actors[id].visible = true
+      end,
+      hide = function(_, id)
+        actors[id].visible = false
+      end,
+      setPosition = function(_, id, position)
+        actors[id].fieldX = position.fieldX
+        actors[id].fieldZ = position.fieldZ
+      end,
+      setFacing = function(_, id, direction)
+        actors[id].facing = direction
+      end,
+      setMovementType = function(_, id, movementType)
+        actors[id].movementType = movementType
+      end,
+      setAnimationPaused = function(_, id, paused)
+        actors[id].animationPaused = paused
+      end,
+      numericId = function(_, id)
+        return actors[id] and 7 or nil
+      end,
+      actorIdForMapIndex = function()
+        return nil
+      end,
+      cameraTargetId = function()
+        return nil
+      end,
+      partnerId = function()
+        return nil
+      end,
+      isVisible = function(_, id)
+        calls.isVisible = calls.isVisible + 1
+        local actor = actors[id]
+        if actor == nil then
+          Errors.raise("SCRIPT_ACTOR_NOT_FOUND", "no live actor " .. tostring(id), { actor = id })
+        end
+        assert(actor ~= nil)
+        if forcedVisible[id] ~= nil then
+          return forcedVisible[id]
+        end
+        return actor.visible ~= false
+      end,
+      setPresentationOffset = function(_, id, offset)
+        calls.set = calls.set + 1
+        lastOffset = { x = offset.x, y = offset.y, z = offset.z }
+        actors[id].presentationOffset = { x = offset.x, y = offset.y, z = offset.z }
+      end,
+      clearPresentationOffset = function(_, id)
+        calls.clear = calls.clear + 1
+        actors[id].presentationOffset = { x = 0, y = 0, z = 0 }
+        lastOffset = { x = 0, y = 0, z = 0 }
+      end,
+    }
+  end
+  local player = {
+    position = function()
+      return { fieldX = 10, fieldZ = 10, worldY = 0 }
+    end,
+    facing = function()
+      return "south"
+    end,
+  }
+  local world = ScriptActorWorld.new(baseManager() --[[@as ScriptActorManager]], player)
+  Assert.isFalse(world:isVisible("elm"), "visibility must come from the manager, not the actor record")
+  Assert.equal(calls.isVisible, 1)
+  world:setPresentationOffset("elm", { x = 1, y = 2, z = 3 })
+  Assert.equal(calls.set, 1)
+  Assert.deepEqual(lastOffset, { x = 1, y = 2, z = 3 })
+  world:clearPresentationOffset("elm")
+  Assert.equal(calls.clear, 1)
+  Assert.deepEqual(lastOffset, { x = 0, y = 0, z = 0 })
+  Assert.isTrue(world:isVisible("player"), "the player stays visible")
+  local setPlayerErr = Assert.throws(function()
+    world:setPresentationOffset("player", { x = 0, y = 0, z = 0 })
+  end)
+  Assert.isTrue(Errors.is(setPlayerErr), "player offsets stay rejected")
+  local clearPlayerErr = Assert.throws(function()
+    world:clearPresentationOffset("player")
+  end)
+  Assert.isTrue(Errors.is(clearPlayerErr), "player offsets stay rejected")
+  local missingErr = Assert.throws(function()
+    world:isVisible("ghost")
+  end)
+  Assert.isTrue(Errors.is(missingErr), "a missing actor must fail, never read as visible")
+  Assert.equal(assert(missingErr).code, "SCRIPT_ACTOR_NOT_FOUND")
+  for _, method in ipairs({ "isVisible", "setPresentationOffset", "clearPresentationOffset" }) do
+    local incomplete = baseManager()
+    incomplete[method] = nil
+    local err = Assert.throws(function()
+      ScriptActorWorld.new(incomplete --[[@as ScriptActorManager]], player)
+    end, "construction must require " .. method)
+    Assert.notNil(err)
+  end
+end
+
 -- 15. Missing actors through the runtime are attributed errors.
 T["missing actor fault through binding path"] = function()
   local p = platform()
@@ -282,6 +408,11 @@ T["missing actor fault through binding path"] = function()
     partnerId = function()
       return nil
     end,
+    isVisible = function()
+      return false
+    end,
+    setPresentationOffset = function() end,
+    clearPresentationOffset = function() end,
   }
   p.services.actors = ScriptActorWorld.new(manager --[[@as ScriptActorManager]], p.services.player) --[[@as FakeActors]]
   local resource = script("elms_lab.elm", {

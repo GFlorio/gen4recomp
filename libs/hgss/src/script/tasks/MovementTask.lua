@@ -125,26 +125,6 @@ local function advanceAction(state, action, ctx)
   local isFace = kind == "face"
   local isLocomotion = kind == "walk" or kind == "walk_in_place" or kind == "jump" or kind == "trajectory_segment"
 
-  local function isVisibleAtStart()
-    local actors = ctx.services.actors
-    if actors.isVisible then
-      return actors:isVisible(state.actor)
-    end
-    if actors.snapshot then
-      local snap = actors:snapshot(state.actor)
-      if snap ~= nil then
-        return snap.visible ~= false
-      end
-    end
-    local mgr = actors._manager
-    if mgr and mgr.getActor then
-      local actor = mgr:getActor(state.actor)
-      if actor ~= nil then
-        return actor.visible ~= false
-      end
-    end
-    return true
-  end
   -- Lock facing controls whether the task's internal facing (and the actor
   -- facing applied at action end) follows the command; it does not gate the
   -- test-observable fake facing because the production beginScriptedAction
@@ -200,7 +180,7 @@ local function advanceAction(state, action, ctx)
       state.revealOwnerId = ownerId
       state.revealEffectId = handle
     end
-    if kind == "trajectory_segment" and isVisibleAtStart() then
+    if kind == "trajectory_segment" and ctx.services.actors:isVisible(state.actor) then
       assert(ctx.services.audio, "trajectory segment with visible actor requires audio service"):play("SEQ_SE_DP_DANSA")
     end
   end
@@ -249,7 +229,7 @@ local function advanceAction(state, action, ctx)
     assert(action.direction ~= nil, "trajectory direction is required")
     state.destination.fieldX = state.destination.fieldX + action.deltaX
     state.destination.fieldZ = state.destination.fieldZ + action.deltaZ
-    if isVisibleAtStart() then
+    if ctx.services.actors:isVisible(state.actor) then
       assert(ctx.services.audio, "trajectory segment with visible actor requires audio service"):play(
         "SEQ_SE_DP_SUTYA2"
       )

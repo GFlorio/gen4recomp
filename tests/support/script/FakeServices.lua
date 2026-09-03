@@ -16,6 +16,7 @@
 ---@field movementType string|nil
 ---@field animationPaused boolean
 ---@field numericId integer|nil
+---@field presentationOffset { x: number, y: number, z: number }
 ---@field movementOwner string|nil
 ---@field movementState table|nil
 ---@field _scriptedAction table|nil
@@ -122,6 +123,7 @@ function FakeActors:add(id, opts)
     movementType = opts.movementType,
     animationPaused = false,
     numericId = opts.numericId,
+    presentationOffset = { x = 0, y = 0, z = 0 },
     movementOwner = nil,
   }
   self.actors[id] = actor
@@ -160,6 +162,25 @@ end
 function FakeActors:hide(actorId)
   local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
   actor.visible = false
+end
+
+function FakeActors:isVisible(actorId)
+  local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
+  return actor.visible ~= false
+end
+
+function FakeActors:setPresentationOffset(actorId, offset)
+  local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
+  assert(
+    type(offset) == "table" and type(offset.x) == "number" and type(offset.y) == "number" and type(offset.z) == "number",
+    "presentation offset requires x,y,z"
+  )
+  actor.presentationOffset = { x = offset.x, y = offset.y, z = offset.z }
+end
+
+function FakeActors:clearPresentationOffset(actorId)
+  local actor = assert(self.actors[actorId], "fake actor missing: " .. actorId)
+  actor.presentationOffset = { x = 0, y = 0, z = 0 }
 end
 
 function FakeActors:setPosition(actorId, position)

@@ -859,4 +859,81 @@ T["an unmapped emote kind never touches the audio service"] = function()
   Assert.isTrue(ok, "an unmapped emote kind must not require the audio service: " .. tostring(err))
 end
 
+-- Trajectory cries are gated by fresh visibility at each source checkpoint:
+-- hiding after the start cry silences the arrival cry, showing after a
+-- silent start enables it, and a service that cannot answer visibility never
+-- counts as visible.
+T["trajectory cries follow fresh visibility at start and arrival"] = function()
+  local segment =
+    { action = "trajectory_segment", deltaX = 0, deltaZ = 0, surfaceBandDelta = 0, ticks = 2, direction = "south" }
+  local h = harness()
+  h.services.actors:add("beast", { fieldX = 0, fieldZ = 0, facing = "south" })
+  local calls = {}
+  h.services.audio = {
+    play = function(_, effectId)
+      calls[#calls + 1] = effectId
+    end,
+  }
+  local resource = script("test.beast_visible_then_hidden", { S.waitTicks({ ticks = 20 }) })
+  local instanceId = startForeground(h, resource, 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  h.scheduler:createTask("movement", { actor = "beast", sequence = { segment } }, instance, 100, nil)
+  h.scheduler:step(101, nil)
+  h.services.actors:hide("beast")
+  h.scheduler:step(102, nil)
+  Assert.deepEqual(calls, { "SEQ_SE_DP_DANSA" })
+
+  local h2 = harness()
+  h2.services.actors:add("beast", { fieldX = 0, fieldZ = 0, facing = "south", visible = false })
+  local calls2 = {}
+  h2.services.audio = {
+    play = function(_, effectId)
+      calls2[#calls2 + 1] = effectId
+    end,
+  }
+  local resource2 = script("test.beast_hidden_then_visible", { S.waitTicks({ ticks = 20 }) })
+  local instanceId2 = startForeground(h2, resource2, 200)
+  local instance2 = assert(h2.scheduler:instance(instanceId2))
+  h2.scheduler:createTask("movement", { actor = "beast", sequence = { segment } }, instance2, 200, nil)
+  h2.scheduler:step(201, nil)
+  h2.services.actors:show("beast")
+  h2.scheduler:step(202, nil)
+  Assert.deepEqual(calls2, { "SEQ_SE_DP_SUTYA2" })
+
+  local h3 = harness()
+  local opaque = {
+    getPosition = function()
+      return { fieldX = 0, fieldZ = 0, worldY = 0 }
+    end,
+    getFacing = function()
+      return "south"
+    end,
+    setFacing = function() end,
+    beginScriptedAction = function() end,
+    advanceScriptedAction = function() end,
+    commitScriptedAction = function() end,
+    cancelScriptedMovement = function() end,
+    show = function() end,
+    hide = function() end,
+  }
+  h3.services.actors = opaque --[[@as FakeActors]]
+  local calls3 = {}
+  h3.services.audio = {
+    play = function(_, effectId)
+      calls3[#calls3 + 1] = effectId
+    end,
+  }
+  local resource3 = script("test.beast_opaque_visibility", { S.waitTicks({ ticks = 20 }) })
+  local instanceId3 = startForeground(h3, resource3, 300)
+  local instance3 = assert(h3.scheduler:instance(instanceId3))
+  h3.scheduler:createTask("movement", { actor = "beast", sequence = { segment } }, instance3, 300, nil)
+  h3.scheduler:step(301, nil)
+  h3.scheduler:step(302, nil)
+  Assert.equal(#calls3, 0, "without a visibility answer no cry may play")
+  Assert.notNil(
+    h3.services.events:eventFor("script.error", instanceId3),
+    "an unanswerable visibility check must fault instead of defaulting to visible"
+  )
+end
+
 return { tests = T }

@@ -116,19 +116,11 @@ function ActorOscillationTask.poll(state, ctx)
   local actors = assert(ctx.services.actors, "actor oscillation task requires the actor service")
   -- Apply current angle offset before increment, matching source order.
   local offsetFactor = math.sin(math.rad(state.angle))
-  local ok, err = pcall(function()
-    actors:setPresentationOffset(state.actor, {
-      x = offsetFactor * state.amplitudeX,
-      y = 0,
-      z = offsetFactor * state.amplitudeZ,
-    })
-  end)
-  if not ok then
-    if Errors.is(err) then
-      error(err, 0)
-    end
-    error(err, 0)
-  end
+  actors:setPresentationOffset(state.actor, {
+    x = offsetFactor * state.amplitudeX,
+    y = 0,
+    z = offsetFactor * state.amplitudeZ,
+  })
   state.angle = state.angle + state.degreesPerTick
   if state.angle >= 360 then
     state.angle = 0
@@ -136,22 +128,7 @@ function ActorOscillationTask.poll(state, ctx)
   end
   if state.remainingCycles == 0 then
     -- Terminal zero write and complete on same poll.
-    local ok2, err2 = pcall(function()
-      actors:clearPresentationOffset(state.actor)
-    end)
-    if not ok2 then
-      if Errors.is(err2) then
-        error(err2, 0)
-      end
-      error(err2, 0)
-    end
-    -- If clearPresentationOffset not available, fall back to zero set.
-    if not actors.clearPresentationOffset then
-      -- already handled via pcall above may have errored, but ensure zero
-      pcall(function()
-        actors:setPresentationOffset(state.actor, { x = 0, y = 0, z = 0 })
-      end)
-    end
+    actors:clearPresentationOffset(state.actor)
     return { complete = true, state = state, result = { completed = true } }
   end
   return { complete = false, state = state }
@@ -168,16 +145,7 @@ function ActorOscillationTask.cancel(state, reason, ctx)
     return
   end
   local actors = ctx.services.actors
-  local ok, err = pcall(function()
-    if actors.clearPresentationOffset then
-      actors:clearPresentationOffset(state.actor)
-    else
-      actors:setPresentationOffset(state.actor, { x = 0, y = 0, z = 0 })
-    end
-  end)
-  if not ok and Errors.is(err) then
-    error(err, 0)
-  end
+  actors:clearPresentationOffset(state.actor)
   state.cancelled = reason
 end
 
