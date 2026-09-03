@@ -6,6 +6,7 @@
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakGreetingPolicy = require("game.hgss.src.newgame.OakGreetingPolicy")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
+local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 
 ---@class OakIntroControllerOptions
 ---@field candidate table partial New Game candidate finalized only after profile confirmation
@@ -79,6 +80,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field private _revealBrightness integer
 ---@field private _revealOpacity integer
 ---@field private _finalFadeAlpha number
+---@field private _handoffFade StandardFade|nil post-shrink cover fade to black
 ---@field private _revealFrameIndex integer|nil
 ---@field private _revealFrameTimer integer|nil
 ---@field private _revealWidget string|nil
@@ -244,6 +246,7 @@ function OakIntroController.new(options)
     _revealBrightness = 0,
     _revealOpacity = 16,
     _finalFadeAlpha = 0,
+    _handoffFade = nil,
     _revealFrameIndex = nil,
     _revealFrameTimer = nil,
     _revealWidget = nil,
@@ -369,6 +372,12 @@ function OakIntroController:_virtualKeys()
   return keys
 end
 
+function OakIntroController:_enterHandoffCover()
+  self._handoffFade = StandardFade.new({ direction = "out", color = 0 })
+  self._finalFadeAlpha = 0
+  self._phase = "shrink_handoff_cover"
+end
+
 function OakIntroController:_finish()
   local finalized, failure = NewGame.finalize(self._candidate, {
     name = self._name,
@@ -421,6 +430,14 @@ function OakIntroController:_stepFrame()
   local startedCry = false
   if self._phase == "shrink_animation" then
     if self:_advanceVisual() then
+      self:_enterHandoffCover()
+    end
+    return
+  elseif self._phase == "shrink_handoff_cover" then
+    local fade = assert(self._handoffFade, "post-shrink cover fade is missing")
+    local coefficient = fade:updateSourceFrame()
+    self._finalFadeAlpha = coefficient / 16
+    if fade:status().completed then
       self:_finish()
     end
     return
@@ -549,7 +566,7 @@ function OakIntroController:_stepFrame()
       self._audio:play("SEQ_SE_GS_HERO_SHUKUSHOU")
       self:_setVisual(self._genderSelection == 0 and "shrink_male" or "shrink_female")
       if framesFor(self._assets, self._visual) == nil then
-        self:_finish()
+        self:_enterHandoffCover()
       else
         self._phase = "shrink_animation"
       end

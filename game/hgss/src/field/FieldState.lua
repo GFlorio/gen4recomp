@@ -16,6 +16,7 @@ local FieldTerrainEffectRenderer = require("libs.hgss.src.presentation.FieldTerr
 local GpuAssetPool = require("libs.hgss.src.presentation.GpuAssetPool")
 local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
+local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 local StartMenuRenderer = require("libs.hgss.src.ui.StartMenuRenderer")
 local TrainerCardRenderer = require("libs.hgss.src.ui.TrainerCardRenderer")
 
@@ -26,6 +27,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@class FieldStateOptions
 ---@field zoomConfig table? runtime zoom configuration (runtime contract)
 ---@field development boolean? product mode (the default) hides the playtest HUD
+---@field initialFadeIn boolean? one-shot covered entry: first frame fully black, then reveal
 ---@field topologyProvider (fun(width: number, height: number): ScreenTopology)?
 ---@field saveStore table? global GameSaveStore
 ---@field saveValidation GameSaveValidation? shared version-aware GameSave validator
@@ -53,6 +55,8 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, movement-emote, and terrain-effect draw arrays
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
+---@field _entryFade StandardFade? one-shot covered-entry reveal, nil when inactive or complete
+---@field _entryAccumulator number source-frame time held for the covered-entry reveal
 ---@field development boolean product mode (default) hides the playtest HUD and ignores the F1/F2 developer binds
 ---@field topologyProvider fun(width: number, height: number): ScreenTopology
 local FieldState = {}
@@ -62,6 +66,12 @@ FieldState.__index = FieldState
 ---@field getWidth fun(self: FieldState.Font, text: string): number
 
 local NO_DRAWS = {}
+
+-- The presentation-only covered-entry cadence: one shared-fade step per
+-- source frame, isolated from field simulation timing.
+local ENTRY_SOURCE_FRAME = 1 / 30
+local ENTRY_EPSILON = 1e-12
+local ENTRY_MAX_CATCH_UP = 6
 
 local function defaultScreenTopology(width, height)
   local os = love.system and love.system.getOS and love.system.getOS() or ""
@@ -107,6 +117,8 @@ function FieldState.new(game, options)
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
+    _entryFade = options.initialFadeIn == true and StandardFade.new({ direction = "in", color = 0 }) or nil,
+    _entryAccumulator = 0,
   }, FieldState)
   local ok, err = pcall(function()
     self.renderer = FieldRenderer.new({
@@ -188,7 +200,42 @@ end
 
 function FieldState:update(dt)
   self.runtime:update(dt)
+  self:_advanceEntryCover(dt)
   self:_syncPresentationAssets()
+end
+
+-- Advances the one-shot covered-entry reveal on the source-frame cadence,
+-- never per host-render frame. Simulation timing is untouched; excess time
+-- beyond the catch-up budget is discarded like the field fixed tick.
+function FieldState:_advanceEntryCover(dt)
+  local fade = self._entryFade
+  if fade == nil then
+    return
+  end
+  self._entryAccumulator = self._entryAccumulator + dt
+  local steps = 0
+  while self._entryAccumulator + ENTRY_EPSILON >= ENTRY_SOURCE_FRAME and steps < ENTRY_MAX_CATCH_UP do
+    self._entryAccumulator = self._entryAccumulator - ENTRY_SOURCE_FRAME
+    steps = steps + 1
+    fade:updateSourceFrame()
+    if fade:status().completed then
+      break
+    end
+  end
+  if self._entryAccumulator + ENTRY_EPSILON >= ENTRY_SOURCE_FRAME then
+    local discarded = math.floor((self._entryAccumulator + ENTRY_EPSILON) / ENTRY_SOURCE_FRAME)
+    self._entryAccumulator = self._entryAccumulator - discarded * ENTRY_SOURCE_FRAME
+  end
+  if fade:status().completed then
+    self._entryFade = nil
+    self._entryAccumulator = 0
+  end
+end
+
+-- Single predicate for the covered-entry input gate: while the one-shot
+-- reveal is active, new gameplay presses are ignored.
+function FieldState:_entryCoverActive()
+  return self._entryFade ~= nil
 end
 
 -- Keep one presentation-provider reference per distinct sprite needed by the
@@ -485,6 +532,7 @@ function FieldState:draw()
   if presentation then
     assert(self.menuRenderer, "field menu renderer is unavailable"):draw(presentation)
   end
+  self:_drawEntryCoverIfNeeded(width, height)
   if self.development then
     self:_drawHud()
   end
@@ -565,6 +613,26 @@ function FieldState:_drawScriptScreenFadeIfNeeded()
     lg.rectangle("fill", rect.x, rect.y, rect.width, rect.height)
   end
   lg.setColor(prevR, prevG, prevB, prevA)
+end
+
+-- The one-shot covered-entry overlay: full current presentation surface at
+-- the shared fade coefficient, drawn after the field world and UI it
+-- covers. Dimensions are read fresh every frame so a mid-reveal resize
+-- stays fully covered; the fade object is dropped once complete.
+---@param width number
+---@param height number
+function FieldState:_drawEntryCoverIfNeeded(width, height)
+  local fade = self._entryFade
+  if fade == nil then
+    return
+  end
+  local coefficient = fade:status().coefficient
+  if coefficient <= 0 then
+    return
+  end
+  local lg = love.graphics
+  lg.setColor(0, 0, 0, coefficient / 16)
+  lg.rectangle("fill", 0, 0, width, height)
 end
 
 -- The application fade coverage: the world viewport plus the Start Menu
@@ -653,6 +721,9 @@ function FieldState:keypressed(key, _, _)
   if key == "escape" then
     love.event.quit(0)
   end
+  if self:_entryCoverActive() then
+    return
+  end
   if self.runtime.actionKeys[key] then
     self.runtime.input:pressAction("key:" .. key)
   end
@@ -719,6 +790,9 @@ end
 ---@param joystick love.Joystick
 ---@param button string
 function FieldState:gamepadpressed(joystick, button)
+  if self:_entryCoverActive() then
+    return
+  end
   local source = "gamepad:" .. joystick:getID() .. ":" .. button
   if button == "a" then
     self.runtime.input:pressAction(source)
@@ -763,6 +837,9 @@ function FieldState:gamepadaxis(joystick, axis, value)
   if axis ~= "leftx" and axis ~= "lefty" then
     return
   end
+  if self:_entryCoverActive() then
+    return
+  end
   local source = "gamepad:" .. joystick:getID() .. ":left"
   self.runtime.input:setStickAxis(source, axis == "leftx" and "x" or "y", value)
 end
@@ -771,6 +848,9 @@ end
 ---@param y number
 ---@param button integer
 function FieldState:mousepressed(x, y, button, _, _)
+  if self:_entryCoverActive() then
+    return
+  end
   if button == 1 then
     self.runtime.input:pointerDown("mouse:1", x, y)
   end
@@ -780,6 +860,9 @@ end
 ---@param y number
 ---@param istouch boolean
 function FieldState:mousemoved(x, y, _, _, istouch)
+  if self:_entryCoverActive() then
+    return
+  end
   if not istouch then
     self.runtime.input:pointerMove("mouse:1", x, y)
   end
@@ -797,6 +880,9 @@ end
 ---@param x number
 ---@param y number
 function FieldState:wheelmoved(x, y)
+  if self:_entryCoverActive() then
+    return
+  end
   self.runtime.input:pointerScroll("mouse", x, y)
 end
 
@@ -804,6 +890,9 @@ end
 ---@param x number
 ---@param y number
 function FieldState:touchpressed(id, x, y)
+  if self:_entryCoverActive() then
+    return
+  end
   self.runtime.input:pointerDown("touch:" .. tostring(id), x, y)
 end
 
@@ -811,6 +900,9 @@ end
 ---@param x number
 ---@param y number
 function FieldState:touchmoved(id, x, y)
+  if self:_entryCoverActive() then
+    return
+  end
   self.runtime.input:pointerMove("touch:" .. tostring(id), x, y)
 end
 
@@ -822,6 +914,8 @@ function FieldState:touchreleased(id, x, y)
 end
 
 function FieldState:dispose()
+  self._entryFade = nil
+  self._entryAccumulator = 0
   if self.dialogueRenderer then
     self.dialogueRenderer:release()
     self.dialogueRenderer = nil

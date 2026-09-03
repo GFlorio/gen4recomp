@@ -53,7 +53,7 @@ local function withSpies(fn)
   local originalOakCompose = OakIntroComposition.compose
   local applyCalls = {}
   local fieldStateCalls = {}
-  local context = { stores = {}, candidates = {}, oakStates = {} }
+  local context = { stores = {}, candidates = {}, oakStates = {}, fieldOptions = {} }
   rawset(NewGameInitialization, "apply", function(candidate, _)
     applyCalls[#applyCalls + 1] = candidate
     local artifact = {
@@ -75,8 +75,9 @@ local function withSpies(fn)
     }
     return originalApply(candidate, artifact)
   end)
-  FieldState.new = function(game, _)
+  FieldState.new = function(game, options)
     fieldStateCalls[#fieldStateCalls + 1] = game
+    context.fieldOptions[#context.fieldOptions + 1] = options
     return { dispose = function() end }
   end
   rawset(GameSaveValidation, "new", function()
@@ -191,6 +192,61 @@ function T.continue_never_reapplies_fresh_startup_initialization()
       fieldStateCalls[1].world.flags[FieldScriptSymbols.flagsByName.FLAG_HIDE_NEW_BARK_FRIEND],
       "a cleared progression flag must survive Continue unchanged"
     )
+    game:dispose()
+  end)
+end
+
+function T.fresh_oak_completion_requests_the_covered_field_entry()
+  withSpies(function(_, fieldStateCalls, context)
+    local worldState = FieldEventState.new()
+    local candidate = { saveId = "save-00000001", versionId = "heartgold", playerData = {}, worldState = worldState }
+    context.store = {
+      list = function()
+        return {}
+      end,
+    }
+    local game, controller = newGame(context, candidate)
+    game.state:keypressed("return")
+    controller.phase = "complete"
+    game:update(0)
+    Assert.equal(#fieldStateCalls, 1)
+    local options = assert(context.fieldOptions[1], "a new-game field entry must carry presentation options")
+    Assert.isTrue(options.initialFadeIn == true, "a new-game Oak handoff must request the covered field entry")
+    Assert.isTrue(
+      fieldStateCalls[1].worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_HIDE_PLAYERS_ROOM_BRONZE_TROPHY),
+      "startup initialization is still applied before covered field construction"
+    )
+    game:dispose()
+  end)
+end
+
+function T.continue_enters_the_field_without_the_covered_entry()
+  withSpies(function(_, fieldStateCalls, context)
+    local clearedFlagGame = {
+      saveId = "save-00000002",
+      versionId = "heartgold",
+      playerData = { profile = { name = "GOLD" } },
+      playTimeSeconds = 0,
+      world = { flags = { [FieldScriptSymbols.flagsByName.FLAG_HIDE_NEW_BARK_FRIEND] = false } },
+    }
+    local store = {
+      list = function()
+        return { clearedFlagGame }
+      end,
+      load = function()
+        return clearedFlagGame
+      end,
+    }
+    context.store = store
+    local game = HgssGame.new({
+      versionId = "heartgold",
+      onExit = function() end,
+    })
+    game.state:keypressed("down")
+    game.state:keypressed("return")
+    Assert.equal(#fieldStateCalls, 1)
+    local options = context.fieldOptions[1] or {}
+    Assert.isTrue(options.initialFadeIn ~= true, "an ordinary Continue must never request the new-game covered entry")
     game:dispose()
   end)
 end

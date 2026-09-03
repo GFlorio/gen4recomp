@@ -44,6 +44,32 @@ function T.standard_fade_uses_the_source_frame_recurrence()
   Assert.isTrue(fade:status().completed)
 end
 
+function T.standard_fade_out_holds_its_terminal_state_idempotently()
+  local fade = FieldTransitionFade.new({ direction = "out" })
+  for _ = 1, 6 do
+    fade:updateSourceFrame()
+  end
+  Assert.equal(fade:status().coefficient, 16)
+  Assert.isTrue(fade:status().completed)
+  Assert.equal(fade:updateSourceFrame(), 16, "a completed outward fade must hold full black")
+  Assert.equal(fade:updateSourceFrame(), 16, "a completed outward fade must stay idempotent")
+  Assert.isTrue(fade:status().completed)
+end
+
+function T.standard_fade_in_uses_the_reversed_recurrence_and_holds_its_terminal_state()
+  local fade = FieldTransitionFade.new({ direction = "in" })
+  Assert.equal(fade:status().coefficient, 16, "an entry fade starts fully black")
+  local coefficients = {}
+  for _ = 1, 6 do
+    coefficients[#coefficients + 1] = fade:updateSourceFrame()
+  end
+  Assert.deepEqual(coefficients, { 14, 11, 9, 6, 3, 0 })
+  Assert.isTrue(fade:status().completed)
+  Assert.equal(fade:updateSourceFrame(), 0, "a completed entry fade must hold fully revealed")
+  Assert.equal(fade:updateSourceFrame(), 0, "a completed entry fade must stay idempotent")
+  Assert.isTrue(fade:status().completed)
+end
+
 function T.transition_exposes_profile_presentation_state()
   local transition = FieldTransition.new({ loader = {}, prepare = function() end, commit = function() end })
   Assert.equal(type(transition.presentationStatus), "function")

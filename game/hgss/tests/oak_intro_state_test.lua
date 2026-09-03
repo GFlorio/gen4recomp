@@ -572,7 +572,7 @@ function T.source_timed_update_draw_cadence_preserves_full_art_hold_and_shrink_f
   -- hold view before the first source-timed update.
   state:draw()
 
-  for _ = 1, 30 + 9 * 4 do
+  for _ = 1, 30 + 9 * 4 + 6 do
     state:update(1 / 30)
     state:draw()
   end
@@ -698,7 +698,7 @@ function T.draw_cadence_does_not_change_semantic_progress()
   drawnState:draw()
   Assert.deepEqual(semanticSnapshot(drawnController), initial, "drawing must not advance the controller source clock")
 
-  for _, dt in ipairs({ 1, 37 / 30 }) do
+  for _, dt in ipairs({ 1, 43 / 30 }) do
     drawnState:update(dt)
     undrawnState:update(dt)
     Assert.deepEqual(

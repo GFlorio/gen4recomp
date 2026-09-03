@@ -922,7 +922,12 @@ function T.shrink_frames_remain_drawable_until_their_generated_durations_end()
   Assert.equal(state:view().phase, "shrink_animation")
   Assert.equal(state:view().visualFrameIndex, 2)
   state:tick(3)
+  Assert.isTrue(state:view().phase ~= "complete", "the last shrink frame must enter the cover, not complete")
+  Assert.isNil(state:result())
+  Assert.near(state:view().finalFadeAlpha, 0, 1e-9)
+  state:tick(6)
   Assert.equal(state:view().phase, "complete")
+  Assert.notNil(state:result())
 end
 
 function T.final_handoff_shows_selected_full_art_then_source_timed_shrink_for_both_genders()
@@ -981,6 +986,13 @@ function T.final_handoff_shows_selected_full_art_then_source_timed_shrink_for_bo
     Assert.equal(state:view().visualFrameIndex, 4)
     Assert.isNil(state:result())
     state:tick(9)
+    Assert.isTrue(state:view().phase ~= "complete", "the last shrink frame must enter the cover, not complete")
+    Assert.isNil(state:result())
+    Assert.near(state:view().finalFadeAlpha, 0, 1e-9)
+    for _, alpha in ipairs({ 2 / 16, 5 / 16, 7 / 16, 10 / 16, 13 / 16, 1 }) do
+      state:tick(1)
+      Assert.near(state:view().finalFadeAlpha, alpha, 1e-9)
+    end
     Assert.equal(state:view().phase, "complete")
     Assert.notNil(state:result())
     local handoffs = 0
@@ -1025,6 +1037,9 @@ function T.shrink_animation_uses_each_generated_frame_duration()
   state:tick(4)
   Assert.equal(state:view().visualFrameIndex, 4)
   state:tick(5)
+  Assert.isTrue(state:view().phase ~= "complete", "the last shrink frame must enter the cover, not complete")
+  Assert.isNil(state:result())
+  state:tick(6)
   Assert.equal(state:view().phase, "complete")
 
   local oneFrameAssets = finalSequenceAssets()
@@ -1038,6 +1053,9 @@ function T.shrink_animation_uses_each_generated_frame_duration()
   state:tick(1)
   Assert.equal(state:view().phase, "shrink_animation")
   state:tick(1)
+  Assert.isTrue(state:view().phase ~= "complete", "the last shrink frame must enter the cover, not complete")
+  Assert.isNil(state:result())
+  state:tick(6)
   Assert.equal(state:view().phase, "complete")
 end
 
@@ -1137,6 +1155,9 @@ function T.finalization_handoff_keeps_reserved_identity_without_storage_publicat
   state:press("confirm")
   completeActiveMessage(state)
   state:tick(1 + 1 + 30)
+  Assert.isTrue(state:view().phase ~= "complete", "completion must wait for the full-black cover")
+  Assert.isNil(state:result())
+  state:tick(6)
   Assert.equal(state:view().phase, "complete")
   local result = assert(state:result())
   Assert.equal(result.saveId, "save-00000017")
@@ -1186,6 +1207,9 @@ function T.blank_name_default_survives_into_the_finalized_profile()
     state:tick(1) -- final_full_art_fade_in -> final_full_art_hold
     advanceToPhase(state, "shrink_animation")
     state:tick(9 * 4)
+    Assert.isTrue(state:view().phase ~= "complete", "completion must wait for the full-black cover")
+    Assert.isNil(state:result())
+    state:tick(6)
     Assert.equal(state:view().phase, "complete")
     Assert.equal(assert(state:result()).playerData.profile.name, expected)
   end
@@ -1283,6 +1307,78 @@ function T.rejected_name_returns_to_gender_placement_over_twenty_six_frames()
   Assert.equal(finished.phase, "gender_select")
   Assert.equal(finished.genderCompositionProgress, 1)
   Assert.equal(finished.nameCompositionProgress, 0)
+end
+
+-- Drives a male profile through the final dialogue into the shrink
+-- animation using the full-art/shrink fixture, matching the existing
+-- final-handoff flow in this suite.
+local function advanceToShrinkAnimation()
+  local state = nameConfirmation(false, { assets = finalSequenceAssets() })
+  state:press("confirm")
+  Assert.equal(state:view().phase, "final_dialogue")
+  completeActiveMessage(state)
+  Assert.equal(state:view().phase, "final_fade_out")
+  state:tick(2)
+  Assert.equal(state:view().phase, "final_full_art_hold")
+  state:tick(30)
+  Assert.equal(state:view().phase, "shrink_animation")
+  return state
+end
+
+local function tickToShrinkEnd(state)
+  for _ = 1, 9 * 4 - 1 do
+    state:tick(1)
+    Assert.equal(state:view().phase, "shrink_animation", "shrink must not finish early")
+    Assert.isNil(state:result(), "no candidate may publish before the shrink visual completes")
+  end
+end
+
+function T.shrink_completion_enters_the_covered_handoff_instead_of_completing()
+  local state = advanceToShrinkAnimation()
+  tickToShrinkEnd(state)
+  state:tick(1)
+  Assert.isTrue(
+    state:view().phase ~= "complete",
+    "the last shrink frame must enter the post-shrink cover, not complete (got complete)"
+  )
+  Assert.isNil(state:result(), "the candidate must stay unpublished while the cover is not yet black")
+  Assert.near(state:view().finalFadeAlpha, 0, 1e-9, "the cover starts transparent over the shrink visual")
+end
+
+function T.covered_handoff_follows_the_shared_fade_and_completes_only_at_full_black()
+  local state = advanceToShrinkAnimation()
+  tickToShrinkEnd(state)
+  state:tick(1)
+  local expected = { 2 / 16, 5 / 16, 7 / 16, 10 / 16, 13 / 16, 1 }
+  for step, alpha in ipairs(expected) do
+    state:tick(1)
+    Assert.near(
+      state:view().finalFadeAlpha,
+      alpha,
+      1e-9,
+      "cover step " .. step .. " must follow the shared outward fade"
+    )
+    if step < #expected then
+      Assert.isTrue(
+        state:view().phase ~= "complete",
+        "completion must wait for full black (leaked at cover step " .. step .. ")"
+      )
+      Assert.isNil(state:result(), "the candidate must stay unpublished before full black")
+    end
+  end
+  Assert.equal(state:view().phase, "complete")
+  Assert.notNil(state:result(), "the finalized candidate publishes exactly at full black")
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "completion keeps the full-black cover")
+  local handoffs = 0
+  for _, event in ipairs(state:view().events) do
+    if event.kind == "handoff" then
+      handoffs = handoffs + 1
+    end
+  end
+  Assert.equal(handoffs, 1)
+  state:tick(20)
+  Assert.equal(state:view().phase, "complete")
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the completed cover stays black")
 end
 
 return { tests = T }

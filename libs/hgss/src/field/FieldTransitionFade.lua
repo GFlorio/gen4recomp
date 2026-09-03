@@ -1,6 +1,8 @@
 -- Owns the fixed-point standard field fade recurrence one source frame at a
 -- time. Rendering consumes the exposed coefficient; it does not advance it.
 
+local StandardFade = require("libs.hgss.src.presentation.StandardFade")
+
 ---@class FieldTransitionFade
 ---@field coefficient integer
 ---@field color integer
@@ -10,43 +12,19 @@
 local FieldTransitionFade = {}
 FieldTransitionFade.__index = FieldTransitionFade
 
-local ACTIVE_COEFFICIENTS = { 2, 5, 7, 10, 13, 16 }
-
 function FieldTransitionFade.new(options)
-  options = options or {}
-  local color = options.color or 0
-  assert(color == 0 or color == 0x7FFF, "standard fade color must be black or white")
-  local direction = options.direction or "out"
-  assert(direction == "out" or direction == "in", "standard fade direction required")
-  return setmetatable({
-    coefficient = direction == "out" and 0 or 16,
-    color = color,
-    direction = direction,
-    updates = 0,
-    completed = false,
-  }, FieldTransitionFade)
+  local fade = StandardFade.new(options)
+  ---@cast fade FieldTransitionFade
+  return setmetatable(fade, FieldTransitionFade)
 end
 
 function FieldTransitionFade:updateSourceFrame()
-  if self.completed then
-    return self.coefficient
-  end
-  self.updates = self.updates + 1
-  local active = ACTIVE_COEFFICIENTS[self.updates]
-  assert(active, "standard fade update exceeded duration")
-  self.coefficient = self.direction == "out" and active or 16 - active
-  self.completed = self.updates == #ACTIVE_COEFFICIENTS
-  return self.coefficient
+  return StandardFade.updateSourceFrame(self)
 end
 
 ---@return table
 function FieldTransitionFade:status()
-  return {
-    coefficient = self.coefficient,
-    color = self.color,
-    direction = self.direction,
-    completed = self.completed,
-  }
+  return StandardFade.status(self)
 end
 
 return FieldTransitionFade

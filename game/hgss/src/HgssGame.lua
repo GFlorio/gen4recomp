@@ -22,12 +22,18 @@ local RepoFs = require("game.src.RepoFs")
 
 local HgssGame = {}
 
-local function fieldStateOptions(options, saveStore, saveValidation)
-  return {
+local function fieldStateOptions(options, saveStore, saveValidation, extra)
+  local fieldOptions = {
     development = options.development == true,
     saveStore = saveStore,
     saveValidation = saveValidation,
   }
+  if extra then
+    for key, value in pairs(extra) do
+      fieldOptions[key] = value
+    end
+  end
+  return fieldOptions
 end
 
 local function newGameCandidate(saveStore, versionId)
@@ -51,13 +57,13 @@ end
 ---@param saveValidation GameSaveValidation
 ---@param versionId string
 local function installRoutes(options, game, saveStore, saveValidation, versionId)
-  local function enterField(record)
-    game:setState(FieldState.new(record, fieldStateOptions(options, saveStore, saveValidation)))
+  local function enterField(record, extraOptions)
+    game:setState(FieldState.new(record, fieldStateOptions(options, saveStore, saveValidation, extraOptions)))
   end
 
   local function onOakComplete(result)
     assert(type(result) == "table" and result.playerData ~= nil, "Oak intro completed without a finalized game")
-    enterField(NewGameInitialization.apply(result))
+    enterField(NewGameInitialization.apply(result), { initialFadeIn = true })
   end
 
   local function bootOakIntro()
