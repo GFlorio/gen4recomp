@@ -144,9 +144,8 @@ local function cache(model, present, marker, omitLifecycle, omitPlacement, extra
   if extra.omitTrainerReveal then
     index.effects.trainer_reveal = nil
   end
-  if extra.unknownLifecycleMode then
-    -- keep index but definition will have unknown mode
-  end
+  -- When extra.unknownLifecycleMode is set, keep the index unchanged;
+  -- the definition will have the unknown mode.
   return {
     read = function(_, path)
       return path == FieldEffectAssetCache.markerPath() and (marker or EXPECTED_MARKER) or nil

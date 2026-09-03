@@ -131,10 +131,14 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field hide fun(self: FieldActorManager, actorId: string)
 ---@field setMovementType fun(self: FieldActorManager, actorId: string, movementType: string)
 ---@field setAnimationPaused fun(self: FieldActorManager, actorId: string, paused: boolean)
+---@field setPresentationOffset fun(self: FieldActorManager, actorId: string, offset: { x: number, y: number, z: number })
+---@field clearPresentationOffset fun(self: FieldActorManager, actorId: string)
+---@field isVisible fun(self: FieldActorManager, actorId: string): boolean
 ---@field numericId fun(self: FieldActorManager, actorId: string): integer?
 ---@field cameraTargetId fun(self: FieldActorManager): string?
 ---@field partnerId fun(self: FieldActorManager): string?
 ---@field _resolveScriptedDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, direction: FieldDirection?, distance: string?, tiles: integer?): table
+---@field _resolveTrajectoryDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, deltaX: integer, deltaZ: integer, surfaceBandDelta: integer): table
 ---@field setPosition fun(self: FieldActorManager, actorId: string, position: FieldActorManager.Position, options: { scripted?: boolean }?)
 ---@field getAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field probeAt fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, candidate: FieldOccupancyCandidate): FieldActorManager.ProbeResult?
@@ -2004,13 +2008,14 @@ function FieldActorManager:allPausable()
 end
 
 ---@param actorId string
----@return boolean
 ---@param self FieldActorManager
+---@return boolean
 function FieldActorManager:isVisible(actorId)
   local actor = self:getById(actorId)
   if actor == nil then
     Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
   end
+  assert(actor ~= nil)
   return actor.visible ~= false
 end
 
@@ -2064,6 +2069,7 @@ end
 ---@param actor FieldActorManager.Actor
 ---@param direction FieldDirection?
 ---@param distance string?
+---@param tiles integer?
 ---@param self FieldActorManager
 ---@return table destination
 function FieldActorManager:_resolveScriptedDestination(actor, direction, distance, tiles)
@@ -2246,7 +2252,14 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     destInfo = self:_resolveScriptedDestination(actor, direction, distance, action.tiles)
   elseif kind == "trajectory_segment" then
     destInfo = self:_resolveTrajectoryDestination(actor, action.deltaX, action.deltaZ, action.surfaceBandDelta)
-  elseif kind == "walk_in_place" or kind == "face" or kind == "delay" or kind == "emote" or kind == "gesture" or kind == "reveal_trainer" then
+  elseif
+    kind == "walk_in_place"
+    or kind == "face"
+    or kind == "delay"
+    or kind == "emote"
+    or kind == "gesture"
+    or kind == "reveal_trainer"
+  then
     destInfo = {
       start = {
         fieldX = actor.fieldX,

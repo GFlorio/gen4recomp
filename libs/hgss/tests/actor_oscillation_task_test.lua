@@ -9,7 +9,6 @@ local Registry = require("libs.script.src.Registry")
 local Composition = require("libs.script.src.Composition")
 local TaskRegistry = require("libs.script.src.TaskRegistry")
 local Scheduler = require("libs.script.src.Scheduler")
-local ScriptSave = require("libs.script.src.ScriptSave")
 local Diagnostics = require("libs.script.src.Diagnostics")
 local FakeServices = require("tests.support.script.FakeServices")
 
@@ -20,6 +19,7 @@ local function harness()
   -- Extend fake actors with presentation offset support.
   local actors = services.actors
   for _, actor in pairs(actors.actors) do
+    ---@diagnostic disable-next-line: inject-field
     actor.presentationOffset = { x = 0, y = 0, z = 0 }
   end
   function actors:setPresentationOffset(actorId, offset)
@@ -27,7 +27,9 @@ local function harness()
     if actorId == "player" then
       Errors.raise("SCRIPT_ACTOR_NOT_FOUND", "player not supported for oscillation", { actor = actorId })
     end
+    ---@diagnostic disable-next-line: inject-field
     actor.presentationOffset = { x = offset.x or 0, y = offset.y or 0, z = offset.z or 0 }
+    ---@diagnostic disable-next-line: inject-field
     actor.lastOffset =
       { x = actor.presentationOffset.x, y = actor.presentationOffset.y, z = actor.presentationOffset.z }
   end
@@ -35,17 +37,20 @@ local function harness()
     self:setPresentationOffset(actorId, { x = 0, y = 0, z = 0 })
   end
   -- Also support manager-style direct if ScriptActorWorld delegates.
+  ---@diagnostic disable-next-line: inject-field
   actors._offsets = {}
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
   local ok, mod = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
   if ok then
+    ---@diagnostic disable-next-line: param-type-mismatch
     taskRegistry:register(mod.type, mod.version, mod)
   else
     -- before implementation, register a stub that will cause poll to fail
     -- keep registry empty so task creation faults with missing type
   end
+  ---@diagnostic disable-next-line: param-type-mismatch
   taskRegistry:register("wait_ticks", 1, require("libs.script.src.tasks.WaitTicksTask"))
   local recorder = Diagnostics.newTraceRecorder()
   local scheduler = Scheduler.new({
@@ -87,12 +92,12 @@ local function script(id, stepsOrSpec)
   return S.script({ api = 1, id = id, steps = stepsOrSpec })
 end
 
--- A-D03-01: Burned Tower oscillation matches source (2,90,2,0) => 0.125 tile
 T["Burned Tower oscillation matches source"] = function()
   local modOk = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
   Assert.isTrue(modOk, "ActorOscillationTask module must exist")
   local h = harness()
   h.services.actors:add("suicune", { fieldX = 0, fieldZ = 0, facing = "south" })
+  ---@diagnostic disable-next-line: inject-field
   h.services.actors.actors.suicune.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.osc1", { S.waitTicks({ ticks = 20 }) })
   local instanceId = startForeground(h, resource, 100)
@@ -108,6 +113,7 @@ T["Burned Tower oscillation matches source"] = function()
   local offsets = {}
   for i = 1, 8 do
     h.scheduler:step(100 + i, nil)
+    ---@diagnostic disable-next-line: undefined-field
     local off = h.services.actors.actors.suicune.presentationOffset or h.services.actors.actors.suicune.lastOffset
     -- while active, offset is stored; after completion it should be zero
     if task.status == "active" or i < 8 then
@@ -143,6 +149,7 @@ T["Rayquaza amplitude uses normalized 0.1875"] = function()
   Assert.isTrue(modOk, "module required")
   local h = harness()
   h.services.actors:add("rayquaza", { fieldX = 0, fieldZ = 0, facing = "south" })
+  ---@diagnostic disable-next-line: inject-field
   h.services.actors.actors.rayquaza.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.ray", { S.waitTicks({ ticks = 100 }) })
   local instanceId = startForeground(h, resource, 100)
@@ -170,12 +177,12 @@ T["Rayquaza amplitude uses normalized 0.1875"] = function()
   Assert.near(h.services.actors.actors.rayquaza.presentationOffset.x, 0, 1e-9)
 end
 
--- A-D03-02: nondividing step
 T["nondividing step resets without remainder"] = function()
   local modOk = pcall(require, "libs.hgss.src.script.tasks.ActorOscillationTask")
   Assert.isTrue(modOk, "module required")
   local h = harness()
   h.services.actors:add("obj", { fieldX = 0, fieldZ = 0, facing = "south" })
+  ---@diagnostic disable-next-line: inject-field
   h.services.actors.actors.obj.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.nodiv", { S.waitTicks({ ticks = 20 }) })
   local instanceId = startForeground(h, resource, 100)
@@ -208,11 +215,12 @@ T["cancellation clears offset"] = function()
   Assert.isTrue(modOk, "module required")
   local h = harness()
   h.services.actors:add("obj2", { fieldX = 0, fieldZ = 0, facing = "south" })
+  ---@diagnostic disable-next-line: inject-field
   h.services.actors.actors.obj2.presentationOffset = { x = 0, y = 0, z = 0 }
   local resource = script("test.cancel", { S.waitTicks({ ticks = 20 }) })
   local instanceId = startForeground(h, resource, 100)
   local instance = assert(h.scheduler:instance(instanceId))
-  local taskId = h.scheduler:createTask("actor_oscillation", {
+  h.scheduler:createTask("actor_oscillation", {
     actor = "obj2",
     cycles = 5,
     degreesPerTick = 90,
@@ -318,6 +326,7 @@ T["script actor world rejects player for oscillation"] = function()
       return "south"
     end,
   }
+  ---@diagnostic disable-next-line: param-type-mismatch
   local world = SAW.new(manager, player)
   local threw = false
   local ok2, err = pcall(function()

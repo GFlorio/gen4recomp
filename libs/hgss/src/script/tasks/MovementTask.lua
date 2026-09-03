@@ -180,6 +180,7 @@ local function advanceAction(state, action, ctx)
           { scriptId = ctx.instance.scriptId, actor = state.actor }
         )
       end
+      assert(effects ~= nil)
       local pos = ctx.services.actors:getPosition(state.actor)
       local ownerId = type(state.actor) == "string" and state.actor or tostring(state.actor)
       local handle

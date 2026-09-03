@@ -297,6 +297,7 @@ function ScriptActorWorld:isVisible(actorId)
   if actor == nil then
     Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
   end
+  assert(actor ~= nil)
   return actor.visible ~= false
 end
 
