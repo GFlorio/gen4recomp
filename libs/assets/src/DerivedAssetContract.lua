@@ -154,9 +154,9 @@ DerivedAssetContract.newGameInit = {
 }
 
 DerivedAssetContract.fieldEffects = {
-  -- v6 keeps only source-independent model, lifecycle, and placement data in
-  -- generated grass definitions.
-  cacheFormat = "field-effect-cache-v6",
+  -- v7 adds the one-shot trainer reveal effect alongside the existing grass
+  -- hold definitions.
+  cacheFormat = "field-effect-cache-v7",
   indexSchema = "g4-field-effect-index-v1",
 }
 

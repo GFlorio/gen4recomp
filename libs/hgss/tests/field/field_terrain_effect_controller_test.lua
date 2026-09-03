@@ -20,8 +20,8 @@ local function definition(kind)
   return {
     definition = "renderer-" .. kind,
     lifecycle = {
+      mode = "hold_until_owner_moves",
       holdFrame = 12,
-      holdUntilOwnerMoves = true,
     },
     placementOffset = { x = 0.25, y = 0, z = -0.5 },
     model = { kind = "nitro-dynamic", animations = { { name = "grass", frameCount = 13 } } },
@@ -33,8 +33,8 @@ local function genericDefinition(kind)
   return {
     definition = "renderer-" .. kind,
     lifecycle = {
+      mode = "hold_until_owner_moves",
       holdFrame = 3,
-      holdUntilOwnerMoves = true,
     },
     placementOffset = { x = 0.25, y = 0, z = -0.5 },
     model = { kind = "nitro-dynamic", animations = { { name = "grass", frameCount = 4 } } },
@@ -225,7 +225,7 @@ end
 T.tests["dynamic grass instances change pose independently from their semantic age"] = function()
   local clip = NitroModelFixture.doorOpenClip()
   local effectDefinition = {
-    lifecycle = { holdFrame = 12, holdUntilOwnerMoves = true },
+    lifecycle = { mode = "hold_until_owner_moves", holdFrame = 12 },
     placementOffset = { x = 0.25, y = 0, z = -0.5 },
     model = { kind = "nitro-dynamic", animations = { { name = clip.name, frameCount = 13 } } },
   }

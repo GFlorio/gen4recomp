@@ -28,16 +28,40 @@ end
 function FieldTerrainEffectController:emit(response)
   local definition = assert(self.effects[response.kind], "missing field-effect definition: " .. response.kind)
   local lifecycle = assert(definition.lifecycle, "field-effect lifecycle metadata is required: " .. response.kind)
-  assert(type(lifecycle.holdFrame) == "number", "field-effect hold frame is required: " .. response.kind)
-  assert(lifecycle.holdFrame >= 0 and lifecycle.holdFrame == math.floor(lifecycle.holdFrame))
-  assert(lifecycle.holdUntilOwnerMoves == true, "field-effect must hold until owner moves: " .. response.kind)
+  assert(type(lifecycle.mode) == "string", "field-effect lifecycle mode is required: " .. response.kind)
+  if lifecycle.mode == "hold_until_owner_moves" then
+    assert(type(lifecycle.holdFrame) == "number", "field-effect hold frame is required: " .. response.kind)
+    assert(lifecycle.holdFrame >= 0 and lifecycle.holdFrame == math.floor(lifecycle.holdFrame))
+    assert(lifecycle.frameCount == nil, "hold lifecycle must not carry frameCount: " .. response.kind)
+  elseif lifecycle.mode == "once" then
+    assert(type(lifecycle.frameCount) == "number", "field-effect once frame count is required: " .. response.kind)
+    assert(lifecycle.frameCount >= 1 and lifecycle.frameCount == math.floor(lifecycle.frameCount))
+    assert(lifecycle.holdFrame == nil, "once lifecycle must not carry holdFrame: " .. response.kind)
+  else
+    error("unknown field-effect lifecycle mode " .. tostring(lifecycle.mode) .. " for " .. response.kind)
+  end
   local model = assert(definition.model)
   local animations = assert(model.animations)
   assert(model.kind == "nitro-dynamic", "terrain effect requires a dynamic model")
   assert(#animations == 1, "terrain effect requires one animation")
   local animation = animations[1]
-  assert(type(animation.frameCount) == "number" and lifecycle.holdFrame < animation.frameCount)
+  assert(type(animation.frameCount) == "number")
+  if lifecycle.mode == "hold_until_owner_moves" then
+    assert(lifecycle.holdFrame < animation.frameCount)
+  else
+    assert(lifecycle.frameCount == animation.frameCount)
+  end
   local modelFactory = assert(self.modelFactory, "terrain effect model factory is not configured")
+  -- Owner replacement: remove prior same-kind same-owner instance before publishing new one.
+  local ownerId = response.ownerId or response.ownerKey
+  if ownerId ~= nil then
+    for index = #self.instances, 1, -1 do
+      local existing = self.instances[index]
+      if existing.kind == response.kind and existing.ownerId == ownerId then
+        table.remove(self.instances, index)
+      end
+    end
+  end
   local modelInstance = assert(modelFactory(response.kind, definition), "terrain effect model factory returned nil")
   local handle = modelInstance:play(animation.name, { loopMode = "once" })
   self.nextId = self.nextId + 1
@@ -52,12 +76,14 @@ function FieldTerrainEffectController:emit(response)
     sourceWorldY = response.worldY + (response.originY or 0),
     worldY = response.worldY,
     direction = response.direction,
+    ownerId = ownerId,
     age = 0,
     sourceFrame = 0,
     lifecycle = lifecycle,
     modelInstance = modelInstance,
     animationHandle = handle,
   }
+  return self.nextId
 end
 
 function FieldTerrainEffectController:emitAll(responses)
@@ -73,17 +99,51 @@ function FieldTerrainEffectController:updateFixed(owner)
   assert(type(owner.facing) == "string", "terrain effect owner facing is required")
   for index = #self.instances, 1, -1 do
     local instance = self.instances[index]
-    local wasIntro = instance.sourceFrame < instance.lifecycle.holdFrame
-    instance.age = instance.age + 1
-    if wasIntro then
+    local lifecycle = instance.lifecycle
+    if lifecycle.mode == "hold_until_owner_moves" then
+      local wasIntro = instance.sourceFrame < lifecycle.holdFrame
+      instance.age = instance.age + 1
+      if wasIntro then
+        instance.modelInstance:updateFixed()
+        instance.sourceFrame = math.min(lifecycle.holdFrame, instance.sourceFrame + 1)
+      elseif
+        owner.fieldX ~= instance.fieldX
+        or owner.fieldZ ~= instance.fieldZ
+        or (instance.direction ~= nil and owner.facing ~= instance.direction)
+      then
+        table.remove(self.instances, index)
+      end
+    elseif lifecycle.mode == "once" then
+      instance.age = instance.age + 1
       instance.modelInstance:updateFixed()
-      instance.sourceFrame = math.min(instance.lifecycle.holdFrame, instance.sourceFrame + 1)
-    elseif
-      owner.fieldX ~= instance.fieldX
-      or owner.fieldZ ~= instance.fieldZ
-      or (instance.direction ~= nil and owner.facing ~= instance.direction)
-    then
+      instance.sourceFrame = instance.sourceFrame + 1
+      if instance.sourceFrame >= lifecycle.frameCount then
+        table.remove(self.instances, index)
+      end
+    else
+      error("unknown field-effect lifecycle mode " .. tostring(lifecycle.mode))
+    end
+  end
+end
+
+function FieldTerrainEffectController:removeByOwner(ownerId, kind)
+  assert(type(ownerId) == "string" and ownerId ~= "", "owner id is required")
+  for index = #self.instances, 1, -1 do
+    local instance = self.instances[index]
+    if instance.ownerId == ownerId and (kind == nil or instance.kind == kind) then
       table.remove(self.instances, index)
+    end
+  end
+end
+
+function FieldTerrainEffectController:remove(handleOrId)
+  if handleOrId == nil then
+    return
+  end
+  for index = #self.instances, 1, -1 do
+    if self.instances[index].id == handleOrId then
+      table.remove(self.instances, index)
+      return
     end
   end
 end
@@ -108,6 +168,7 @@ function FieldTerrainEffectController:status()
       sourceSurfaceId = instance.sourceSurfaceId,
       sourceWorldY = instance.sourceWorldY,
       direction = instance.direction,
+      ownerId = instance.ownerId,
       age = instance.age,
       frame = instance.animationHandle.player.frameFx / 4096,
       frameCount = instance.animationHandle.player.frameCount,

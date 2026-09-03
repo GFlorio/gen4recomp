@@ -51,6 +51,7 @@ local SINGLES = {
   [74] = { action = "resume_animation" },
   [75] = { action = "emote", name = "exclamation" },
   [100] = { action = "gesture", name = "nurse_bow" },
+  [101] = { action = "reveal_trainer" },
   [102] = { action = "gesture", name = "give" },
   [103] = { action = "emote", name = "question" },
   [104] = { action = "gesture", name = "receive" },

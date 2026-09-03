@@ -621,6 +621,7 @@ function FieldRuntime:_load()
       effects = {
         tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
         very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
+        trainer_reveal = self.fieldEntranceIndicatorAsset.effects.trainer_reveal,
       },
       modelFactory = require("libs.hgss.src.presentation.FieldTerrainEffectModelFactory").new(),
     })
@@ -981,6 +982,7 @@ function FieldRuntime:_load()
       mapLoader = self.mapLoader,
       sourceMap = self.runtimeMap,
       seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
+      effects = self.fieldTerrainEffectController,
       audio = audioService,
       weather = {
         change = function(_, weatherId)

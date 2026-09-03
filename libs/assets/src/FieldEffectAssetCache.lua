@@ -17,13 +17,25 @@ local function finiteNumber(value)
 end
 
 local function validLifecycle(lifecycle, frameCount)
-  return type(lifecycle) == "table"
-    and finiteNumber(lifecycle.holdFrame)
-    and lifecycle.holdFrame >= 0
-    and lifecycle.holdFrame == math.floor(lifecycle.holdFrame)
-    and finiteNumber(frameCount)
-    and lifecycle.holdFrame < frameCount
-    and lifecycle.holdUntilOwnerMoves == true
+  if type(lifecycle) ~= "table" or type(lifecycle.mode) ~= "string" then
+    return false
+  end
+  if lifecycle.mode == "hold_until_owner_moves" then
+    return finiteNumber(lifecycle.holdFrame)
+      and lifecycle.holdFrame >= 0
+      and lifecycle.holdFrame == math.floor(lifecycle.holdFrame)
+      and finiteNumber(frameCount)
+      and lifecycle.holdFrame < frameCount
+      and lifecycle.frameCount == nil
+  elseif lifecycle.mode == "once" then
+    return finiteNumber(lifecycle.frameCount)
+      and lifecycle.frameCount >= 1
+      and lifecycle.frameCount == math.floor(lifecycle.frameCount)
+      and finiteNumber(frameCount)
+      and lifecycle.frameCount == frameCount
+      and lifecycle.holdFrame == nil
+  end
+  return false
 end
 
 local function validPlacement(offset)
@@ -43,8 +55,28 @@ local function validGrassDefinition(definition)
     and type(animations) == "table"
     and #animations == 1
     and type(clip) == "table"
+    and type(lifecycle) == "table"
+    and lifecycle.mode == "hold_until_owner_moves"
     and validLifecycle(lifecycle, clip.frameCount)
     and validPlacement(placementOffset)
+end
+
+local function validTrainerRevealDefinition(definition)
+  local model = definition.model
+  local animations = type(model) == "table" and model.animations
+  local clip = type(animations) == "table" and animations[1]
+  local lifecycle = definition.lifecycle
+  return type(definition.lifetime) == "nil"
+    and type(definition.animation) == "nil"
+    and type(definition.placementOffset) == "nil"
+    and type(model) == "table"
+    and model.kind == "nitro-dynamic"
+    and type(animations) == "table"
+    and #animations == 1
+    and type(clip) == "table"
+    and type(lifecycle) == "table"
+    and lifecycle.mode == "once"
+    and validLifecycle(lifecycle, clip.frameCount)
 end
 
 function FieldEffectAssetCache.indexPath()
@@ -78,7 +110,7 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
   if not loaded or type(index) ~= "table" or index.schema ~= Contract.fieldEffects.indexSchema then
     return false
   end
-  local required = { "warp_entrance", "tall_grass", "very_tall_grass" }
+  local required = { "warp_entrance", "tall_grass", "very_tall_grass", "trainer_reveal" }
   if type(index.effects) ~= "table" then
     return false
   end
@@ -122,6 +154,10 @@ function FieldEffectAssetCache.isReady(cacheFs, expectedMarker)
     end
     if kind == "tall_grass" or kind == "very_tall_grass" then
       if not validGrassDefinition(definition) then
+        return false
+      end
+    elseif kind == "trainer_reveal" then
+      if not validTrainerRevealDefinition(definition) then
         return false
       end
     end

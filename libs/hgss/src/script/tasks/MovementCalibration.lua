@@ -47,6 +47,18 @@ MovementCalibration.JUMP_TICKS = {
 }
 
 MovementCalibration.FACE_TICKS = 1
+MovementCalibration.REVEAL_TRAINER_TICKS = 9
+local REVEAL_TRAINER_OFFSETS = {
+  0,
+  0.25,
+  0.5,
+  0.6875,
+  0.75,
+  0.6875,
+  0.5625,
+  0.375,
+  0,
+}
 -- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
 -- asm/overlay_01_022001E4.s, ov01_02200614: the exclamation effect's
 -- entrance and completion progression surrounds a 30-update hold.
@@ -195,11 +207,13 @@ function MovementCalibration.actionTicks(action)
     local profile = GESTURE_PROFILE[action.name]
     assert(profile, "unknown gesture " .. tostring(action.name))
     return profile.durationTicks
+  elseif kind == "reveal_trainer" then
+    return MovementCalibration.REVEAL_TRAINER_TICKS
   end
   error("unknown movement action " .. tostring(kind))
 end
 
-function MovementCalibration.jumpOffsetAt(action, progressTicks, durationTicks)
+<function MovementCalibration.jumpOffsetAt(action, progressTicks, durationTicks)
   assert(
     type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 0,
     "jump progress must be a non-negative integer"
@@ -220,6 +234,14 @@ function MovementCalibration.jumpOffsetAt(action, progressTicks, durationTicks)
   local h = MovementCalibration.JUMP_HEIGHTS[action.distance] or 0
   local t = progressTicks / durationTicks
   return 4 * h * t * (1 - t)
+end
+
+function MovementCalibration.revealTrainerOffsetAt(progressTicks)
+  assert(
+    type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 1 and progressTicks <= 9,
+    "reveal progress must be 1..9"
+  )
+  return REVEAL_TRAINER_OFFSETS[progressTicks]
 end
 
 function MovementCalibration.gesturePresentationAt(name, progressTicks, durationTicks)

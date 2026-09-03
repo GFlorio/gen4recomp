@@ -149,6 +149,7 @@ end
 ---@field contextChoice ContextChoiceProvider contextual two-choice provider
 ---@field menu FieldMenuHost modal field menu host
 ---@field startMenuReopen table|nil optional { request: fun() } service for the opcode-61 Start Menu reopen (absent -> SCRIPT_SERVICE_MISSING on use)
+---@field effects table|nil semantic field-effect controller (absent -> SCRIPT_SERVICE_MISSING on reveal)
 
 ---@class FieldScripts
 ---@field registry table
@@ -313,6 +314,7 @@ function FieldScripts.new(opts)
       signpost = signpostHost,
       windowStyles = opts.windowStyles,
       startMenuReopen = opts.startMenuReopen,
+      effects = opts.effects,
       advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,

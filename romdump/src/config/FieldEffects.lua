@@ -23,8 +23,8 @@ return {
       modelMembers = { 126 },
       animationMembers = { 140 },
       lifecycle = {
+        mode = "hold_until_owner_moves",
         holdFrame = 12,
-        holdUntilOwnerMoves = true,
       },
       placementOffset = { x = 0, y = 0, z = 0.625 },
     },
@@ -33,10 +33,19 @@ return {
       modelMembers = { 122 },
       animationMembers = { 146 },
       lifecycle = {
+        mode = "hold_until_owner_moves",
         holdFrame = 12,
-        holdUntilOwnerMoves = true,
       },
       placementOffset = { x = 0, y = 0, z = 0.625 },
+    },
+    trainer_reveal = {
+      renderer = 1,
+      modelMembers = { 124 },
+      animationMembers = { 148 },
+      lifecycle = {
+        mode = "once",
+        frameCount = 7,
+      },
     },
   },
 }

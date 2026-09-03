@@ -15,7 +15,7 @@ function M.load(cacheFs)
   )
   assert(index.schema == "g4-field-effect-index-v1", "field-effect index schema is unsupported")
   local effects = {}
-  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass" }) do
+  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass", "trainer_reveal" }) do
     local entry = assert(index.effects[kind], "field-effect index is missing " .. kind)
     local definition = assert(cacheFs:loadLua(entry.path), "field-effect definition is missing: " .. kind)
     ModelAsset.validate(definition.model)

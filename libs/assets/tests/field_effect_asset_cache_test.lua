@@ -6,7 +6,7 @@ local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = { tests = {} }
-local EXPECTED_MARKER = "field-effect-cache-v6:rom:dep"
+local EXPECTED_MARKER = "field-effect-cache-v7:rom:dep"
 
 local function validModel()
   return {
@@ -128,17 +128,24 @@ local function validDynamicModel()
   }
 end
 
-local function cache(model, present, marker, omitLifecycle, omitPlacement)
+local function cache(model, present, marker, omitLifecycle, omitPlacement, extra)
+  extra = extra or {}
   local index = {
     schema = "g4-field-effect-index-v1",
     effects = {},
   }
-  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass" }) do
+  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass", "trainer_reveal" }) do
     index.effects[kind] = {
       kind = kind == "warp_entrance" and "model" or "animated_model",
       definition = kind,
       path = FieldEffectAssetCache.definitionPath(kind),
     }
+  end
+  if extra.omitTrainerReveal then
+    index.effects.trainer_reveal = nil
+  end
+  if extra.unknownLifecycleMode then
+    -- keep index but definition will have unknown mode
   end
   return {
     read = function(_, path)
@@ -152,15 +159,39 @@ local function cache(model, present, marker, omitLifecycle, omitPlacement)
       if kind == "warp_entrance" then
         return { model = model, lifetime = 1, kind = "model" }
       end
+      if kind == "trainer_reveal" then
+        if extra.unknownLifecycleMode then
+          return {
+            model = validDynamicModel(),
+            kind = "animated_model",
+            lifecycle = { mode = "unknown" },
+          }
+        end
+        if extra.malformedOnceFrameCount then
+          return {
+            model = validDynamicModel(),
+            kind = "animated_model",
+            lifecycle = { mode = "once", frameCount = 999 },
+          }
+        end
+        return {
+          model = validDynamicModel(),
+          kind = "animated_model",
+          lifecycle = { mode = "once", frameCount = 4 },
+        }
+      end
       local definition = {
         model = validDynamicModel(),
         kind = "animated_model",
       }
       if not omitLifecycle then
-        definition.lifecycle = { holdFrame = 3, holdUntilOwnerMoves = true }
+        definition.lifecycle = { mode = "hold_until_owner_moves", holdFrame = 3 }
       end
       if not omitPlacement then
         definition.placementOffset = { x = 0.25, y = 0, z = -0.5 }
+      end
+      if extra.missingTrainerReveal and kind == "trainer_reveal" then
+        return nil
       end
       return definition
     end,
@@ -186,7 +217,7 @@ T.tests["accepts the current format and rejects the previous format"] = function
       ["texture-a"] = true,
       ["texture-variant"] = true,
       ["grass.mesh"] = true,
-    }, "field-effect-cache-v5:rom:dep"),
+    }, "field-effect-cache-v6:rom:dep"),
     EXPECTED_MARKER
   )
   Assert.isFalse(staleReady)
@@ -232,6 +263,45 @@ T.tests["rejects grass definitions missing placement metadata"] = function()
       ["texture-variant"] = true,
       ["grass.mesh"] = true,
     }, EXPECTED_MARKER, false, true),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(ready)
+end
+
+T.tests["rejects missing trainer reveal"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, EXPECTED_MARKER, false, false, { omitTrainerReveal = true }),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(ready)
+end
+
+T.tests["rejects unknown lifecycle mode"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, EXPECTED_MARKER, false, false, { unknownLifecycleMode = true }),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(ready)
+end
+
+T.tests["rejects malformed one-shot frame count"] = function()
+  local ready = FieldEffectAssetCache.isReady(
+    cache(validModel(), {
+      ["mesh-a"] = true,
+      ["texture-a"] = true,
+      ["texture-variant"] = true,
+      ["grass.mesh"] = true,
+    }, EXPECTED_MARKER, false, false, { malformedOnceFrameCount = true }),
     EXPECTED_MARKER
   )
   Assert.isFalse(ready)

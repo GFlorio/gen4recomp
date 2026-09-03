@@ -198,6 +198,11 @@ Schema.MOVEMENT_ACTIONS = {
       count = { type = "integer", default = 1 },
     },
   },
+  reveal_trainer = {
+    fields = {
+      count = { type = "integer", default = 1 },
+    },
+  },
   unsupported = {
     fields = {
       code = { type = "integer", required = true },

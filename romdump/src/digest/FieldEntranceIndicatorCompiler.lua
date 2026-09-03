@@ -105,7 +105,7 @@ local function rewriteEffectPaths(descriptor)
   end
 end
 
-local function compileDynamicModel(
+local function compileDynamicEffect(
   narc,
   animationNarc,
   animationArchive,
@@ -144,7 +144,7 @@ local function compileDynamicModel(
     })
   end
   assert(decodedPattern)
-  assert(source.lifecycle and source.placementOffset, "grass source semantics are required")
+  assert(source.lifecycle and source.lifecycle.mode, "effect source semantics are required")
   local material = model.materials[1]
   if not material then
     Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect model has no material target", {
@@ -183,10 +183,35 @@ local function compileDynamicModel(
       plttIdx = keyFrame.plttIdx,
     }
   end
-  local holdFrame = source.lifecycle.holdFrame
+  local mode = source.lifecycle.mode
   local lastFrame = decodedPattern.lastFrame
-  assert(type(holdFrame) == "number" and type(lastFrame) == "number", "grass source frame metadata is required")
-  local frameCount = math.max(holdFrame + 1, lastFrame + 1)
+  assert(type(lastFrame) == "number", "effect source frame metadata is required")
+  local frameCount
+  if mode == "hold_until_owner_moves" then
+    local holdFrame = source.lifecycle.holdFrame
+    assert(type(holdFrame) == "number", "grass source frame metadata is required")
+    assert(source.placementOffset, "grass placement is required")
+    frameCount = math.max(holdFrame + 1, lastFrame + 1)
+  elseif mode == "once" then
+    local onceCount = source.lifecycle.frameCount
+    assert(
+      type(onceCount) == "number" and onceCount == math.floor(onceCount) and onceCount >= 1,
+      "once frame count is required"
+    )
+    if lastFrame + 1 < onceCount then
+      Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "field-effect animation has too few frames", {
+        archive = animationArchive,
+        memberId = animationMemberId,
+        expected = onceCount,
+        actual = lastFrame + 1,
+      })
+    end
+    frameCount = onceCount
+  else
+    Errors.raise("FIELD_EFFECT_SOURCE_INVALID", "unknown field-effect lifecycle mode", {
+      mode = mode,
+    })
+  end
   local normalizedAnimation = {
     format = "NSBTP",
     bytes = animationBytes,
@@ -251,6 +276,8 @@ local function compileDynamicModel(
   return descriptor, meshes, textures, Hashing.sha1hex(modelBytes)
 end
 
+local compileDynamicModel = compileDynamicEffect
+
 function Compiler.compile(romFs, hashLua)
   assert(romFs and romFs.openNarc, "field-effect compiler requires RomFs")
   hashLua = hashLua or Hashing.hashLua
@@ -292,6 +319,17 @@ function Compiler.compile(romFs, hashLua)
     "field-effect-grass",
     FieldEffects.effects.very_tall_grass
   )
+  local trainerReveal, trainerRevealMeshes, trainerRevealTextures, trainerRevealSha = compileDynamicModel(
+    narc,
+    animationNarc,
+    FieldEffects.animationArchive.alias,
+    FieldEffects.effects.trainer_reveal.modelMembers[1],
+    FieldEffects.effects.trainer_reveal.animationMembers[1],
+    "field-effect:trainer-reveal",
+    "trainer-reveal-effect",
+    "field-effect-trainer",
+    FieldEffects.effects.trainer_reveal
+  )
   for sha1, mesh in pairs(tallMeshes) do
     meshes[sha1] = mesh
   end
@@ -304,6 +342,12 @@ function Compiler.compile(romFs, hashLua)
   for sha1, texture in pairs(veryTallTextures) do
     textures[sha1] = texture
   end
+  for sha1, mesh in pairs(trainerRevealMeshes) do
+    meshes[sha1] = mesh
+  end
+  for sha1, texture in pairs(trainerRevealTextures) do
+    textures[sha1] = texture
+  end
   local effects = {
     warp_entrance = {
       model = model,
@@ -312,18 +356,25 @@ function Compiler.compile(romFs, hashLua)
     tall_grass = {
       model = tall,
       lifecycle = {
+        mode = FieldEffects.effects.tall_grass.lifecycle.mode,
         holdFrame = FieldEffects.effects.tall_grass.lifecycle.holdFrame,
-        holdUntilOwnerMoves = FieldEffects.effects.tall_grass.lifecycle.holdUntilOwnerMoves,
       },
       placementOffset = FieldEffects.effects.tall_grass.placementOffset,
     },
     very_tall_grass = {
       model = veryTall,
       lifecycle = {
+        mode = FieldEffects.effects.very_tall_grass.lifecycle.mode,
         holdFrame = FieldEffects.effects.very_tall_grass.lifecycle.holdFrame,
-        holdUntilOwnerMoves = FieldEffects.effects.very_tall_grass.lifecycle.holdUntilOwnerMoves,
       },
       placementOffset = FieldEffects.effects.very_tall_grass.placementOffset,
+    },
+    trainer_reveal = {
+      model = trainerReveal,
+      lifecycle = {
+        mode = FieldEffects.effects.trainer_reveal.lifecycle.mode,
+        frameCount = FieldEffects.effects.trainer_reveal.lifecycle.frameCount,
+      },
     },
   }
   local index = {
@@ -344,10 +395,15 @@ function Compiler.compile(romFs, hashLua)
         definition = "very_tall_grass",
         path = FieldEffectAssetCache.definitionPath("very_tall_grass"),
       },
+      trainer_reveal = {
+        kind = "animated_model",
+        definition = "trainer_reveal",
+        path = FieldEffectAssetCache.definitionPath("trainer_reveal"),
+      },
     },
   }
   local depHash = hashLua({
-    memberSha1 = { warpSha, tallSha, veryTallSha },
+    memberSha1 = { warpSha, tallSha, veryTallSha, trainerRevealSha },
     sourceHashes = sourceHashesByKind,
     index = index,
     effects = effects,

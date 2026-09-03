@@ -597,6 +597,9 @@ end
 function M.m.gesture(spec)
   return action("gesture", spec)
 end
+function M.m.revealTrainer(spec)
+  return action("reveal_trainer", spec)
+end
 function M.m.unsupported(spec)
   return action("unsupported", spec)
 end

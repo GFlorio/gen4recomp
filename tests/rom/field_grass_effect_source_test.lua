@@ -13,6 +13,7 @@ local RomSuite = require("tests.rom.support.RomSuite")
 local SOURCES = {
   { kind = "tall_grass", renderer = 8, modelMember = 126, animationMember = 140 },
   { kind = "very_tall_grass", renderer = 12, modelMember = 122, animationMember = 146 },
+  { kind = "trainer_reveal", renderer = 1, modelMember = 124, animationMember = 148 },
 }
 
 local function selectorB(bytes, keyCount, index)
@@ -48,6 +49,29 @@ local function cacheFor(bundle)
   }
 end
 
+local function assertTrainerReveal(compiled, animationNarc)
+  local definition = assert(compiled.effects.trainer_reveal)
+  local clip = assert(assert(definition.model.animations)[1])
+  local payload = assert(clip.compiled)
+  assert(payload)
+  local raw = assert(animationNarc:readMember(148))
+  local decoded = assert(FieldEffectPatternAnimation.decode(raw, {
+    alias = FieldEffects.animationArchive.alias,
+    memberId = 148,
+  }))
+  Assert.equal(clip.frameCount, 7, "trainer reveal must be seven frames")
+  Assert.equal(definition.lifecycle.mode, "once")
+  Assert.equal(definition.lifecycle.frameCount, 7)
+  Assert.isNil(definition.lifecycle.holdFrame)
+  Assert.isNil(definition.placementOffset)
+  Assert.isNil(definition.animationSourceSha1)
+  Assert.isNil(definition.source)
+  Assert.equal(FieldEffects.effects.trainer_reveal.modelMembers[1], 124)
+  Assert.equal(FieldEffects.effects.trainer_reveal.animationMembers[1], 148)
+  -- animation decode sanity
+  Assert.isTrue(#decoded.keys >= 1)
+end
+
 local function assertSource(compiled, source, animationNarc)
   local definition = assert(compiled.effects[source.kind])
   local clip = assert(assert(definition.model.animations)[1])
@@ -76,23 +100,32 @@ local function assertSource(compiled, source, animationNarc)
   Assert.equal(FieldEffects.effects[source.kind].animationMembers[1], source.animationMember)
   Assert.isNil(definition.animationSourceSha1)
   Assert.isNil(definition.source)
-  Assert.equal(definition.lifecycle.holdFrame, 12)
-  Assert.isTrue(definition.lifecycle.holdUntilOwnerMoves)
-  Assert.equal(definition.placementOffset.x, 0)
-  Assert.equal(definition.placementOffset.y, 0)
-  Assert.equal(definition.placementOffset.z, 0.625)
+  if source.kind == "trainer_reveal" then
+    Assert.equal(definition.lifecycle.mode, "once")
+    Assert.equal(definition.lifecycle.frameCount, 7)
+    Assert.isNil(definition.lifecycle.holdFrame)
+    Assert.isNil(definition.placementOffset)
+  else
+    Assert.equal(definition.lifecycle.mode, "hold_until_owner_moves")
+    Assert.equal(definition.lifecycle.holdFrame, 12)
+    Assert.isNil(definition.lifecycle.frameCount)
+    Assert.equal(definition.placementOffset.x, 0)
+    Assert.equal(definition.placementOffset.y, 0)
+    Assert.equal(definition.placementOffset.z, 0.625)
+  end
 end
 
 local suite = RomSuite.fromFacts({
   ["compiles both source grass definitions without selector inference"] = function(romFs)
-    Assert.equal(Contract.fieldEffects.cacheFormat, "field-effect-cache-v6")
-    Assert.equal(FieldEffectAssetCache.FORMAT, "field-effect-cache-v6")
+    Assert.equal(Contract.fieldEffects.cacheFormat, "field-effect-cache-v7")
+    Assert.equal(FieldEffectAssetCache.FORMAT, "field-effect-cache-v7")
 
     local animationNarc = assert(romFs:openNarc(FieldEffects.animationArchive.alias))
     local compiled = FieldEntranceIndicatorCompiler.compile(romFs)
     for _, source in ipairs(SOURCES) do
       assertSource(compiled, source, animationNarc)
     end
+    assertTrainerReveal(compiled, animationNarc)
 
     Assert.isTrue(
       FieldEffectAssetCache.isReady(cacheFor(compiled), compiled.marker),

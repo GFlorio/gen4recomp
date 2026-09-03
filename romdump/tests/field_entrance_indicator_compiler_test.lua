@@ -33,15 +33,21 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
         renderer = 8,
         modelMembers = { 126 },
         animationMembers = { 140 },
-        lifecycle = { holdFrame = 12, holdUntilOwnerMoves = true },
+        lifecycle = { mode = "hold_until_owner_moves", holdFrame = 12 },
         placementOffset = { x = 0, y = 0, z = 0.625 },
       },
       very_tall_grass = {
         renderer = 12,
         modelMembers = { 122 },
         animationMembers = { 146 },
-        lifecycle = { holdFrame = 12, holdUntilOwnerMoves = true },
+        lifecycle = { mode = "hold_until_owner_moves", holdFrame = 12 },
         placementOffset = { x = 0, y = 0, z = 0.625 },
+      },
+      trainer_reveal = {
+        renderer = 1,
+        modelMembers = { 124 },
+        animationMembers = { 148 },
+        lifecycle = { mode = "once", frameCount = 7 },
       },
     },
   }
@@ -61,7 +67,14 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
     FORMAT = "FIELD_EFFECT_PATTERN",
     decode = function(_, context)
       animationMembers[#animationMembers + 1] = context.memberId
-      local lastFrame = context.memberId == 146 and 119 or 1
+      local lastFrame
+      if context.memberId == 146 then
+        lastFrame = 119
+      elseif context.memberId == 148 then
+        lastFrame = 6
+      else
+        lastFrame = 1
+      end
       return {
         lastFrame = lastFrame,
         keys = { { frame = 0, texIdx = invalidSelector and 1 or 0, plttIdx = 0 } },
@@ -169,27 +182,33 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
 
   Assert.isTrue(ok, tostring(result))
-  Assert.equal(#modelMembers, 3)
+  Assert.equal(#modelMembers, 4)
   Assert.equal(modelMembers[1], 85)
   Assert.equal(modelMembers[2], 126)
   Assert.equal(modelMembers[3], 122)
-  Assert.equal(#animationMembers, 2)
+  Assert.equal(modelMembers[4], 124)
+  Assert.equal(#animationMembers, 3)
   Assert.equal(animationMembers[1], 140)
   Assert.equal(animationMembers[2], 146)
+  Assert.equal(animationMembers[3], 148)
   local animation = result.effects.tall_grass.model.animations[1]
   Assert.equal(animation.source.memberId, 140)
   Assert.equal(animation.frameCount, 13)
   Assert.equal(animation.source.type, "field-effect")
   Assert.equal(animation.source.format, "FIELD_EFFECT_PATTERN")
   Assert.equal(result.effects.tall_grass.model.kind, "nitro-dynamic")
+  Assert.equal(result.effects.tall_grass.lifecycle.mode, "hold_until_owner_moves")
   Assert.equal(result.effects.tall_grass.lifecycle.holdFrame, 12)
-  Assert.isTrue(result.effects.tall_grass.lifecycle.holdUntilOwnerMoves)
   Assert.isNil(result.effects.tall_grass.source)
   Assert.isNil(result.effects.tall_grass.animationSourceSha1)
   Assert.isNil(result.effects.tall_grass.lifetime)
   Assert.equal(result.effects.very_tall_grass.model.animations[1].frameCount, 120)
   Assert.equal(result.effects.very_tall_grass.model.kind, "nitro-dynamic")
   Assert.isNil(result.effects.very_tall_grass.lifetime)
+  Assert.equal(result.effects.trainer_reveal.model.kind, "nitro-dynamic")
+  Assert.equal(result.effects.trainer_reveal.lifecycle.mode, "once")
+  Assert.equal(result.effects.trainer_reveal.lifecycle.frameCount, 7)
+  Assert.isNil(result.effects.trainer_reveal.placementOffset)
 
   invalidSelector = true
   local invalidOk, invalidErr = pcall(compiler.compile, romFs)
@@ -226,11 +245,13 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
   }
   package.loaded["romdump.src.digest.FieldEffectPatternAnimation"] = {
     FORMAT = "FIELD_EFFECT_PATTERN",
-    decode = function()
+    decode = function(_, context)
+      local memberId = context and context.memberId or 0
+      local lastFrame = memberId == 148 and 6 or 0
       return {
         frameCount = 1,
         keys = { { frame = 0, texIdx = 0, plttIdx = 0 } },
-        lastFrame = 0,
+        lastFrame = lastFrame,
       }
     end,
   }
@@ -295,7 +316,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       openNarc = function()
         return {
           memberCount = function()
-            return 147
+            return 169
           end,
           readMember = function()
             return "member-85"

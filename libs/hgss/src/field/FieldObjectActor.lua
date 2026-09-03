@@ -286,6 +286,12 @@ function FieldObjectActor:beginAction(descriptor, owner)
     self._gestureOffsetY = 0
     self.pose = "idle"
     self.poseTick = 0
+  elseif descriptor.action == "reveal_trainer" then
+    self._gesturePose = nil
+    self._gestureTick = nil
+    self._gestureOffsetY = 0
+    self.pose = "idle"
+    self.poseTick = 0
   elseif isLocomotionAction(descriptor.action) then
     self._gesturePose = nil
     self._gestureTick = nil
@@ -336,6 +342,11 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldZ = m.startWorldZ
     self.worldY = m.startWorldY
     self.presentationOffset.y = walkInPlaceBobOffset(progressTicks, durationTicks)
+  elseif m.action == "reveal_trainer" then
+    self.worldX = m.startWorldX
+    self.worldZ = m.startWorldZ
+    self.worldY = m.startWorldY
+    self.presentationOffset.y = MovementCalibration.revealTrainerOffsetAt(progressTicks)
   elseif m.action == "face" or m.action == "delay" or m.action == "emote" or m.action == "gesture" then
     -- No translation.
     self.worldX = m.startWorldX
