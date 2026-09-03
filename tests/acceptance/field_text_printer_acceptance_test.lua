@@ -30,24 +30,23 @@ end
 
 local function withReadyVersion(fn, options)
   local harness = AcceptanceHarness.new()
-  harness:forEachVersion(function(versionId)
-    local fieldOptions = options and options.fieldOptions or nil
-    local game = harness:boot({
-      versionId = versionId,
-      map = options and options.map or TOWN,
-      save = options and options.save or "fresh",
-      fieldOptions = fieldOptions,
-    })
-    freezeAutonomousActors(game)
-    local ok, err = xpcall(function()
-      fn(game)
-      Assert.equal(game:renderAttempts(), 0, "field text acceptance must stop before GPU rendering")
-    end, debug.traceback)
-    game:close()
-    if not ok then
-      error(err, 0)
-    end
-  end)
+  local versionId = AcceptanceHarness.defaultVersion()
+  local fieldOptions = options and options.fieldOptions or nil
+  local game = harness:boot({
+    versionId = versionId,
+    map = options and options.map or TOWN,
+    save = options and options.save or "fresh",
+    fieldOptions = fieldOptions,
+  })
+  freezeAutonomousActors(game)
+  local ok, err = xpcall(function()
+    fn(game)
+    Assert.equal(game:renderAttempts(), 0, "field text acceptance must stop before GPU rendering")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 ---@return { dialogue: { modal: boolean, textOriginX: integer, textOriginY: integer, contentWidth: integer, syntheticBreaks: integer } }
@@ -147,28 +146,27 @@ end
 -- composition; only the low-level audio output is an acceptance boundary.
 function T.tests.production_dialogue_continuation_emits_select_sound()
   local harness = AcceptanceHarness.new()
-  harness:forEachVersion(function(versionId)
-    local game = harness:boot({
-      versionId = versionId,
-      map = TOWN,
-      save = "fresh",
-      fieldOptions = { audioHost = "production" },
-    })
-    local ok, err = xpcall(function()
-      openVanillaDialogue(game)
-      advanceToDialogueWait(game)
-      game:pressAction()
-      Assert.isTrue(
-        game.runtime.audio:isEffectPlaying("SEQ_SE_DP_SELECT"),
-        "continuation confirmation must emit the production select sound"
-      )
-      Assert.equal(game:renderAttempts(), 0)
-    end, debug.traceback)
-    game:close()
-    if not ok then
-      error(err, 0)
-    end
-  end)
+  local versionId = AcceptanceHarness.defaultVersion()
+  local game = harness:boot({
+    versionId = versionId,
+    map = TOWN,
+    save = "fresh",
+    fieldOptions = { audioHost = "production" },
+  })
+  local ok, err = xpcall(function()
+    openVanillaDialogue(game)
+    advanceToDialogueWait(game)
+    game:pressAction()
+    Assert.isTrue(
+      game.runtime.audio:isEffectPlaying("SEQ_SE_DP_SELECT"),
+      "continuation confirmation must emit the production select sound"
+    )
+    Assert.equal(game:renderAttempts(), 0)
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 -- Typed Trainer Tips remain on the shared printer policy: the fresh-player

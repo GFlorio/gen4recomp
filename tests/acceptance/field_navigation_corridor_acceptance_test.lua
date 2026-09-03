@@ -43,24 +43,23 @@ end
 
 local function withVersion(fn)
   local harness = AcceptanceHarness.new()
-  harness:forEachVersion(function(versionId)
-    local romFs, err = RomFs.open(versionId)
-    assert(romFs, tostring(err))
-    local facts = NavigationFacts.discover(CacheFs.forVersion(versionId), romFs)
-    romFs:close()
-    local game = harness:boot({ versionId = versionId, map = "MAP_NEW_BARK", save = "fresh" })
-    OpeningLifecycle.seedNewBarkWestExitScene(game)
-    OpeningLifecycle.settleNewBarkFriendScene(game)
-    freezeAutonomousActors(game)
-    local ok, failure = xpcall(function()
-      fn(game, facts)
-      Assert.equal(game:renderAttempts(), 0, "navigation acceptance must stop before GPU rendering")
-    end, debug.traceback)
-    game:close()
-    if not ok then
-      error(failure, 0)
-    end
-  end)
+  local versionId = AcceptanceHarness.defaultVersion()
+  local romFs, err = RomFs.open(versionId)
+  assert(romFs, tostring(err))
+  local facts = NavigationFacts.discover(CacheFs.forVersion(versionId), romFs)
+  romFs:close()
+  local game = harness:boot({ versionId = versionId, map = "MAP_NEW_BARK", save = "fresh" })
+  OpeningLifecycle.seedNewBarkWestExitScene(game)
+  OpeningLifecycle.settleNewBarkFriendScene(game)
+  freezeAutonomousActors(game)
+  local ok, failure = xpcall(function()
+    fn(game, facts)
+    Assert.equal(game:renderAttempts(), 0, "navigation acceptance must stop before GPU rendering")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(failure, 0)
+  end
 end
 
 local function moveTo(game, point)

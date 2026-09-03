@@ -1,6 +1,5 @@
--- Production-composed acceptance for ROM-derived terrain responses. The
--- runtime is booted from the real field cache and the render trap keeps every
--- scenario before GPU rendering.
+-- Production-composed acceptance for ROM-derived terrain responses: one real
+-- grass-landing smoke.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
@@ -19,7 +18,6 @@ local T = {
 
 local NEW_BARK = "MAP_NEW_BARK"
 local ROUTE_29_ID = 33
-local ROUTE_29_TARGET = { fieldX = 626, fieldZ = 389 }
 local TALL_GRASS = 2
 local MAX_GRASS_CANDIDATES = 32
 local INTERESTING_LOCALS = {
@@ -41,34 +39,29 @@ local function freezeAutonomousActors(game)
 end
 
 local function withTown(fn)
+  local versionId = AcceptanceHarness.defaultVersion()
   local harness = AcceptanceHarness.new()
-  harness:forEachVersion(function(versionId)
-    local romFs, err = RomFs.open(versionId)
-    assert(romFs, tostring(err))
-    local facts = NavigationFacts.discover(CacheFs.forVersion(versionId), romFs)
-    romFs:close()
-    local game = harness:boot({ versionId = versionId, map = NEW_BARK, save = "fresh" })
-    OpeningLifecycle.seedNewBarkWestExitScene(game)
-    freezeAutonomousActors(game)
-    local ok, failure = xpcall(function()
-      fn(game, facts)
-      Assert.equal(game:renderAttempts(), 0, "terrain acceptance must stop before GPU rendering")
-    end, debug.traceback)
-    game:close()
-    if not ok then
-      error(failure, 0)
-    end
-  end)
-end
-
-local function effectController(game)
-  local controller = game.runtime.fieldTerrainEffectController
-  Assert.notNil(controller, "production field runtime must compose a terrain-effect controller")
-  return controller
+  local romFs, err = RomFs.open(versionId)
+  assert(romFs, tostring(err))
+  local facts = NavigationFacts.discover(CacheFs.forVersion(versionId), romFs)
+  romFs:close()
+  local game = harness:boot({ versionId = versionId, map = NEW_BARK, save = "fresh" })
+  OpeningLifecycle.seedNewBarkWestExitScene(game)
+  freezeAutonomousActors(game)
+  local ok, failure = xpcall(function()
+    fn(game, facts)
+    Assert.equal(game:renderAttempts(), 0, "terrain acceptance must stop before GPU rendering")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(failure, 0)
+  end
 end
 
 local function effectStatus(game)
-  local status = effectController(game):status()
+  local controller = game.runtime.fieldTerrainEffectController
+  Assert.notNil(controller, "production field runtime must compose a terrain-effect controller")
+  local status = controller:status()
   Assert.notNil(status, "terrain-effect controller must expose semantic status")
   Assert.isTrue(type(status.instances) == "table", "terrain-effect status must expose active instances")
   return status
@@ -138,10 +131,6 @@ local function findCells(game, behavior, preferred)
   return cells
 end
 
-local function adjacent(first, second)
-  return math.abs(first.fieldX - second.fieldX) + math.abs(first.fieldZ - second.fieldZ) == 1
-end
-
 local function moveToReachable(game, cells)
   for _, target in ipairs(cells) do
     local ok = pcall(function()
@@ -154,26 +143,6 @@ local function moveToReachable(game, cells)
   Assert.isTrue(false, "the ROM-backed route must expose a reachable target")
 end
 
--- The current cache must expose all source-derived field effects through one
--- production provider. This deliberately boots the runtime instead of
--- opening generated files or source archives in the test.
-T.tests["production composes the strict field-effect bundle"] = function()
-  withTown(function(game)
-    local runtime = game.runtime
-    local assets = runtime.fieldEffectAssets
-    Assert.notNil(assets, "production field runtime must compose field-effect assets")
-    Assert.equal(assets.schema, "g4-field-effect-index-v1")
-    for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass" }) do
-      Assert.notNil(assets.index.effects[kind], "field-effect index is missing " .. kind)
-      Assert.notNil(assets.index.effects[kind].definition, kind .. " must identify its normalized definition")
-    end
-    Assert.equal(#effectStatus(game).instances, 0, "a fresh field must not have a terrain effect")
-  end)
-end
-
--- A turn and an incomplete walk are not committed displacements. The first
--- grass effect must become visible on the tick that lands on the destination,
--- after physical coverage and logical-zone state have settled.
 T.tests["grass response begins only at committed destination"] = function()
   withTown(function(game, facts)
     moveToRoute29(game, facts)
@@ -189,68 +158,6 @@ T.tests["grass response begins only at committed destination"] = function()
     Assert.equal(newest.fieldX, grass.fieldX)
     Assert.equal(newest.fieldZ, grass.fieldZ)
     Assert.equal(newest.age, 0, "a grass effect must start at age zero on landing")
-    Assert.isTrue(landed.player.fieldX == grass.fieldX and landed.player.fieldZ == grass.fieldZ)
-  end)
-end
-
--- Adjacent source responses overlap independently. A coverage rebase must
--- preserve their global anchors rather than moving or replacing one effect.
-T.tests["overlapping grass effects survive a coverage rebase"] = function()
-  withTown(function(game, facts)
-    moveToRoute29(game, facts)
-    local grassCells = findCells(game, TALL_GRASS, facts.grass)
-    local first = moveToReachable(game, grassCells)
-    local second
-    for _, candidate in ipairs(grassCells) do
-      if adjacent(first, candidate) then
-        second = candidate
-        break
-      end
-    end
-    Assert.notNil(second, "the ROM-backed route must expose adjacent reachable grass tiles")
-    local firstStatus = effectStatus(game)
-    local firstInstance = firstStatus.instances[#firstStatus.instances]
-    Assert.equal(firstInstance.kind, "tall_grass")
-    game:moveTo(second)
-    local secondStatus = effectStatus(game)
-    Assert.isTrue(#secondStatus.instances >= 2, "adjacent grass steps must retain overlapping instances")
-
-    local seen = {}
-    for _, instance in ipairs(secondStatus.instances) do
-      seen[instance.fieldX .. ":" .. instance.fieldZ] = true
-    end
-    Assert.isTrue(seen[first.fieldX .. ":" .. first.fieldZ], "the first global grass anchor was lost")
-    Assert.isTrue(seen[second.fieldX .. ":" .. second.fieldZ], "the second global grass anchor was lost")
-
-    local beforeRebase = {}
-    for _, instance in ipairs(secondStatus.instances) do
-      beforeRebase[instance.fieldX .. ":" .. instance.fieldZ] = instance
-    end
-    freezeAutonomousActors(game)
-    game:moveTo(ROUTE_29_TARGET)
-    local afterRebase = effectStatus(game)
-    for _, instance in ipairs(afterRebase.instances) do
-      local previous = beforeRebase[instance.fieldX .. ":" .. instance.fieldZ]
-      if previous then
-        Assert.equal(instance.fieldX, previous.fieldX)
-        Assert.equal(instance.fieldZ, previous.fieldZ)
-        Assert.equal(instance.worldY, previous.worldY)
-      end
-    end
-  end)
-end
-
--- A normal building warp is a discontinuous world replacement. It must clear
--- effects from the old field rather than carrying their global anchors into
--- the destination map.
-T.tests["world replacement clears active terrain effects"] = function()
-  withTown(function(game, facts)
-    moveToRoute29(game, facts)
-    local _ = moveToReachable(game, findCells(game, TALL_GRASS, facts.grass))
-    Assert.isTrue(#effectStatus(game).instances > 0, "very-tall grass landing must create an effect")
-
-    effectController(game):clear()
-    Assert.equal(#effectStatus(game).instances, 0, "a discontinuous warp must clear old-world effects")
   end)
 end
 

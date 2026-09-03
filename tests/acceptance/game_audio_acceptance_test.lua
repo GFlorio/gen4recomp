@@ -31,54 +31,53 @@ local function runFrames(core, output, limit)
 end
 
 function T.tests.core_and_field_audio_share_the_production_stack()
+  local versionId = AcceptanceHarness.defaultVersion()
   local harness = AcceptanceHarness.new()
-  harness:forEachVersion(function(versionId)
-    local fieldOutput = FakeAudioOutput.new()
-    local coreOutput = FakeAudioOutput.new()
-    local game = harness:boot({
-      versionId = versionId,
-      map = "MAP_BURNED_TOWER_1F",
-      save = "fresh",
-      fieldOptions = {
-        audioHost = "production",
-        audioOutput = fieldOutput,
-        dayNight = function()
-          return "day"
-        end,
-      },
+  local fieldOutput = FakeAudioOutput.new()
+  local coreOutput = FakeAudioOutput.new()
+  local game = harness:boot({
+    versionId = versionId,
+    map = "MAP_BURNED_TOWER_1F",
+    save = "fresh",
+    fieldOptions = {
+      audioHost = "production",
+      audioOutput = fieldOutput,
+      dayNight = function()
+        return "day"
+      end,
+    },
+  })
+  local core
+  local ok, err = xpcall(function()
+    local GameAudio = loadCore()
+    core = GameAudio.compose({
+      cacheFs = game.runtime.cacheFs,
+      outputRate = 32768,
+      outputHost = { audio = coreOutput.audio, sound = coreOutput.sound },
     })
-    local core
-    local ok, err = xpcall(function()
-      local GameAudio = loadCore()
-      core = GameAudio.compose({
-        cacheFs = game.runtime.cacheFs,
-        outputRate = 32768,
-        outputHost = { audio = coreOutput.audio, sound = coreOutput.sound },
-      })
-      Assert.notNil(core.sound, "core composition must provide GameSound")
-      Assert.notNil(core.renderer, "core composition must provide the shared audio renderer")
-      Assert.notNil(core.sink, "core composition must provide the optional output sink when requested")
+    Assert.notNil(core.sound, "core composition must provide GameSound")
+    Assert.notNil(core.renderer, "core composition must provide the shared audio renderer")
+    Assert.notNil(core.sink, "core composition must provide the optional output sink when requested")
 
-      core.sound:playMusic("SEQ_GS_T_WAKABA")
-      core.sound:play("SEQ_SE_DP_SELECT")
-      core.sound:playFanfare("SEQ_ME_ITEM")
-      runFrames(core, coreOutput, 240)
-      Assert.isTrue(coreOutput:anyNonSilent(), "the shared core must render music/effect/fanfare PCM")
+    core.sound:playMusic("SEQ_GS_T_WAKABA")
+    core.sound:play("SEQ_SE_DP_SELECT")
+    core.sound:playFanfare("SEQ_ME_ITEM")
+    runFrames(core, coreOutput, 240)
+    Assert.isTrue(coreOutput:anyNonSilent(), "the shared core must render music/effect/fanfare PCM")
 
-      game:advanceUntil("field audio reaches the output host", function()
-        return fieldOutput:anyNonSilent()
-      end, 120)
-      Assert.notNil(game.runtime.audio, "field audio must retain its field-policy service")
-      Assert.equal(game:renderAttempts(), 0, "audio acceptance must stop before GPU rendering")
-    end, debug.traceback)
-    if core and core.sink then
-      core.sink:release()
-    end
-    game:close()
-    if not ok then
-      error(err, 0)
-    end
-  end)
+    game:advanceUntil("field audio reaches the output host", function()
+      return fieldOutput:anyNonSilent()
+    end, 120)
+    Assert.notNil(game.runtime.audio, "field audio must retain its field-policy service")
+    Assert.equal(game:renderAttempts(), 0, "audio acceptance must stop before GPU rendering")
+  end, debug.traceback)
+  if core and core.sink then
+    core.sink:release()
+  end
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 return T

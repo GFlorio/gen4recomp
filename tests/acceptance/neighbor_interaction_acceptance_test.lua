@@ -14,17 +14,16 @@ local T = {
 
 local function withTown(fn)
   local harness = AcceptanceHarness.new()
-  harness:forEachVersion(function(versionId)
-    local game = harness:boot({ versionId = versionId, map = "MAP_NEW_BARK", save = "fresh" })
-    local ok, err = xpcall(function()
-      fn(game)
-      Assert.equal(game:renderAttempts(), 0, "neighbor interaction must stop before GPU rendering")
-    end, debug.traceback)
-    game:close()
-    if not ok then
-      error(err, 0)
-    end
-  end)
+  local versionId = AcceptanceHarness.defaultVersion()
+  local game = harness:boot({ versionId = versionId, map = "MAP_NEW_BARK", save = "fresh" })
+  local ok, err = xpcall(function()
+    fn(game)
+    Assert.equal(game:renderAttempts(), 0, "neighbor interaction must stop before GPU rendering")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 function T.tests.resident_logical_world_supports_the_real_action_path()

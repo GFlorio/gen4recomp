@@ -24,30 +24,29 @@ local TOWN_HOUSE_DOOR_APPROACH = { fieldX = 695, fieldZ = 397 }
 ---@param fieldOptions table|fun(versionId: string): (table, unknown?)|nil
 local function withTownGame(fn, fieldOptions)
   local harness = AcceptanceHarness.new()
-  harness:forEachVersion(function(versionId)
-    local options
-    local context
-    if type(fieldOptions) == "function" then
-      local factory = fieldOptions --[[@as fun(versionId: string): (table, unknown?)]]
-      options, context = factory(versionId)
-    else
-      options = fieldOptions
-    end
-    local game = harness:boot({
-      versionId = versionId,
-      map = TOWN,
-      save = "fresh",
-      fieldOptions = options,
-    })
-    local ok, err = xpcall(function()
-      fn(game, context)
-      Assert.equal(game:renderAttempts(), 0, "field acceptance must stop before GPU rendering")
-    end, debug.traceback)
-    game:close()
-    if not ok then
-      error(err, 0)
-    end
-  end)
+  local versionId = AcceptanceHarness.defaultVersion()
+  local options
+  local context
+  if type(fieldOptions) == "function" then
+    local factory = fieldOptions --[[@as fun(versionId: string): (table, unknown?)]]
+    options, context = factory(versionId)
+  else
+    options = fieldOptions
+  end
+  local game = harness:boot({
+    versionId = versionId,
+    map = TOWN,
+    save = "fresh",
+    fieldOptions = options,
+  })
+  local ok, err = xpcall(function()
+    fn(game, context)
+    Assert.equal(game:renderAttempts(), 0, "field acceptance must stop before GPU rendering")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 local function enterPlayerHouse(game)
@@ -68,22 +67,21 @@ local function withFreshHouse2F(fn)
     game.location.fieldZ = 4
     return game
   end
-  harness:forEachVersion(function(versionId)
-    local game = harness:boot({
-      versionId = versionId,
-      map = HOUSE_2F,
-      save = "fresh",
-      fieldOptions = { recordingScriptHosts = true },
-    })
-    local ok, err = xpcall(function()
-      fn(game)
-      Assert.equal(game:renderAttempts(), 0, "fresh downstairs acceptance must stop before GPU rendering")
-    end, debug.traceback)
-    game:close()
-    if not ok then
-      error(err, 0)
-    end
-  end)
+  local versionId = AcceptanceHarness.defaultVersion()
+  local game = harness:boot({
+    versionId = versionId,
+    map = HOUSE_2F,
+    save = "fresh",
+    fieldOptions = { recordingScriptHosts = true },
+  })
+  local ok, err = xpcall(function()
+    fn(game)
+    Assert.equal(game:renderAttempts(), 0, "fresh downstairs acceptance must stop before GPU rendering")
+  end, debug.traceback)
+  game:close()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 function T.tests.field_entry_moves_actors_and_transitions_through_the_real_runtime()

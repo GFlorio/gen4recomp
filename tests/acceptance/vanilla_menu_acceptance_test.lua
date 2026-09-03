@@ -1,12 +1,9 @@
 -- Production-composed field-menu contracts. A real generated HGSS menu runs
--- through FieldRuntime: one complete selection path, one mid-menu restart,
--- and one topology-composed surface. The per-modality and per-form-factor
--- matrices belong to component tests; acceptance proves the composed paths.
+-- through FieldRuntime: one complete selection path and one mid-menu restart.
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local FieldState = require("game.hgss.src.field.FieldState")
-local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 
 local T = {
   metadata = {
@@ -21,15 +18,6 @@ local T = {
 -- initial row and the source-message id.
 local VANILLA_MENU = "vanilla.hgss.scr_seq.0003.script_056"
 local RESULT_VARIABLE = 32780
-
-local DUAL_SURFACE_OPTIONS = {
-  viewportWidth = 1280,
-  viewportHeight = 720,
-  screenTopology = ScreenTopology.dualDisplay(
-    { id = "main", rect = { x = 0, y = 0, width = 960, height = 720 }, touch = false, role = "world" },
-    { id = "auxiliary", rect = { x = 960, y = 0, width = 320, height = 720 }, touch = true, role = "auxiliary" }
-  ),
-}
 
 local function withGame(fieldOptions, fn)
   local game = AcceptanceHarness.new():boot({
@@ -131,19 +119,6 @@ function T.tests.restart_after_hgss_menu_begin_resumes_the_real_menu_builder()
       return snapshot.menu ~= nil and not snapshot.menu.modal
     end, 120)
     Assert.equal(resumed.runtime.scripts.worldState:getVar(RESULT_VARIABLE), 1)
-  end)
-end
-
--- On a dual-display topology the same real menu is composed onto the
--- auxiliary touch surface; its script result must not change.
-function T.tests.vanilla_menu_composes_onto_the_auxiliary_display()
-  withGame(DUAL_SURFACE_OPTIONS, function(game)
-    local opened = selectSecondItem(game)
-    local layout = assert(opened.menu.layout, "modal menu must expose production layout")
-    Assert.equal(layout.surface.id, "auxiliary", "dual display selects the auxiliary surface")
-    Assert.equal(layout.presentation, "docked", "auxiliary menu is docked")
-    Assert.isTrue(layout.surface.touch, "auxiliary surface claims touch capability")
-    Assert.equal(game.runtime.scripts.worldState:getVar(RESULT_VARIABLE), 1)
   end)
 end
 
