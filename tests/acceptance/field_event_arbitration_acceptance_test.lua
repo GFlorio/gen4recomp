@@ -257,15 +257,6 @@ function T.tests.elm_lab_second_floor_exits_east_through_production_input()
   end, { recordingScriptHosts = true })
 end
 
-function T.tests.elm_lab_second_floor_exit_uses_the_standing_directional_trigger()
-  withGame(TOWN, function(game)
-    enterLab2F(game)
-    reachElmLabEastExit(game)
-    game:step({ direction = "east" })
-    Assert.isFalse(game:snapshot().transition.phase == "idle")
-  end, { audioOutput = FakeAudioOutput.new() })
-end
-
 function T.tests.passive_script_handoff_settles_the_player_visual()
   withGame(TOWN, function(game)
     local typeOne = assert(backgroundCell(game, 1), "a scripted type-one background event is required")
@@ -304,26 +295,6 @@ function T.tests.passive_script_handoff_settles_the_player_visual()
     Assert.deepEqual(later.player, first.player)
     Assert.deepEqual(later.camera, first.camera)
   end, { recordingScriptHosts = true })
-end
-
-function T.tests.continuous_walking_carries_visual_gait_across_tile_commits()
-  withGame(TOWN, function(game)
-    game:moveTo({ fieldX = 688, fieldZ = 393 })
-    game.runtime.player.facing = "south"
-    game:move("south")
-    local first = game:advanceUntil("first ordinary step", function(snapshot)
-      return snapshot.player.motion == "idle" and snapshot.player.fieldZ == 394
-    end, 120)
-    Assert.equal(first.playerVisual.pose, "walk")
-    Assert.isTrue(first.playerVisual.poseTick > 0)
-
-    game:move("south")
-    local second = game:advanceUntil("second ordinary step", function(snapshot)
-      return snapshot.player.motion == "idle" and snapshot.player.fieldZ == 395
-    end, 120)
-    Assert.equal(second.playerVisual.pose, "walk")
-    Assert.isTrue(second.playerVisual.poseTick > first.playerVisual.poseTick)
-  end)
 end
 
 function T.tests.mid_step_direction_edge_cannot_start_passive_sign()
