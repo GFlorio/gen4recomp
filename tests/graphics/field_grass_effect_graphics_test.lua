@@ -38,7 +38,7 @@ local function runVersion(scope, versionId)
   local cache = CacheFs.forVersion(versionId)
   local index = assert(cache:loadLua(FieldEffectAssetCache.indexPath()))
   local assets = { effects = {} }
-  for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
+  for _, kind in ipairs({ "tall_grass", "very_tall_grass", "trainer_reveal" }) do
     assets.effects[kind] = assert(cache:loadLua(index.effects[kind].path))
   end
 

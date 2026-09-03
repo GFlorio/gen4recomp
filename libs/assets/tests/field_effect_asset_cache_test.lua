@@ -173,11 +173,18 @@ local function cache(model, present, marker, omitLifecycle, omitPlacement, extra
             lifecycle = { mode = "once", frameCount = 999 },
           }
         end
-        return {
+        local trainerDefinition = {
           model = validDynamicModel(),
           kind = "animated_model",
           lifecycle = { mode = "once", frameCount = 4 },
+          placementOffset = { x = 0, y = 0, z = 0.5 },
         }
+        if extra.omitTrainerPlacement then
+          trainerDefinition.placementOffset = nil
+        elseif extra.trainerPlacement ~= nil then
+          trainerDefinition.placementOffset = extra.trainerPlacement
+        end
+        return trainerDefinition
       end
       local definition = {
         model = validDynamicModel(),
@@ -304,6 +311,43 @@ T.tests["rejects malformed one-shot frame count"] = function()
     EXPECTED_MARKER
   )
   Assert.isFalse(ready)
+end
+
+T.tests["accepts trainer reveal with the normalized source placement"] = function()
+  local present = {
+    ["mesh-a"] = true,
+    ["texture-a"] = true,
+    ["texture-variant"] = true,
+    ["grass.mesh"] = true,
+  }
+  local ready, err = FieldEffectAssetCache.isReady(
+    cache(validModel(), present, EXPECTED_MARKER, false, false, {
+      trainerPlacement = { x = 0, y = 0, z = 0.5 },
+    }),
+    EXPECTED_MARKER
+  )
+  Assert.isTrue(ready, tostring(err))
+end
+
+T.tests["rejects trainer reveal with missing or malformed placement"] = function()
+  local present = {
+    ["mesh-a"] = true,
+    ["texture-a"] = true,
+    ["texture-variant"] = true,
+    ["grass.mesh"] = true,
+  }
+  local missing = FieldEffectAssetCache.isReady(
+    cache(validModel(), present, EXPECTED_MARKER, false, false, { omitTrainerPlacement = true }),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(missing, "trainer reveal without placement must not be ready")
+  local malformed = FieldEffectAssetCache.isReady(
+    cache(validModel(), present, EXPECTED_MARKER, false, false, {
+      trainerPlacement = { x = 0, y = 0, z = 0 / 0 },
+    }),
+    EXPECTED_MARKER
+  )
+  Assert.isFalse(malformed, "trainer reveal with non-finite placement must not be ready")
 end
 
 return T

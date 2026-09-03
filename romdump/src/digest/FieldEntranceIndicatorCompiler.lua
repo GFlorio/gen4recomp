@@ -375,6 +375,7 @@ function Compiler.compile(romFs, hashLua)
         mode = FieldEffects.effects.trainer_reveal.lifecycle.mode,
         frameCount = FieldEffects.effects.trainer_reveal.lifecycle.frameCount,
       },
+      placementOffset = FieldEffects.effects.trainer_reveal.placementOffset,
     },
   }
   local index = {

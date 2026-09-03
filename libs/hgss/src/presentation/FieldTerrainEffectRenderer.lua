@@ -3,6 +3,7 @@
 -- immutable definitions and pooled meshes/images.
 
 local Matrix4 = require("libs.math.src.Matrix4")
+local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")
 local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")
 local SceneDescriptor = require("libs.hgss.src.presentation.SceneDescriptor")
@@ -15,7 +16,7 @@ function Renderer.new(assets, pool)
   assert(pool and pool.meshFor and pool.imageFor and pool.build, "field effect asset pool is required")
   local resources = {}
   pool:build(function()
-    for _, kind in ipairs({ "tall_grass", "very_tall_grass" }) do
+    for _, kind in ipairs({ "tall_grass", "very_tall_grass", "trainer_reveal" }) do
       local descriptor = assert(assets.effects[kind].model)
       local definition = ModelDefinition.fromNitroDescriptor(descriptor, { key = "field-effect:" .. kind })
       local renderMeshesById = {}
@@ -39,7 +40,7 @@ end
 function Renderer:newInstance(kind)
   local resource = assert(self.resources[kind], "terrain renderer is missing " .. kind)
   local function resolveImage(path, materialId)
-    local wrap = assert(resource.wraps[materialId], "missing grass material wrap")
+    local wrap = assert(resource.wraps[materialId], "missing field effect material wrap")
     return self.pool:imageFor(path, wrap.x, wrap.y)
   end
   local instance = ModelInstance.new(resource.definition, {
@@ -54,18 +55,24 @@ function Renderer:drawItems(status, runtimeMap)
   if #status.instances == 0 then
     return {}
   end
-  assert(runtimeMap and runtimeMap.projectPhysicalPoint, "terrain effect runtime map projection is required")
+  assert(type(runtimeMap) == "table", "terrain effect runtime map is required")
   local items = {}
   for _, effect in ipairs(status.instances) do
-    local point = runtimeMap:projectPhysicalPoint(effect.fieldX, effect.fieldZ, effect.cellKey, effect.sourceSurfaceId)
+    local anchorX, anchorY, anchorZ
+    if effect.kind == "trainer_reveal" then
+      local point = FieldCoordinates.fieldToWorld(runtimeMap, effect.fieldX, effect.fieldZ, effect.worldY)
+      anchorX, anchorY, anchorZ = point.x, point.y, point.z
+    else
+      assert(runtimeMap and runtimeMap.projectPhysicalPoint, "terrain effect runtime map projection is required")
+      local point =
+        runtimeMap:projectPhysicalPoint(effect.fieldX, effect.fieldZ, effect.cellKey, effect.sourceSurfaceId)
+      anchorX, anchorY, anchorZ = point.worldX, point.worldY, point.worldZ
+    end
     local instance = assert(effect.modelInstance, "terrain effect model instance is missing")
     local resource = assert(self.resources[effect.kind], "terrain renderer is missing " .. effect.kind)
     local placementOffset = resource.placementOffset
-    instance.transform = Matrix4.translate(
-      point.worldX + placementOffset.x,
-      point.worldY + placementOffset.y,
-      point.worldZ + placementOffset.z
-    )
+    instance.transform =
+      Matrix4.translate(anchorX + placementOffset.x, anchorY + placementOffset.y, anchorZ + placementOffset.z)
     instance:evaluatePose()
     for _, item in ipairs(instance:drawItems(resource.renderMeshesById)) do
       item.worldSpace = true

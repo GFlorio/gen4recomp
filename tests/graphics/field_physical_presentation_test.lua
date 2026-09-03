@@ -134,6 +134,30 @@ function T.outdoor_presentation_keeps_the_committed_world_while_halo_work_is_bou
   end
 end
 
+function T.trainer_reveal_draws_through_the_production_effect_composition()
+  for _, versionId in ipairs(readyVersions()) do
+    local state = boot(versionId)
+    local ok, err = xpcall(function()
+      local runtime = assert(state.runtime)
+      local player = assert(runtime.player)
+      local controller = assert(runtime.fieldTerrainEffectController)
+      local handle = controller:emit({
+        kind = "trainer_reveal",
+        fieldX = player.fieldX,
+        fieldZ = player.fieldZ,
+        worldY = player.worldY,
+      })
+      Assert.notNil(handle, "trainer reveal emission must return a handle")
+      state:draw()
+      Assert.equal(#controller:status().instances, 1, "the trainer reveal instance must stay live for draw")
+    end, debug.traceback)
+    state:dispose()
+    if not ok then
+      error(err, 0)
+    end
+  end
+end
+
 local suite = GraphicsSmoke.suite(T)
 suite.metadata.capabilities = { "graphics", "rom_dump", "derived_cache" }
 return suite

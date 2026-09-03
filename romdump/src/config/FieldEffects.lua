@@ -46,6 +46,7 @@ return {
         mode = "once",
         frameCount = 7,
       },
+      placementOffset = { x = 0, y = 0, z = 0.5 },
     },
   },
 }

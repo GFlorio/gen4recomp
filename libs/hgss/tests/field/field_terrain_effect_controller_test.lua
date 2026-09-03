@@ -250,4 +250,24 @@ T.tests["dynamic grass instances change pose independently from their semantic a
   Assert.isFalse(firstTransform[1] == secondTransform[1] and firstTransform[3] == secondTransform[3])
 end
 
+T.tests["one-shot reveal retires after exactly seven fixed frames"] = function()
+  local effects = controller(nil, {
+    trainer_reveal = {
+      definition = "renderer-trainer_reveal",
+      lifecycle = { mode = "once", frameCount = 7 },
+      placementOffset = { x = 0, y = 0, z = 0.5 },
+      model = { kind = "nitro-dynamic", animations = { { name = "reveal", frameCount = 7 } } },
+    },
+  })
+  effects:emit({ kind = "trainer_reveal", fieldX = 2, fieldZ = 5, worldY = 3 })
+  for tick = 1, 6 do
+    updateWithOwner(effects, { fieldX = 2, fieldZ = 5, facing = "south" })
+    local instance = effects:status().instances[1]
+    Assert.notNil(instance, "reveal must stay live through frame " .. tick)
+    Assert.equal(instance.age, tick)
+  end
+  updateWithOwner(effects, { fieldX = 2, fieldZ = 5, facing = "south" })
+  Assert.equal(#effects:status().instances, 0)
+end
+
 return T

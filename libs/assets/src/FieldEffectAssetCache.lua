@@ -66,9 +66,10 @@ local function validTrainerRevealDefinition(definition)
   local animations = type(model) == "table" and model.animations
   local clip = type(animations) == "table" and animations[1]
   local lifecycle = definition.lifecycle
+  local placementOffset = definition.placementOffset
   return type(definition.lifetime) == "nil"
     and type(definition.animation) == "nil"
-    and type(definition.placementOffset) == "nil"
+    and validPlacement(placementOffset)
     and type(model) == "table"
     and model.kind == "nitro-dynamic"
     and type(animations) == "table"

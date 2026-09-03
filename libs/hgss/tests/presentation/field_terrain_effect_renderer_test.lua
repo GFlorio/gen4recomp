@@ -83,6 +83,7 @@ local function newRenderer()
     effects = {
       tall_grass = { model = MODEL, placementOffset = { x = 0, y = 0, z = 0.625 } },
       very_tall_grass = { model = MODEL, placementOffset = { x = 0, y = 0, z = 0.625 } },
+      trainer_reveal = { model = MODEL, placementOffset = { x = 0, y = 0, z = 0.5 } },
     },
   }, pool)
   local function cleanup()
@@ -272,6 +273,41 @@ T.tests["applies source placement after projection across a rebase"] = function(
   Assert.equal(second[1].transform[15], 4.375)
   Assert.equal(second[1].fieldEffect, "tall_grass")
   cleanup()
+end
+
+T.tests["trainer reveal anchors to the actor coordinate with source placement"] = function()
+  local renderer, cleanup = newRenderer()
+  local ok, result = pcall(function()
+    local runtimeMap = {
+      coordinateOrigin = { x = 0, z = 0 },
+      collision = {
+        containsLocal = function()
+          return true
+        end,
+      },
+      projectPhysicalPoint = function()
+        error("terrain projection must not be used for the actor-anchored effect", 0)
+      end,
+    }
+    return renderer:drawItems({
+      instances = {
+        {
+          kind = "trainer_reveal",
+          fieldX = 2,
+          fieldZ = 5,
+          worldY = 3,
+          modelInstance = renderer:newInstance("trainer_reveal"),
+        },
+      },
+    }, runtimeMap)
+  end)
+  cleanup()
+  Assert.isTrue(ok, tostring(result))
+  Assert.equal(#result, 1)
+  Assert.equal(result[1].transform[13], -13.5)
+  Assert.equal(result[1].transform[14], 3)
+  Assert.equal(result[1].transform[15], -10.0)
+  Assert.equal(result[1].fieldEffect, "trainer_reveal")
 end
 
 return T
