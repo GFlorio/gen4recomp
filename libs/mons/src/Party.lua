@@ -97,6 +97,15 @@ function Party:swap(left0, right0)
   end
 end
 
+---@param slot0 integer
+---@param mon table
+function Party:set(slot0, mon)
+  checkSlot(slot0, #self._mons, "party slot")
+  assert(type(mon) == "table", "party set requires a mon record")
+  self._mons[slot0 + 1] = copyValue(mon)
+  self._revision = self._revision + 1
+end
+
 ---@param predicate fun(mon: table): boolean
 ---@return integer?
 function Party:findFirst(predicate)

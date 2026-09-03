@@ -202,6 +202,7 @@ end
 ---@field effects table|nil semantic field-effect controller (absent -> SCRIPT_SERVICE_MISSING on reveal)
 ---@field playerAvatar table|nil avatar transition owner wired into the player facade (required together with avatarApplier)
 ---@field avatarApplier (fun(): table|nil)|nil pending-transition materializer wired into the player facade (required together with playerAvatar)
+---@field mons table|nil the live HGSS mon service for mon/party script operations and text (absent -> SCRIPT_SERVICE_MISSING on use)
 
 ---@class FieldScripts
 ---@field registry table
@@ -292,6 +293,7 @@ function FieldScripts.new(opts)
     fontDef = opts.fontDef,
     player = player,
     world = worldState,
+    mons = opts.mons,
     frameIndex = opts.frameIndex,
   })
   local mapsService = ScriptMapsService.new({
@@ -377,6 +379,7 @@ function FieldScripts.new(opts)
       windowStyles = opts.windowStyles,
       startMenuReopen = opts.startMenuReopen,
       effects = opts.effects,
+      mons = opts.mons,
       advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,

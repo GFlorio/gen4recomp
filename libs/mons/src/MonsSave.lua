@@ -55,6 +55,22 @@ local function checkShape(bucket)
   end
 end
 
+---@param fingerprint string
+---@param seedU32 integer
+---@return table
+function MonsSave.empty(fingerprint, seedU32)
+  assert(type(fingerprint) == "string" and fingerprint ~= "", "mons empty requires a catalog fingerprint")
+  assert(
+    type(seedU32) == "number" and seedU32 % 1 == 0 and seedU32 >= 0 and seedU32 <= 0xFFFFFFFF,
+    "mons empty requires an unsigned 32-bit seed"
+  )
+  local seed = seedU32
+  if seed == 0 then
+    seed = 1
+  end
+  return MonsSave.capture(Party.new():capture(), Lcrng.new(seed):capture(), fingerprint)
+end
+
 ---@param partySnapshot table
 ---@param rngCapture { state: integer, calls: integer }
 ---@param fingerprint string

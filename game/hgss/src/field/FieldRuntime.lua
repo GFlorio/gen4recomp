@@ -38,6 +38,9 @@ local GameSave = require("libs.hgss.src.save.GameSave")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local FieldScripts = require("game.hgss.src.field.FieldScripts")
 local FieldScriptScreenFade = require("libs.hgss.src.field.FieldScriptScreenFade")
+local HgssMonService = require("libs.hgss.src.mons.HgssMonService")
+local MonCache = require("libs.assets.src.MonCache")
+local MonCatalog = require("libs.mons.src.MonCatalog")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
 local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
@@ -183,6 +186,9 @@ end
 ---@field playerData table the validated profile/options authority (PlayerData shape)
 ---@field avatar table the gender-selected compiled avatar capability
 ---@field playerAvatar FieldPlayerAvatarState? the one avatar transition owner
+---@field monCatalog table the immutable domain mon catalog behind the live party
+---@field monLanguage string the semantic language key the mon catalog was built for
+---@field monService HgssMonService the live party/creation/script mon service
 ---@field session FieldSession
 ---@field actors FieldActorManager
 ---@field dialogue FieldDialogueController?
@@ -628,6 +634,13 @@ function FieldRuntime:_load()
     ) --[[@as FieldWeatherCache.Catalog]]
     assert(FieldWeatherCache.validateCatalog(weatherCatalog), "field weather catalog is invalid")
     self.weatherCatalog = weatherCatalog
+    -- The mon catalog behind the live party: loaded once per runtime
+    -- through the ready cache path, before save validation and service
+    -- construction. Screens and scripts borrow the service, never the
+    -- catalog directly.
+    local monRoot = MonCache.loadCatalog(cacheFs)
+    self.monCatalog = MonCatalog.new(monRoot)
+    self.monLanguage = monRoot.version.language
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
     self.fieldEmoteModels = FieldActorEmoteRuntime.load(cacheFs)
     self.fieldEffectAssets = self.fieldEntranceIndicatorAsset
@@ -987,6 +1000,35 @@ function FieldRuntime:_load()
     local function requestStartMenuReopen()
       self.applicationHost:requestReopen()
     end
+    -- The live mon service: constructed once per runtime from the
+    -- canonical bucket (the validated continue record, or the unpublished
+    -- new-game bucket) and the HGSS player/version policy. A failed
+    -- restore propagates before any field state publishes. The met
+    -- location resolves from the active map and the met date from the
+    -- host clock at creation time.
+    local monBucket = loadedGame and loadedGame.mons or assert(self.game.mons, "finalized game mons bucket is required")
+    self.monService = HgssMonService.new({
+      catalog = self.monCatalog,
+      bucket = monBucket,
+      profile = self.playerData.profile,
+      game = self.versionId,
+      language = self.monLanguage,
+      charmap = fontDef.charmap,
+      mapSection = function()
+        -- Interim section identity: the runtime map id stands in for the
+        -- native map-section identity until a mapsec table ships with map
+        -- data. The value is write-only metadata in this increment (no
+        -- summary, legality, or script consumer reads it) and round-trips
+        -- exactly through save and native encoding.
+        local currentMap = self.session and self.session.currentMap or self.runtimeMap
+        assert(currentMap and currentMap.mapId, "mon met location requires the active map")
+        return currentMap.mapId
+      end,
+      date = function()
+        local now = self.localClock:nowLocal()
+        return { year = now.year, month = now.month, day = now.day }
+      end,
+    })
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
       overrideFs = self.overrideFs,
@@ -1025,6 +1067,7 @@ function FieldRuntime:_load()
       contextChoice = self.contextChoiceProvider,
       menu = self.menuHost,
       startMenuReopen = { request = requestStartMenuReopen },
+      mons = self.monService,
     })
     -- A loaded game carries strict world and script buckets, so restore is
     -- unconditional after GameSave validation.
@@ -1488,6 +1531,7 @@ function FieldRuntime:_captureGameSave(allowMenu)
     }),
     auxiliaryUi = self.auxiliaryFieldUi:capture(),
     audio = FieldAudioSave.capture(self.audio),
+    mons = self.monService:capture(),
   }
   if self.playerAvatar then
     snapshot.avatar = self.playerAvatar:capture()
@@ -1829,6 +1873,7 @@ function FieldRuntime:_releaseAll()
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
   self.playerAvatar = nil
   self.windowStyles, self.uiManifest, self.weatherCatalog = nil, nil, nil
+  self.monCatalog, self.monLanguage, self.monService = nil, nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then
