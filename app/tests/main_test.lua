@@ -1,0 +1,154 @@
+-- Process callback forwarding. The real LÖVE entrypoint wires host
+-- callbacks directly into App; this test keeps that thin seam from silently
+-- dropping or reordering arguments.
+
+local Assert = require("tests.support.Assert")
+local App = require("app.src.App")
+
+local T = {}
+
+function T.input_callbacks_forward_complete_argument_tuples()
+  local savedLoveLoad = love.load
+  local savedLoveKeypressed = love.keypressed
+  local savedLoveTextinput = love.textinput
+  local savedLoveGamepadaxis = love.gamepadaxis
+  local savedLoveMousepressed = love.mousepressed
+  local savedLoveTouchpressed = love.touchpressed
+
+  local savedAppLoad = App.load
+  local savedAppKeypressed = App.keypressed
+  local savedAppTextinput = App.textinput
+  local savedAppGamepadaxis = App.gamepadaxis
+  local savedAppMousepressed = App.mousepressed
+  local savedAppTouchpressed = App.touchpressed
+
+  local ok, err = pcall(function()
+    ---@diagnostic disable-next-line: duplicate-set-field
+    App.load = function() end
+    local entrypoint = assert(loadfile(love.filesystem.getSourceBaseDirectory() .. "/app/main.lua"))
+    entrypoint()
+    love.load({})
+    ---@diagnostic disable-next-line: duplicate-set-field
+    App.load = savedAppLoad
+
+    local calls = {}
+
+    ---@diagnostic disable-next-line: duplicate-set-field
+    App.keypressed = function(...)
+      local t = { ... }
+      ---@diagnostic disable-next-line: inject-field
+      t.n = select("#", ...)
+      calls.keypressed = t
+    end
+    ---@diagnostic disable-next-line: duplicate-set-field
+    App.textinput = function(...)
+      local t = { ... }
+      ---@diagnostic disable-next-line: inject-field
+      t.n = select("#", ...)
+      calls.textinput = t
+    end
+    ---@diagnostic disable-next-line: duplicate-set-field
+    App.gamepadaxis = function(...)
+      local t = { ... }
+      ---@diagnostic disable-next-line: inject-field
+      t.n = select("#", ...)
+      calls.gamepadaxis = t
+    end
+    ---@diagnostic disable-next-line: duplicate-set-field
+    App.mousepressed = function(...)
+      local t = { ... }
+      ---@diagnostic disable-next-line: inject-field
+      t.n = select("#", ...)
+      calls.mousepressed = t
+    end
+    ---@diagnostic disable-next-line: duplicate-set-field
+    App.touchpressed = function(...)
+      local t = { ... }
+      ---@diagnostic disable-next-line: inject-field
+      t.n = select("#", ...)
+      calls.touchpressed = t
+    end
+
+    local joystick = {}
+
+    Assert.equal(type(love.keypressed), "function", "love.keypressed must be registered by the entrypoint")
+    Assert.equal(type(love.textinput), "function", "love.textinput must be registered by the entrypoint")
+    Assert.equal(type(love.gamepadaxis), "function", "love.gamepadaxis must be registered by the entrypoint")
+    Assert.equal(type(love.mousepressed), "function", "love.mousepressed must be registered by the entrypoint")
+    Assert.equal(type(love.touchpressed), "function", "love.touchpressed must be registered by the entrypoint")
+
+    local keypressedArgs = { "a", "a", true }
+    love.keypressed(unpack(keypressedArgs))
+    local actual = assert(calls.keypressed, "love.keypressed must reach App.keypressed")
+    Assert.equal(actual.n, #keypressedArgs, "love.keypressed must preserve every LÖVE argument")
+    for i, v in ipairs(keypressedArgs) do
+      Assert.equal(actual[i], v, "love.keypressed argument " .. i .. " changed")
+    end
+
+    local textinputArgs = { "é" }
+    love.textinput(unpack(textinputArgs))
+    actual = assert(calls.textinput, "love.textinput must reach App.textinput")
+    Assert.equal(actual.n, #textinputArgs, "love.textinput must preserve every LÖVE argument")
+    for i, v in ipairs(textinputArgs) do
+      Assert.equal(actual[i], v, "love.textinput argument " .. i .. " changed")
+    end
+
+    local gamepadaxisArgs = { joystick, "leftx", 0.75 }
+    love.gamepadaxis(unpack(gamepadaxisArgs))
+    actual = assert(calls.gamepadaxis, "love.gamepadaxis must reach App.gamepadaxis")
+    Assert.equal(actual.n, #gamepadaxisArgs, "love.gamepadaxis must preserve every LÖVE argument")
+    for i, v in ipairs(gamepadaxisArgs) do
+      Assert.equal(actual[i], v, "love.gamepadaxis argument " .. i .. " changed")
+    end
+    Assert.equal(actual[1], joystick, "love.gamepadaxis joystick identity must be preserved")
+
+    local mousepressedArgs = { 12, 34, 1, false, 2 }
+    love.mousepressed(unpack(mousepressedArgs))
+    actual = assert(calls.mousepressed, "love.mousepressed must reach App.mousepressed")
+    Assert.equal(actual.n, #mousepressedArgs, "love.mousepressed must preserve every LÖVE argument")
+    for i, v in ipairs(mousepressedArgs) do
+      Assert.equal(actual[i], v, "love.mousepressed argument " .. i .. " changed")
+    end
+
+    local touchId = "touch-1"
+    local touchpressedArgs = { touchId, 3, 4, 0.5, 0.25, 0.8 }
+    love.touchpressed(unpack(touchpressedArgs))
+    actual = assert(calls.touchpressed, "love.touchpressed must reach App.touchpressed")
+    Assert.equal(actual.n, #touchpressedArgs, "love.touchpressed must preserve every LÖVE argument")
+    for i, v in ipairs(touchpressedArgs) do
+      Assert.equal(actual[i], v, "love.touchpressed argument " .. i .. " changed")
+    end
+    Assert.equal(actual[1], touchId, "love.touchpressed identifier identity must be preserved")
+  end)
+
+  ---@diagnostic disable-next-line: duplicate-set-field
+  App.load = savedAppLoad
+  ---@diagnostic disable-next-line: duplicate-set-field
+  App.keypressed = savedAppKeypressed
+  ---@diagnostic disable-next-line: duplicate-set-field
+  App.textinput = savedAppTextinput
+  ---@diagnostic disable-next-line: duplicate-set-field
+  App.gamepadaxis = savedAppGamepadaxis
+  ---@diagnostic disable-next-line: duplicate-set-field
+  App.mousepressed = savedAppMousepressed
+  ---@diagnostic disable-next-line: duplicate-set-field
+  App.touchpressed = savedAppTouchpressed
+  ---@diagnostic disable-next-line: duplicate-set-field
+  love.load = savedLoveLoad
+  ---@diagnostic disable-next-line: duplicate-set-field
+  love.keypressed = savedLoveKeypressed
+  ---@diagnostic disable-next-line: duplicate-set-field
+  love.textinput = savedLoveTextinput
+  ---@diagnostic disable-next-line: duplicate-set-field
+  love.gamepadaxis = savedLoveGamepadaxis
+  ---@diagnostic disable-next-line: duplicate-set-field
+  love.mousepressed = savedLoveMousepressed
+  ---@diagnostic disable-next-line: duplicate-set-field
+  love.touchpressed = savedLoveTouchpressed
+
+  if not ok then
+    error(err, 0)
+  end
+end
+
+return { tests = T }

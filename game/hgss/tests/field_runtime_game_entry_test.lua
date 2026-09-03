@@ -45,6 +45,49 @@ function T.constructor_uses_the_supplied_game_entry_record()
   Assert.isNil(runtime.mapIdOrSymbol, "the runtime must not select a default map")
 end
 
+function T.menu_bindings_are_built_from_the_field_presentation_manifest()
+  local FieldPresentation = require("data.manifests.field_presentation")
+  local originalMenu = FieldPresentation.input.menu
+  local originalLoad = FieldRuntime._load
+  local runtime
+  local ok, err = pcall(function()
+    FieldPresentation.input.menu = { "n" }
+    ---@diagnostic disable-next-line: duplicate-set-field
+    FieldRuntime._load = function(self)
+      local keys = {}
+      for _, key in ipairs(FieldPresentation.input.menu or {}) do
+        keys[key] = true
+      end
+      self.menuKeys = keys
+    end
+    local entry = {
+      saveId = "save-00000001",
+      versionId = "heartgold",
+      location = {
+        mapSymbol = "MAP_NEW_BARK_PLAYER_HOUSE_2F",
+        fieldX = 6,
+        fieldZ = 6,
+        facing = "south",
+      },
+      playerData = {
+        profile = { name = "GOLD", gender = 0, trainerId = 1, money = 3000 },
+        options = { textSpeed = "mid", textFrame = 0 },
+      },
+      playTime = PlayTime.new(),
+      worldState = {},
+    }
+    runtime = assert(FieldRuntime.new(entry, { presentation = false }))
+  end)
+  FieldPresentation.input.menu = originalMenu
+  ---@diagnostic disable-next-line: duplicate-set-field
+  FieldRuntime._load = originalLoad
+  if not ok then
+    error(err, 0)
+  end
+  Assert.equal(runtime.menuKeys.n, true)
+  Assert.isNil(runtime.menuKeys.m)
+end
+
 function T.default_save_validation_uses_repository_overrides()
   local originalLoad = FieldRuntime._load
   local entry = {

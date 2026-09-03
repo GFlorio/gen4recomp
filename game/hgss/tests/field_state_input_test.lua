@@ -204,7 +204,7 @@ function T.keyboard_menu_key_and_gamepad_west_face_drive_the_semantic_menu_butto
   })
 end
 
-function T.the_menu_binding_follows_the_manifest_key_table()
+function T.field_state_dispatches_using_the_runtime_menu_key_table()
   local calls = {}
   local state = stateWithInput(calls)
   state.runtime.menuKeys = { n = true }
