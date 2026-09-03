@@ -5,6 +5,8 @@
 local Assert = require("tests.support.Assert")
 local HgssGame = require("game.hgss.src.HgssGame")
 local FieldState = require("game.hgss.src.field.FieldState")
+local FieldEventState = require("libs.hgss.src.field.FieldEventState")
+local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
 local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
@@ -52,9 +54,26 @@ local function withSpies(fn)
   local applyCalls = {}
   local fieldStateCalls = {}
   local context = { stores = {}, candidates = {}, oakStates = {} }
-  rawset(NewGameInitialization, "apply", function(candidate, _)
+  rawset(NewGameInitialization, "apply", function(candidate, artifactOrOptions)
     applyCalls[#applyCalls + 1] = candidate
-    return candidate
+    local artifact = {
+      schema = DerivedAssetContract.newGameInit.schema,
+      versionId = candidate.versionId or "heartgold",
+      operations = {
+        {
+          op = "set_flag",
+          id = FieldScriptSymbols.flagsByName.FLAG_HIDE_PLAYERS_ROOM_BRONZE_TROPHY,
+          symbol = "FLAG_HIDE_PLAYERS_ROOM_BRONZE_TROPHY",
+        },
+        {
+          op = "set_flag",
+          id = FieldScriptSymbols.flagsByName.FLAG_HIDE_NEW_BARK_FRIEND,
+          symbol = "FLAG_HIDE_NEW_BARK_FRIEND",
+        },
+      },
+      sourceDependency = { standardScriptMember = 0, sha1 = "0000000000000000000000000000000000000000" },
+    }
+    return originalApply(candidate, artifact)
   end)
   FieldState.new = function(game, _)
     fieldStateCalls[#fieldStateCalls + 1] = game
@@ -114,7 +133,8 @@ end
 
 function T.fresh_oak_completion_applies_startup_initialization_before_field_state()
   withSpies(function(applyCalls, fieldStateCalls, context)
-    local candidate = { saveId = "save-00000001", versionId = "heartgold", playerData = {} }
+    local worldState = FieldEventState.new()
+    local candidate = { saveId = "save-00000001", versionId = "heartgold", playerData = {}, worldState = worldState }
     context.store = {
       list = function()
         return {}
@@ -127,6 +147,15 @@ function T.fresh_oak_completion_applies_startup_initialization_before_field_stat
     Assert.equal(#applyCalls, 1, "fresh Oak completion must apply generated startup initialization exactly once")
     Assert.equal(applyCalls[1], candidate)
     Assert.equal(#fieldStateCalls, 1)
+    Assert.equal(fieldStateCalls[1], candidate, "field construction must receive the initialized candidate")
+    Assert.isTrue(
+      fieldStateCalls[1].worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_HIDE_PLAYERS_ROOM_BRONZE_TROPHY),
+      "source startup hide flag must be established before first FieldState.new"
+    )
+    Assert.isTrue(
+      fieldStateCalls[1].worldState:isFlagSet(FieldScriptSymbols.flagsByName.FLAG_HIDE_NEW_BARK_FRIEND),
+      "New Bark friend hide flag must be established before first FieldState.new"
+    )
     game:dispose()
   end)
 end
