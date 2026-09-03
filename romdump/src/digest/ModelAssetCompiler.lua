@@ -8,6 +8,7 @@
 -- descriptor has exactly one authority.
 
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
+local TerrainBoundaryConformer = require("romdump.src.digest.TerrainBoundaryConformer")
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
@@ -121,8 +122,23 @@ local function compileModel(model, texturePack, meshes, textures, context)
     end
   end
 
+  -- Terrain roles share one compiled batch set whose material boundaries
+  -- must agree on segmentation before serialization; other roles bypass
+  -- cross-batch repair.
+  local compiled = MeshCompiler.compile(model)
+  if isTerrain then
+    TerrainBoundaryConformer.conform(compiled, {
+      mapId = context.mapId,
+      mapSymbol = context.mapSymbol,
+      role = context.role,
+      modelArchive = context.modelArchive,
+      modelMemberId = context.modelMemberId,
+      modelName = context.modelName,
+    })
+  end
+
   local batches = {}
-  for _, batch in ipairs(MeshCompiler.compile(model)) do
+  for _, batch in ipairs(compiled) do
     local info = matInfoById[batch.materialIndex]
     if info and info.texWidth then
       for _, vtx in ipairs(batch.vertices) do
