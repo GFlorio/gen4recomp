@@ -54,7 +54,7 @@ local function withSpies(fn)
   local applyCalls = {}
   local fieldStateCalls = {}
   local context = { stores = {}, candidates = {}, oakStates = {} }
-  rawset(NewGameInitialization, "apply", function(candidate, artifactOrOptions)
+  rawset(NewGameInitialization, "apply", function(candidate, _)
     applyCalls[#applyCalls + 1] = candidate
     local artifact = {
       schema = DerivedAssetContract.newGameInit.schema,
