@@ -1012,4 +1012,31 @@ T["failed reveal cleanup faults the owning script"] = function()
   Assert.equal(fault.code, "SCRIPT_TASK_CALLBACK_FAULT")
 end
 
+-- A semantic farther jump displaces three cells, not one: the shared fake
+-- actor and player doubles must model the same endpoint the calibrated
+-- production runtime publishes.
+T["farther jump advances three cells through the shared fake"] = function()
+  local h = harness()
+  h.services.actors:add("elm", { fieldX = 4, fieldZ = 6, facing = "north" })
+  local instanceId = startForeground(h, script("test.farther_jump", { S.waitTicks({ ticks = 20 }) }), 100)
+  local instance = assert(h.scheduler:instance(instanceId))
+  h.scheduler:createTask("movement", {
+    actor = "elm",
+    sequence = { { action = "jump", direction = "east", distance = "farther", speed = "fast" } },
+    blocking = true,
+  }, instance, 100, nil)
+  -- A fast farther jump runs 12 plan ticks: polls 101..112.
+  for tick = 101, 100 + MovementCalibration.actionTicks({ action = "jump", distance = "farther", speed = "fast" }) do
+    h.scheduler:step(tick, nil)
+  end
+  Assert.equal(h.services.actors.actors.elm.fieldX, 7, "a farther jump commits three cells east")
+  Assert.equal(h.services.actors.actors.elm.fieldZ, 6, "a farther jump keeps its lane")
+
+  local startX, startZ = h.services.player.fieldX, h.services.player.fieldZ
+  h.services.player:beginScriptedAction({ action = "jump", direction = "east", distance = "farther", speed = "fast" })
+  h.services.player:commitScriptedAction()
+  Assert.equal(h.services.player.fieldX, startX + 3, "the fake player commits three cells east")
+  Assert.equal(h.services.player.fieldZ, startZ, "the fake player keeps its lane")
+end
+
 return { tests = T }

@@ -199,7 +199,7 @@ local function advanceAction(state, action, ctx)
   elseif kind == "jump" then
     if action.distance ~= "zero" then
       local delta = DIRECTION_DELTA[action.direction]
-      local tiles = action.tiles or 1
+      local tiles = MovementCalibration.jumpTiles(action.distance)
       state.destination.fieldX = state.destination.fieldX + delta.fieldX * tiles
       state.destination.fieldZ = state.destination.fieldZ + delta.fieldZ * tiles
     end

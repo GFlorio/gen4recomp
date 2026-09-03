@@ -163,7 +163,6 @@ function MovementDecoder.decode(action)
         direction = direction,
         distance = "farther",
         speed = "fast",
-        tiles = 3,
         count = count,
       },
     },

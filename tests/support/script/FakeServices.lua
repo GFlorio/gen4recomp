@@ -102,6 +102,20 @@ end
 local FakeActors = {}
 FakeActors.__index = FakeActors
 
+-- Test-only mirror of the semantic jump distance contract: one named distance
+-- displaces a fixed number of cells. This stays local so the shared fake
+-- does not import production calibration for test convenience.
+local FAKE_JUMP_TILES = {
+  zero = 0,
+  near = 1,
+  far = 1,
+  farther = 3,
+}
+
+local function fakeJumpTiles(distance)
+  return assert(FAKE_JUMP_TILES[distance], "unknown jump distance " .. tostring(distance))
+end
+
 ---@return FakeActors
 function FakeActors.new()
   return setmetatable({ actors = {}, partner = nil, mapIndexes = nil, cameraTarget = nil }, FakeActors)
@@ -234,21 +248,18 @@ function FakeActors:beginScriptedAction(actorId, action)
     actor._scriptedDest = { fieldX = actor.fieldX + dx, fieldZ = actor.fieldZ + dz }
   elseif action.action == "jump" then
     actor._scriptedStart = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
-    if action.distance == "zero" then
-      actor._scriptedDest = { fieldX = actor.fieldX, fieldZ = actor.fieldZ }
-    else
-      local dx, dz = 0, 0
-      if action.direction == "east" then
-        dx = 1
-      elseif action.direction == "west" then
-        dx = -1
-      elseif action.direction == "north" then
-        dz = -1
-      elseif action.direction == "south" then
-        dz = 1
-      end
-      actor._scriptedDest = { fieldX = actor.fieldX + dx, fieldZ = actor.fieldZ + dz }
+    local dx, dz = 0, 0
+    if action.direction == "east" then
+      dx = 1
+    elseif action.direction == "west" then
+      dx = -1
+    elseif action.direction == "north" then
+      dz = -1
+    elseif action.direction == "south" then
+      dz = 1
     end
+    local steps = fakeJumpTiles(action.distance)
+    actor._scriptedDest = { fieldX = actor.fieldX + dx * steps, fieldZ = actor.fieldZ + dz * steps }
   elseif
     action.action == "walk_in_place"
     or action.action == "delay"
@@ -445,10 +456,8 @@ function FakePlayer:beginScriptedAction(action)
     elseif action.direction == "south" then
       dz = 1
     end
-    if action.distance == "zero" then
-      dx, dz = 0, 0
-    end
-    self._scriptedDest = { fieldX = self.fieldX + dx, fieldZ = self.fieldZ + dz, worldY = self.worldY }
+    local steps = fakeJumpTiles(action.distance)
+    self._scriptedDest = { fieldX = self.fieldX + dx * steps, fieldZ = self.fieldZ + dz * steps, worldY = self.worldY }
   else
     self._scriptedDest = { fieldX = self.fieldX, fieldZ = self.fieldZ, worldY = self.worldY }
   end

@@ -46,6 +46,17 @@ MovementCalibration.JUMP_TICKS = {
   farther = { fast = 12 },
 }
 
+local JUMP_TILES = {
+  zero = 0,
+  near = 1,
+  far = 1,
+  farther = 3,
+}
+
+function MovementCalibration.jumpTiles(distance)
+  return assert(JUMP_TILES[distance], "unknown jump distance " .. tostring(distance))
+end
+
 MovementCalibration.FACE_TICKS = 1
 MovementCalibration.REVEAL_TRAINER_TICKS = 9
 local REVEAL_TRAINER_OFFSETS = {

@@ -137,7 +137,7 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field numericId fun(self: FieldActorManager, actorId: string): integer?
 ---@field cameraTargetId fun(self: FieldActorManager): string?
 ---@field partnerId fun(self: FieldActorManager): string?
----@field _resolveScriptedDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, direction: FieldDirection?, distance: string?, tiles: integer?): table
+---@field _resolveScriptedDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, direction: FieldDirection?, distance: string?): table
 ---@field _resolveTrajectoryDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, deltaX: integer, deltaZ: integer, surfaceBandDelta: integer): table
 ---@field setPosition fun(self: FieldActorManager, actorId: string, position: FieldActorManager.Position, options: { scripted?: boolean }?)
 ---@field getAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
@@ -2069,10 +2069,9 @@ end
 ---@param actor FieldActorManager.Actor
 ---@param direction FieldDirection?
 ---@param distance string?
----@param tiles integer?
 ---@param self FieldActorManager
 ---@return table destination
-function FieldActorManager:_resolveScriptedDestination(actor, direction, distance, tiles)
+function FieldActorManager:_resolveScriptedDestination(actor, direction, distance)
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
   local deltaMap = {
     north = { fieldX = 0, fieldZ = -1 },
@@ -2090,7 +2089,10 @@ function FieldActorManager:_resolveScriptedDestination(actor, direction, distanc
   local destResident = actor.resident
   if direction ~= nil and distance ~= "zero" then
     local delta = assert(deltaMap[direction], "unknown direction " .. tostring(direction))
-    local step = tiles or 1
+    local step = 1
+    if distance ~= nil then
+      step = MovementCalibration.jumpTiles(distance)
+    end
     destFieldX = startFieldX + delta.fieldX * step
     destFieldZ = startFieldZ + delta.fieldZ * step
     -- Resolve surface at destination center.
@@ -2245,11 +2247,9 @@ function FieldActorManager:beginScriptedAction(actorId, action)
   end
   local destInfo
   if kind == "walk" then
-    destInfo = self:_resolveScriptedDestination(actor, direction, "near")
-    -- For walk, treat as one-tile displacement.
-    -- distance param not used; use direction delta.
+    destInfo = self:_resolveScriptedDestination(actor, direction, nil)
   elseif kind == "jump" then
-    destInfo = self:_resolveScriptedDestination(actor, direction, distance, action.tiles)
+    destInfo = self:_resolveScriptedDestination(actor, direction, distance)
   elseif kind == "trajectory_segment" then
     destInfo = self:_resolveTrajectoryDestination(actor, action.deltaX, action.deltaZ, action.surfaceBandDelta)
   elseif

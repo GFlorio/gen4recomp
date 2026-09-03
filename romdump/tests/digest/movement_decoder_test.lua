@@ -85,6 +85,30 @@ local function checkList(actual, expected, context)
   end
 end
 
+-- Source movement 94/95 (west/east farther jumps) normalizes to the semantic
+-- farther jump: direction, distance, speed, and count with no redundant
+-- displacement field and no leaked source opcode.
+-- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
+-- asm/unk_02062108.s commands 94-95 are the three-cell west/east jumps.
+function T.farther_jumps_normalize_to_semantic_distance_without_redundant_tiles()
+  local cases = {
+    { code = 94, direction = "west" },
+    { code = 95, direction = "east" },
+  }
+  for _, case in ipairs(cases) do
+    local decoded = assert(MovementDecoder.decode({ movementCode = case.code, count = 1 }))
+    Assert.equal(#decoded, 1, "movement code " .. case.code .. " decodes to one action")
+    Assert.keySet(decoded[1], "action,count,direction,distance,speed", "movement code " .. case.code .. " shape")
+    Assert.deepEqual(decoded[1], {
+      action = "jump",
+      direction = case.direction,
+      distance = "farther",
+      speed = "fast",
+      count = 1,
+    }, "movement code " .. case.code .. " semantics")
+  end
+end
+
 function T.compound_trajectories_match_source_segments()
   for code = 105, 112 do
     local decoded = assert(MovementDecoder.decode({ movementCode = code, count = 1 }))

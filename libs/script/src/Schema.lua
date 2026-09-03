@@ -144,7 +144,9 @@ Schema.CONDITIONS = {
 }
 
 -- Movement actions. A movement sequence is an
--- array of these.
+-- array of these. `reveal_trainer` and `trajectory_segment` are generated
+-- import carriers: they validate and execute like any other action but have
+-- no public constructor.
 Schema.MOVEMENT_ACTIONS = {
   face = {
     fields = {
@@ -171,7 +173,6 @@ Schema.MOVEMENT_ACTIONS = {
       direction = { type = "enum:direction", required = true },
       distance = { type = "enum:jump_distance", default = "zero" },
       speed = { type = "enum:speed", default = "fast" },
-      tiles = { type = "integer" },
       count = { type = "integer", default = 1 },
     },
   },

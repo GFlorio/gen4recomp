@@ -1373,4 +1373,38 @@ function T.gesture_literal_progression_oracle_independent_of_calibration()
   Assert.equal(heldGive.poseTick, 21, "give held tick")
 end
 
+-- A semantic farther jump (distance alone, no per-action tile count) still
+-- performs its source-backed three-cell displacement through the real actor
+-- manager: the committed coordinate holds at the anchor through the first
+-- eleven polls and advances exactly three cells east on the twelfth.
+function T.semantic_farther_jump_commits_three_cells_east()
+  local h = harness()
+  local resource = S.script({
+    api = 1,
+    id = "test.semantic_farther_jump",
+    steps = {
+      S.applyMovement({
+        actor = ACTOR_ID,
+        movement = {
+          S.m.jump({ direction = "east", distance = "farther", speed = "fast" }),
+        },
+      }),
+      S.waitMovement(),
+      S.stop(),
+    },
+  })
+  startForeground(h, resource, 100)
+  stepWorld(h, 100)
+  local actor = assert(h.mgr:getById(ACTOR_ID))
+  local startFieldX, startFieldZ = actor.fieldX, actor.fieldZ
+  for tick = 101, 111 do
+    stepWorld(h, tick)
+    Assert.equal(actor.fieldX, startFieldX, "the farther jump holds its anchor before the final tick " .. tick)
+    Assert.equal(actor.fieldZ, startFieldZ, "the farther jump holds its lane before the final tick " .. tick)
+  end
+  stepWorld(h, 112)
+  Assert.equal(actor.fieldX, startFieldX + 3, "the farther jump commits exactly three cells east")
+  Assert.equal(actor.fieldZ, startFieldZ, "the farther jump keeps its lane at commit")
+end
+
 return { tests = T }

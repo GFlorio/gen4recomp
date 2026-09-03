@@ -1249,6 +1249,76 @@ local function assertNoMetatables(value, path)
   end
 end
 
+-- Generated/import movement carriers validate through the internal schema but
+-- are intentionally absent from the public constructor surface: authored
+-- scripts use the semantic movement actions instead.
+function T.generated_movement_carriers_stay_out_of_the_public_constructor_surface()
+  Assert.isNil(S.m.revealTrainer, "trainer reveal must not be a public movement constructor")
+  Assert.isNil(S.m.trajectorySegment, "trajectory segments must not be a public movement constructor")
+  local reveal = S.script({
+    api = 1,
+    id = "test.generated_reveal_carrier",
+    steps = {
+      S.applyMovement({ actor = "elm", movement = { { action = "reveal_trainer" } } }),
+      S.stop(),
+    },
+  })
+  Assert.equal(S.validate(reveal), true, "generated trainer reveal tables must still validate")
+  local segment = S.script({
+    api = 1,
+    id = "test.generated_trajectory_carrier",
+    steps = {
+      S.applyMovement({
+        actor = "elm",
+        movement = {
+          {
+            action = "trajectory_segment",
+            deltaX = 0,
+            deltaZ = 5,
+            surfaceBandDelta = 1,
+            direction = "south",
+            ticks = 15,
+          },
+        },
+      }),
+      S.stop(),
+    },
+  })
+  Assert.equal(S.validate(segment), true, "generated trajectory tables must still validate")
+end
+
+-- Jump displacement is a property of the semantic distance, not a second
+-- numeric field: authored jump data carrying an arbitrary tile count must
+-- fail strict validation, while the semantic form validates.
+function T.jump_action_rejects_an_arbitrary_tile_count()
+  local withTiles = S.script({
+    api = 1,
+    id = "test.jump_tiles",
+    steps = {
+      S.applyMovement({
+        actor = "elm",
+        movement = { S.m.jump({ direction = "east", distance = "farther", speed = "fast", tiles = 3 }) },
+      }),
+      S.stop(),
+    },
+  })
+  local ok, err = S.validate(withTiles)
+  Assert.isNil(ok, "a jump carrying tiles must fail validation, got: " .. tostring(err))
+  Assert.notNil(err, "a rejected jump must report a schema error")
+  local semantic = S.script({
+    api = 1,
+    id = "test.jump_semantic",
+    steps = {
+      S.applyMovement({
+        actor = "elm",
+        movement = { S.m.jump({ direction = "east", distance = "farther", speed = "fast" }) },
+      }),
+      S.stop(),
+    },
+  })
+  Assert.equal(S.validate(semantic), true, "a semantic farther jump without tiles must validate")
+end
+
 function T.constructor_output_has_no_metatables()
   for name, case in pairs(CASES) do
     assertNoMetatables(case[1](), name)
