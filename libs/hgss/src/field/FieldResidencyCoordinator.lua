@@ -61,6 +61,22 @@ local function sortedIds(descriptors)
   return result
 end
 
+-- Desired logical residents for coverage descriptors: committed headers that
+-- define a loadable logical map. Matrix filler headers own physical cells
+-- but no logical map, so they stay out of logical residency while their
+-- cells still load, present, and collide through physical coverage.
+---@param descriptors table[]
+---@return integer[]
+function FieldResidencyCoordinator:_desiredIds(descriptors)
+  local result = {}
+  for _, mapId in ipairs(sortedIds(descriptors)) do
+    if self.mapLoader:definesMap(mapId) then
+      result[#result + 1] = mapId
+    end
+  end
+  return result
+end
+
 ---@param options table
 ---@return FieldResidencyCoordinator
 function FieldResidencyCoordinator.new(options)
@@ -135,7 +151,7 @@ function FieldResidencyCoordinator:_committedMapIds(anchorX, anchorZ)
   if not descriptors then
     descriptors = self.coverage:committedDescriptors()
   end
-  return sortedIds(descriptors)
+  return self:_desiredIds(descriptors)
 end
 
 function FieldResidencyCoordinator:_prefetchMapIds(anchorX, anchorZ)
@@ -151,7 +167,7 @@ function FieldResidencyCoordinator:_prefetchMapIds(anchorX, anchorZ)
   if not descriptors then
     descriptors = self.coverage:committedDescriptors()
   end
-  return sortedIds(descriptors)
+  return self:_desiredIds(descriptors)
 end
 
 function FieldResidencyCoordinator:_desiredReadyMapIds(anchorX, anchorZ)
@@ -349,7 +365,7 @@ end
 ---@return integer[]
 function FieldResidencyCoordinator:_prefetchMapIdsFrom(destinationCoverage)
   local descriptors = destinationCoverage:prefetchDescriptors()
-  return sortedIds(descriptors)
+  return self:_desiredIds(descriptors)
 end
 
 ---@param transaction FieldResidencyCoordinator.Transition

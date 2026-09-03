@@ -26,6 +26,7 @@ local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.NeighborPlan")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
+local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 
 local T = {}
@@ -608,6 +609,107 @@ function T.terrain_area_srt_clip_conforms(romFs)
     Assert.equal(track.targetIndex, i - 1, "track indices are zero-based and aligned")
   end
   Assert.equal(#clip.compiled.targets, 8)
+end
+
+-- The shared EVERYWHERE matrix filler (map header 0) is a valid physical
+-- cell: header 0 resolves through the catalog and its land member is real
+-- data, so the published physical index must contain every valid matrix
+-- neighbor of New Bark -- in particular the north/south filler cells -- with
+-- source identity preserved, loadable cells, non-empty terrain, and existing
+-- referenced assets. Expected ids come from the decoded matrix/neighbor plan,
+-- not copied literals.
+function T.physical_cell_index_publishes_everywhere_neighbors(romFs, versionId)
+  local r = resolve(romFs)
+  local plan = NeighborPlan.plan(r.matrix, r.matrixX, r.matrixZ, function(headerId)
+    local rec = MapCatalog.areaForMapHeader(headerId)
+    return rec and rec.areaDataMemberId or nil
+  end)
+
+  local cache = publishedFieldCells(romFs, versionId)
+  local index = FieldCellCache.loadIndex(cache)
+  for _, expected in ipairs(plan.cells) do
+    local label = string.format("neighbor (%d,%d)", expected.x, expected.z)
+    local descriptor = assert(
+      FieldCellCache.find(index, r.matrixMemberId, expected.x, expected.z),
+      label .. " is published as a physical cell"
+    )
+    Assert.equal(descriptor.mapHeaderId, expected.mapHeaderId, label .. " keeps its matrix header")
+    Assert.equal(descriptor.landDataMemberId, expected.landDataMemberId, label .. " keeps its land member")
+    Assert.equal(descriptor.areaDataMemberId, expected.areaDataMemberId, label .. " keeps its area member")
+    local cell = assert(cache:loadLua(descriptor.file), label .. " cell loads")
+    Assert.isTrue(#cell.batches > 0, label .. " has terrain batches")
+    for _, batch in ipairs(cell.batches) do
+      Assert.isTrue(cache:exists(batch.geometry, "file"), label .. " terrain geometry is published")
+    end
+    Assert.isTrue(FieldCellCache.validateCell(cache, cell, descriptor), label .. " cell readback validates")
+  end
+
+  -- Pin the north/south pair explicitly: the matrix filler around New Bark is
+  -- the valid header-0 EVERYWHERE map, and its descriptors must preserve it.
+  for _, dz in ipairs({ -1, 1 }) do
+    local x, z = r.matrixX, r.matrixZ + dz
+    local source = r.matrix:cell(x, z)
+    Assert.equal(source.mapHeaderId, 0, string.format("matrix (%d,%d) is EVERYWHERE filler", x, z))
+    Assert.isTrue(source.landDataMemberId ~= 0xFFFF, string.format("matrix (%d,%d) has real land data", x, z))
+    local descriptor = assert(
+      FieldCellCache.find(index, r.matrixMemberId, x, z),
+      string.format("EVERYWHERE cell (%d,%d) is published", x, z)
+    )
+    Assert.equal(descriptor.mapHeaderId, 0, string.format("cell (%d,%d) preserves header 0", x, z))
+    Assert.equal(
+      descriptor.landDataMemberId,
+      source.landDataMemberId,
+      string.format("cell (%d,%d) preserves its land member", x, z)
+    )
+  end
+end
+
+-- Headless runtime coverage centered on New Bark must commit the EVERYWHERE
+-- north/south cells as ordinary resident physical cells. Coverage already
+-- tolerates genuinely missing descriptors by skipping them, so this asserts
+-- the committed window actually contains the valid header-0 neighbors: it
+-- fails when the producer index omits them instead of passing on a smaller
+-- incomplete window.
+function T.committed_coverage_includes_everywhere_neighbors(romFs, versionId)
+  local r = resolve(romFs)
+  local plan = NeighborPlan.plan(r.matrix, r.matrixX, r.matrixZ, function(headerId)
+    local rec = MapCatalog.areaForMapHeader(headerId)
+    return rec and rec.areaDataMemberId or nil
+  end)
+
+  local cache = publishedFieldCells(romFs, versionId)
+  local coverage = FieldCoverage.new({
+    cacheFs = cache,
+    index = FieldCellCache.loadIndex(cache),
+    matrixMemberId = r.matrixMemberId,
+    anchorX = r.matrixX,
+    anchorZ = r.matrixZ,
+  })
+  local ok, err = pcall(function()
+    local status = coverage:status()
+    Assert.equal(status.anchorX, r.matrixX, "coverage is centered on New Bark")
+    Assert.equal(status.anchorZ, r.matrixZ, "coverage is centered on New Bark")
+    Assert.equal(status.residentCount, 1 + #plan.cells, "the committed window contains every valid neighbor")
+    local resident = {}
+    for _, cellKey in ipairs(status.residentCellKeys) do
+      resident[cellKey] = true
+    end
+    local headerZero = 0
+    for _, expected in ipairs(plan.cells) do
+      local cellKey = string.format("%d:%d", expected.x, expected.z)
+      Assert.isTrue(resident[cellKey] == true, "committed coverage includes neighbor " .. cellKey)
+      local header = coverage:mapHeaderAt(expected.x * 32 + 1, expected.z * 32 + 1)
+      Assert.equal(header, expected.mapHeaderId, "committed cell " .. cellKey .. " keeps its matrix header")
+      if expected.mapHeaderId == 0 then
+        headerZero = headerZero + 1
+      end
+    end
+    Assert.isTrue(headerZero > 0, "the committed window includes EVERYWHERE header-0 cells")
+  end)
+  coverage:release()
+  if not ok then
+    error(err, 0)
+  end
 end
 
 return require("tests.rom.support.RomSuite").fromFacts(T)

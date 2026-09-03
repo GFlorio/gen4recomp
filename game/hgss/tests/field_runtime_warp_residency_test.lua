@@ -105,6 +105,9 @@ local function fixture(options)
     self.loads = self.loads + 1
     return assert(self.maps[mapId])
   end
+  function loader:definesMap(mapId)
+    return self.maps[mapId] ~= nil
+  end
   function loader:protectMap(mapId, protected)
     self.protectionCalls[mapId] = (self.protectionCalls[mapId] or 0) + 1
     self.protections[mapId] = protected and true or nil

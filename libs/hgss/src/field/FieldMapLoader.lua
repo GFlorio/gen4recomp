@@ -55,8 +55,8 @@ FieldMapLoader.__index = FieldMapLoader
 
 ---@param world table
 ---@param idOrSymbol string|integer
----@return table
-local function worldRecord(world, idOrSymbol)
+---@return table?
+local function findRecord(world, idOrSymbol)
   local mapId
   if type(idOrSymbol) == "string" then
     mapId = world.bySymbol[idOrSymbol]
@@ -72,7 +72,14 @@ local function worldRecord(world, idOrSymbol)
     mapId = idOrSymbol
   end
   local index = mapId ~= nil and world.byId[mapId] or nil
-  local record = index and world.maps[index] or nil
+  return index and world.maps[index] or nil
+end
+
+---@param world table
+---@param idOrSymbol string|integer
+---@return table
+local function worldRecord(world, idOrSymbol)
+  local record = findRecord(world, idOrSymbol)
   if not record then
     Errors.raise(FieldErrors.FIELD_MAP_UNKNOWN, "no runtime map for " .. tostring(idOrSymbol), { key = idOrSymbol })
   end
@@ -581,6 +588,18 @@ end
 function FieldMapLoader:get(mapId)
   local entry = self.entries[mapId]
   return entry and entry.runtimeMap or nil
+end
+
+-- Whether the generated world manifest defines a loadable logical map for
+-- the id or symbol. Matrix filler headers own physical cells but no logical
+-- map assets (the producer deliberately excludes them from rendering), so
+-- logical-map consumers use this to avoid acquiring a shell that cannot
+-- exist instead of failing the load.
+---@param idOrSymbol string|integer
+---@return boolean
+function FieldMapLoader:definesMap(idOrSymbol)
+  assert(not self.released, "field map loader is released")
+  return findRecord(self.world, idOrSymbol) ~= nil
 end
 
 -- Counts currently resident map entries without acquiring or releasing them.

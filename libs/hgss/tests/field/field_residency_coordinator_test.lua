@@ -142,6 +142,9 @@ local function logicalOwners(coverage)
     self.loadCounts[mapId] = (self.loadCounts[mapId] or 0) + 1
     return assert(self.maps[mapId])
   end
+  function loader:definesMap(mapId)
+    return self.maps[mapId] ~= nil
+  end
   function loader:protectMap(mapId, protected)
     self.protectionCalls[mapId] = (self.protectionCalls[mapId] or 0) + 1
     self.protections[mapId] = protected and true or nil
@@ -571,6 +574,21 @@ local function transition_lifecycle_stages_and_commits_logical_residents_only()
   coordinator:dispose()
 end
 
+local function filler_headers_without_a_logical_map_are_never_acquired()
+  local coordinator, coverage, loader = coordinatorFixture()
+  coverage.committed = {
+    { cellKey = "0:0", mapHeaderId = 10 },
+    { cellKey = "0:1", mapHeaderId = 0 },
+  }
+  coverage.footprint = coverage.committed
+  coordinator:initialize()
+
+  Assert.deepEqual(coordinator:status().residentMapIds, { 10 })
+  Assert.isNil(loader.loadCounts[0], "a filler header without a logical map must never reach map loading")
+  Assert.isNil(coordinator:mapForId(0))
+  coordinator:dispose()
+end
+
 return {
   metadata = { capabilities = {} },
   tests = {
@@ -588,5 +606,6 @@ return {
     outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks = outrunning_prefetch_keeps_the_world_coherent_and_counts_fallbacks,
     prepared_map_hook_warms_music_before_publication = prepared_map_hook_warms_music_before_publication,
     transition_lifecycle_stages_and_commits_logical_residents_only = transition_lifecycle_stages_and_commits_logical_residents_only,
+    filler_headers_without_a_logical_map_are_never_acquired = filler_headers_without_a_logical_map_are_never_acquired,
   },
 }

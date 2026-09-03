@@ -8,6 +8,7 @@ local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
+local MapCatalog = require("romdump.src.digest.MapCatalog")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 
 local T = {}
@@ -124,6 +125,48 @@ function T.outdoor_presentation_keeps_the_committed_world_while_halo_work_is_bou
       end
       for _, expectedKey in ipairs(before.residentCellKeys) do
         Assert.isTrue(partKeys[expectedKey] == true, "committed presentation remains drawable during halo work")
+      end
+      state:draw()
+    end, debug.traceback)
+    state:dispose()
+    if not ok then
+      error(err, 0)
+    end
+  end
+end
+
+function T.everywhere_north_south_cells_draw_real_terrain(_)
+  for _, versionId in ipairs(readyVersions()) do
+    local state = boot(versionId)
+    local ok, err = xpcall(function()
+      local runtime = assert(state.runtime)
+      local coverage = assert(runtime.runtimeMap.coverage)
+      local status = coverage:status()
+      local newBarkId = assert(MapCatalog.require("MAP_NEW_BARK").id)
+      Assert.equal(
+        coverage:mapHeaderAt(status.anchorX * 32 + 1, status.anchorZ * 32 + 1),
+        newBarkId,
+        "the fresh boot is centered on New Bark"
+      )
+      for _, dz in ipairs({ -1, 1 }) do
+        local cx, cz = status.anchorX, status.anchorZ + dz
+        Assert.equal(
+          coverage:mapHeaderAt(cx * 32 + 1, cz * 32 + 1),
+          0,
+          string.format("EVERYWHERE cell %d:%d is committed north/south of New Bark", cx, cz)
+        )
+      end
+      local partsByCell = {}
+      for _, part in ipairs(coverage:worldParts()) do
+        local cellKey = assert(part.cellKey)
+        partsByCell[cellKey] = (partsByCell[cellKey] or 0) + 1
+      end
+      for _, dz in ipairs({ -1, 1 }) do
+        local cellKey = string.format("%d:%d", status.anchorX, status.anchorZ + dz)
+        Assert.isTrue(
+          (partsByCell[cellKey] or 0) > 0,
+          "north/south EVERYWHERE cell " .. cellKey .. " contributes real terrain draws"
+        )
       end
       state:draw()
     end, debug.traceback)
