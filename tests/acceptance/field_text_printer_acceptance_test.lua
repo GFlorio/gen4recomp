@@ -75,9 +75,11 @@ local function pressCancel(game)
   return snapshot
 end
 
--- Source-authored field text keeps its full content window and exposes source
--- controls as the only page/continuation boundaries.
-function T.tests.field_dialogue_uses_source_window_geometry_and_controls()
+-- A held Action/Cancel state crosses the production scheduler into the
+-- dialogue controller, while the final Cancel edge is consumed once by the
+-- script task that owns the close boundary. The same ROM-backed opening
+-- proves the source window geometry and controls.
+function T.tests.production_dialogue_uses_source_geometry_and_owns_held_input_close()
   withReadyVersion(function(game)
     local opened = openVanillaDialogue(game)
     Assert.isTrue(opened.dialogue.modal, "the ROM-backed field interaction must open dialogue")
@@ -85,15 +87,6 @@ function T.tests.field_dialogue_uses_source_window_geometry_and_controls()
     Assert.equal(opened.dialogue.textOriginY, 0, "field text must start at the source local Y origin")
     Assert.equal(opened.dialogue.contentWidth, 216, "field dialogue must use the source content width")
     Assert.equal(opened.dialogue.syntheticBreaks, 0, "vanilla text must not gain project pagination breaks")
-  end)
-end
-
--- A held Action/Cancel state crosses the production scheduler into the
--- dialogue controller, while the final Cancel edge is consumed once by the
--- script task that owns the close boundary.
-function T.tests.script_dialogue_preserves_held_input_and_single_close_owner()
-  withReadyVersion(function(game)
-    openVanillaDialogue(game)
     game.runtime:pressAction("acceptance")
     local revealing = game:step()
     Assert.isTrue(revealing.dialogue.modal, "held Action must not discard the active dialogue")

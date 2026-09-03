@@ -71,20 +71,6 @@ local function coordinateCanonicalScriptId(game, event)
   return ScriptIdentity.formatVanilla(scriptBankId, event.scriptId - 1)
 end
 
-function T.tests.default_town_spawn_is_passable_in_the_generated_collision()
-  withGame(TOWN, function(game)
-    local player = game:snapshot().player
-    local map = game.runtime.runtimeMap
-    local origin = assert(map.coordinateOrigin)
-    local localX, localZ = player.fieldX - origin.x, player.fieldZ - origin.z
-
-    Assert.deepEqual({ player.fieldX, player.fieldZ }, { 682, 394 })
-    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ), "default town spawn must be passable")
-    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ + 1), "default town spawn must have a south exit")
-    Assert.isFalse(map.collision:isBlockedLocal(localX + 1, localZ), "default town spawn must have an east exit")
-  end)
-end
-
 local function warpCellWithBehavior(game, behavior)
   local map = game.runtime.runtimeMap
   local origin = assert(map.coordinateOrigin)
@@ -99,6 +85,16 @@ end
 
 function T.tests.literal_east_then_north_route_advances_each_production_move()
   withGame(TOWN, function(game)
+    local player = game:snapshot().player
+    local map = game.runtime.runtimeMap
+    local origin = assert(map.coordinateOrigin)
+    local localX, localZ = player.fieldX - origin.x, player.fieldZ - origin.z
+
+    Assert.deepEqual({ player.fieldX, player.fieldZ }, { 682, 394 })
+    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ), "default town spawn must be passable")
+    Assert.isFalse(map.collision:isBlockedLocal(localX, localZ + 1), "default town spawn must have a south exit")
+    Assert.isFalse(map.collision:isBlockedLocal(localX + 1, localZ), "default town spawn must have an east exit")
+
     OpeningLifecycle.settleNewBarkFriendScene(game)
     local event = assert(coordinateAt(game, 688, 392), "the Elm landing must have a coordinate event")
     setCoordinatePredicate(game, event, true)

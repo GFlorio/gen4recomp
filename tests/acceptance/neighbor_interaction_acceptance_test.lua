@@ -30,8 +30,12 @@ function T.tests.resident_logical_world_supports_the_real_action_path()
   withTown(function(game)
     local runtime = game.runtime
     local residency = assert(runtime.residency, "production logical residency is required")
-    local residents = residency:status().residentMapIds
-    Assert.isTrue(#residents > 1, "outdoor boot must publish the logical ready footprint")
+    local status = residency:status()
+    Assert.isTrue(#status.residentMapIds > 1, "outdoor boot must publish the logical ready footprint")
+    local before = status.synchronousLogicalFallbackLoads
+    for _, mapId in ipairs(status.residentMapIds) do
+      Assert.notNil(residency:mapForId(mapId), "every published logical map must be borrowed by identity")
+    end
     game:moveTo({ fieldX = 683, fieldZ = 400 })
     game:face("north")
     game:pressAction()
@@ -41,19 +45,6 @@ function T.tests.resident_logical_world_supports_the_real_action_path()
       type(interaction.actorId) == "string" and interaction.actorId:match("^map:60:object:%d+$") ~= nil,
       "Action must resolve the resident map's real object identity"
     )
-  end)
-end
-
-function T.tests.resident_neighbor_maps_are_borrowed_without_action_loading()
-  withTown(function(game)
-    local runtime = game.runtime
-    local residency = assert(runtime.residency, "production logical residency is required")
-    local before = residency:status().synchronousLogicalFallbackLoads
-    local ids = residency:status().residentMapIds
-    for _, mapId in ipairs(ids) do
-      Assert.notNil(residency:mapForId(mapId), "every published logical map must be borrowed by identity")
-    end
-    game:pressAction()
     Assert.equal(
       residency:status().synchronousLogicalFallbackLoads,
       before,
