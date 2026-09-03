@@ -19,15 +19,12 @@ local MovementTask = {}
 MovementTask.type = "movement"
 MovementTask.version = 1
 
--- The only source-proven automatic movement-emote sound: HGSS spawns the
--- shared exclamation/question field-effect object with a "play sound" flag
--- set for both MapObjectMovementCmd075 (exclamation) and
--- MapObjectMovementCmd103 (question), and the effect's init function
--- (ov01_0220059C) issues PlaySE(SEQ_SE_DP_DECIDE) when that flag is set.
--- Only the exclamation mapping is wired here: this task owns the
--- exclamation movement action and its own flag is confirmed set; a question
--- mapping stays unproven at this call site until traced independently.
-local EMOTE_SOUND_CATALOG = EmoteSoundCatalog.new({ exclamation = "SEQ_SE_DP_DECIDE" })
+-- Source-proven automatic movement-emote sounds: HGSS spawns the shared
+-- exclamation/question field-effect object with a "play sound" flag set for
+-- both MapObjectMovementCmd075 (exclamation) and MapObjectMovementCmd103
+-- (question), and the effect's init function (ov01_0220059C) issues
+-- PlaySE(SEQ_SE_DP_DECIDE) when that flag is set.
+local EMOTE_SOUND_CATALOG = EmoteSoundCatalog.new({ exclamation = "SEQ_SE_DP_DECIDE", question = "SEQ_SE_DP_DECIDE" })
 
 -- Field-coordinate step deltas per direction (north decreases fieldZ).
 local DIRECTION_DELTA = {
@@ -180,8 +177,9 @@ local function advanceAction(state, action, ctx)
   elseif kind == "jump" then
     if action.distance ~= "zero" then
       local delta = DIRECTION_DELTA[action.direction]
-      state.destination.fieldX = state.destination.fieldX + delta.fieldX
-      state.destination.fieldZ = state.destination.fieldZ + delta.fieldZ
+      local tiles = action.tiles or 1
+      state.destination.fieldX = state.destination.fieldX + delta.fieldX * tiles
+      state.destination.fieldZ = state.destination.fieldZ + delta.fieldZ * tiles
     end
   elseif kind == "emote" or kind == "gesture" then
     -- pose-only; the renderer consumes the recorded action.

@@ -5,13 +5,13 @@ local MovementCalibration = {}
 
 -- Ticks per walked tile, keyed by the DSL speed enum.
 MovementCalibration.SPEED_TICKS = {
-  slower = 24,
+  slower = 32,
   slow = 16,
   normal = 8,
   fast = 4,
   faster = 2,
   slightly_fast = 6,
-  slightly_faster = 5,
+  slightly_faster = 3,
   fastest = 2,
   -- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
   -- asm/unk_02062108.s commands 88-91 use a four-update run lifetime.
@@ -31,6 +31,7 @@ MovementCalibration.WALK_IN_PLACE_TICKS = {
   slow = 17,
   normal = 9,
   fast = 5,
+  faster = 3,
 }
 
 -- Source: pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981,
@@ -42,6 +43,7 @@ MovementCalibration.JUMP_TICKS = {
   zero = { slow = 16, fast = 8 },
   near = { fast = 8 },
   far = { fast = 16 },
+  farther = { fast = 12 },
 }
 
 MovementCalibration.FACE_TICKS = 1
@@ -70,6 +72,21 @@ MovementCalibration.JUMP_HEIGHTS = {
   far = 1.2,
 }
 
+local FARTHER_JUMP_OFFSETS = {
+  0.375,
+  0.5,
+  0.625,
+  0.75,
+  0.75,
+  0.75,
+  0.6875,
+  0.5625,
+  0.5,
+  0.375,
+  0.25,
+  0,
+}
+
 -- Periodic pose progress deltas, keyed by semantic action and speed.
 local POSE_CADENCES = {
   walk = {
@@ -79,10 +96,9 @@ local POSE_CADENCES = {
     fast = { 2 },
     slightly_fast = { 1, 1, 2, 1, 1, 2 },
     run = { 2 },
-    -- Explicitly preserve the existing local/unverified walk profiles.
-    slower = { 1 },
-    faster = { 1 },
-    slightly_faster = { 1 },
+    slower = { 0, 1 },
+    faster = { 4 },
+    slightly_faster = { 3, 2, 3 },
     fastest = { 1 },
     hgss_96 = { 1 },
     hgss_97 = { 1 },
@@ -90,11 +106,11 @@ local POSE_CADENCES = {
     hgss_99 = { 1 },
   },
   walk_in_place = {
-    -- Preserve the existing walk-in-place cadence profiles.
     slower = { 0, 1 },
     slow = { 0, 1 },
     normal = { 1 },
     fast = { 2 },
+    faster = { 4 },
   },
   jump = {
     -- Preserve the existing jump cadence profiles.
@@ -181,6 +197,29 @@ function MovementCalibration.actionTicks(action)
     return profile.durationTicks
   end
   error("unknown movement action " .. tostring(kind))
+end
+
+function MovementCalibration.jumpOffsetAt(action, progressTicks, durationTicks)
+  assert(
+    type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 0,
+    "jump progress must be a non-negative integer"
+  )
+  assert(
+    type(durationTicks) == "number" and durationTicks % 1 == 0 and durationTicks > 0,
+    "jump duration must be a positive integer"
+  )
+  assert(progressTicks <= durationTicks, "jump progress exceeds duration")
+  if action.distance == "farther" then
+    assert(
+      progressTicks >= 1 and progressTicks <= #FARTHER_JUMP_OFFSETS,
+      "farther jump progress must be 1.." .. tostring(#FARTHER_JUMP_OFFSETS)
+    )
+    assert(durationTicks == #FARTHER_JUMP_OFFSETS, "farther jump duration mismatches calibrated ticks")
+    return FARTHER_JUMP_OFFSETS[progressTicks]
+  end
+  local h = MovementCalibration.JUMP_HEIGHTS[action.distance] or 0
+  local t = progressTicks / durationTicks
+  return 4 * h * t * (1 - t)
 end
 
 function MovementCalibration.gesturePresentationAt(name, progressTicks, durationTicks)

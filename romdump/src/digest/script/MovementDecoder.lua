@@ -20,19 +20,23 @@ local FAMILIES = {
     last = 3,
     fn = decodeFace,
   },
+  { first = 4, last = 7, speed = "slower" },
   { first = 8, last = 11, speed = "slow" },
   { first = 12, last = 15, speed = "normal" },
   { first = 16, last = 19, speed = "fast" },
+  { first = 20, last = 23, speed = "faster" },
   { first = 24, last = 27, inPlace = "slower" },
   { first = 28, last = 31, inPlace = "slow" },
   { first = 32, last = 35, inPlace = "normal" },
   { first = 36, last = 39, inPlace = "fast" },
+  { first = 40, last = 43, inPlace = "faster" },
   { first = 44, last = 47, jump = { distance = "zero", speed = "slow" } },
   { first = 48, last = 51, jump = { distance = "zero", speed = "fast" } },
   { first = 52, last = 55, jump = { distance = "near", speed = "fast" } },
   { first = 56, last = 59, jump = { distance = "far", speed = "fast" } },
   { first = 60, last = 66, delayTicks = { 1, 2, 4, 8, 15, 16, 32 } },
   { first = 76, last = 79, speed = "slightly_fast" },
+  { first = 80, last = 83, speed = "slightly_faster" },
   { first = 88, last = 91, speed = "run" },
 }
 
@@ -70,6 +74,20 @@ function MovementDecoder.decode(action)
       step.count = count
     end
     return step, nil
+  end
+  if code == 94 or code == 95 then
+    local direction = DIRECTIONS[code % 4]
+    return {
+      {
+        action = "jump",
+        direction = direction,
+        distance = "farther",
+        speed = "fast",
+        tiles = 3,
+        count = count,
+      },
+    },
+      nil
   end
   for _, family in ipairs(FAMILIES) do
     if code >= family.first and code <= family.last then

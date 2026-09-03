@@ -935,13 +935,13 @@ end
 function T.supported_locomotion_profiles_have_explicit_pose_cadence()
   local progressTicks = 14
   local expectedWalk = {
-    slower = 14,
+    slower = 7,
     slow = 7,
     normal = 14,
     fast = 28,
-    faster = 14,
+    faster = 56,
     slightly_fast = 18,
-    slightly_faster = 14,
+    slightly_faster = 37,
     fastest = 14,
     run = 28,
     hgss_96 = 14,

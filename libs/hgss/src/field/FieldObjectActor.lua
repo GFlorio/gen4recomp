@@ -321,11 +321,9 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     self.worldX = m.startWorldX + (m.destWorldX - m.startWorldX) * t
     self.worldZ = m.startWorldZ + (m.destWorldZ - m.startWorldZ) * t
     if m.action == "jump" then
-      local h = MovementCalibration.JUMP_HEIGHTS[m.distance] or 0
-      -- Parabolic arc: 4*h*t*(1-t)
-      local arc = 4 * h * t * (1 - t)
+      local offset = MovementCalibration.jumpOffsetAt(m, progressTicks, durationTicks)
       local baseY = m.startWorldY + (m.destWorldY - m.startWorldY) * t
-      self.worldY = baseY + arc
+      self.worldY = baseY + offset
     else
       self.worldY = m.startWorldY + (m.destWorldY - m.startWorldY) * t
     end
