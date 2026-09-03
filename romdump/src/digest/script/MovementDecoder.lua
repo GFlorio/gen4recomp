@@ -60,7 +60,7 @@ local SINGLES = {
 
 local TRAJECTORIES = {
   [105] = {
-    { deltaX = 0, surfaceBandDelta = 1, deltaZ = 5, direction = "west", ticks = 15 },
+    { deltaX = 0, surfaceBandDelta = 1, deltaZ = 5, direction = "south", ticks = 15 },
     { deltaX = 4, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 12 },
     { deltaX = 0, surfaceBandDelta = 0, deltaZ = -5, direction = "north", ticks = 15 },
     { deltaX = -2, surfaceBandDelta = 0, deltaZ = -3, direction = "north", ticks = 9 },
