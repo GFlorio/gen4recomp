@@ -1,6 +1,8 @@
 -- Owns active logical field-map identity and the side effects of changing it.
 -- Residency and map protection belong to the coordinator.
 
+local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
+
 local FieldZoneController = {}
 FieldZoneController.__index = FieldZoneController
 
@@ -53,9 +55,12 @@ end
 ---@return FieldZoneChange?
 function FieldZoneController:afterCoverageCommit(coverage, player)
   assert(coverage and coverage.mapHeaderAt, "committed coverage required")
-  local destinationId =
-    assert(coverage:mapHeaderAt(player.fieldX, player.fieldZ), "player coverage cell map header is missing")
-  if destinationId == self.currentMap.mapId then
+  local currentId = assert(self.currentMap and self.currentMap.mapId, "active logical map is missing")
+  local destinationId = assert(
+    FieldZoneIdentity.logicalZoneAt(coverage, player.fieldX, player.fieldZ, currentId),
+    "player coverage cell map header is missing"
+  )
+  if destinationId == currentId then
     return nil
   end
 

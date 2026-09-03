@@ -1,6 +1,8 @@
 -- Settles physical coverage immediately after a committed player displacement.
 -- Logical map ownership and later field policies remain outside this boundary.
 
+local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
+
 local FieldNavigationBoundary = {}
 FieldNavigationBoundary.__index = FieldNavigationBoundary
 
@@ -37,8 +39,10 @@ function FieldNavigationBoundary:crossesLogicalZone(runtimeMap, player, directio
   if not coverage or not delta or not self.zoneController then
     return false
   end
-  local destinationHeader = coverage:mapHeaderAt(player.fieldX + delta.x, player.fieldZ + delta.z)
-  return destinationHeader ~= nil and destinationHeader ~= self.zoneController.currentMap.mapId
+  local currentMap = assert(self.zoneController.currentMap, "active logical map is missing")
+  local destinationId =
+    FieldZoneIdentity.logicalZoneAt(coverage, player.fieldX + delta.x, player.fieldZ + delta.z, currentMap.mapId)
+  return destinationId ~= nil and destinationId ~= currentMap.mapId
 end
 
 function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
@@ -61,7 +65,10 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
     if self.residencyCoordinator then
       return self.residencyCoordinator:afterCommittedMove(player)
     end
-    return self.zoneController and self.zoneController:afterCoverageCommit(coverage, player) or coverage:status()
+    if self.zoneController then
+      return self.zoneController:afterCoverageCommit(coverage, player)
+    end
+    return coverage:status()
   end
   local currentOrigin = runtimeMap.physicalOrigin or coverage.origin
   local oldOrigin = {
@@ -99,11 +106,10 @@ function FieldNavigationBoundary:afterCommittedMove(runtimeMap, player, camera)
   if self.reconcilePhysicalWorld then
     self.reconcilePhysicalWorld()
   end
-  local zoneChange
   if self.zoneController then
-    zoneChange = self.zoneController:afterCoverageCommit(coverage, player)
+    return self.zoneController:afterCoverageCommit(coverage, player)
   end
-  return zoneChange or coverage:status()
+  return coverage:status()
 end
 
 return FieldNavigationBoundary

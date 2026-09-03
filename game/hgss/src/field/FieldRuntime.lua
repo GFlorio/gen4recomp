@@ -32,6 +32,7 @@ local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
+local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
 local GameSave = require("libs.hgss.src.save.GameSave")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local FieldScripts = require("game.hgss.src.field.FieldScripts")
@@ -306,8 +307,11 @@ end
 function FieldRuntime:_playerOccupantAt(candidate)
   local currentMap = self.runtimeMap
   local coverage = currentMap.coverage
-  local destinationMapId = coverage and coverage:mapHeaderAt(candidate.fieldX, candidate.fieldZ) or nil
-  local targetMapId = destinationMapId or currentMap.mapId
+  local targetMapId = currentMap.mapId
+  if coverage then
+    targetMapId = FieldZoneIdentity.logicalZoneAt(coverage, candidate.fieldX, candidate.fieldZ, currentMap.mapId)
+      or currentMap.mapId
+  end
   local occupant
   if self.actors.currentMapId == targetMapId then
     occupant = self.actors:getCollisionAt(targetMapId, candidate)
@@ -939,8 +943,8 @@ function FieldRuntime:_load()
       if not coverage then
         return currentMap
       end
-      local targetMapId = coverage:mapHeaderAt(x, z)
-      if targetMapId == nil or targetMapId == currentMap.mapId then
+      local targetMapId = FieldZoneIdentity.logicalZoneAt(coverage, x, z, currentMap.mapId) or currentMap.mapId
+      if targetMapId == currentMap.mapId then
         return currentMap
       end
       local targetMap = assert(self.residency):mapForId(targetMapId)

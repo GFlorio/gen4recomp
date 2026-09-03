@@ -64,7 +64,9 @@ end
 -- Desired logical residents for coverage descriptors: committed headers that
 -- define a loadable logical map. Matrix filler headers own physical cells
 -- but no logical map, so they stay out of logical residency while their
--- cells still load, present, and collide through physical coverage.
+-- cells still load, present, and collide through physical coverage. Filler
+-- classification itself belongs to FieldZoneIdentity; this selection only
+-- decides prefetch membership through the loader capability check.
 ---@param descriptors table[]
 ---@return integer[]
 function FieldResidencyCoordinator:_desiredIds(descriptors)
