@@ -10,6 +10,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@class OakIntroStateController: OakIntroController
 ---@field start fun(self: OakIntroStateController): boolean
 ---@field tick fun(self: OakIntroStateController, frames: integer)
+---@field confirmHandoffPresented fun(self: OakIntroStateController): boolean
 ---@field view fun(self: OakIntroStateController): OakIntroControllerView
 ---@field result fun(self: OakIntroStateController): table?
 ---@field press fun(self: OakIntroStateController, action: string): boolean
@@ -125,9 +126,11 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 ---@field disposed boolean
+---@field _blackHandoffPresented boolean
 ---@field _frozenStatus table?
 ---@field _frozenAdapter table?
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
+---@field _acknowledgePresentedHandoff fun(self: OakIntroState)
 ---@field _clearFrozen fun(self: OakIntroState)
 ---@field _stepDialogue fun(self: OakIntroState, snapshot: table?): table?
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
@@ -282,6 +285,7 @@ function OakIntroState.new(options)
       dialoguePresentation = nil,
       dialogueMessageKey = nil,
       dialogueCursorPlacement = options.dialogueCursorPlacement,
+      _blackHandoffPresented = false,
       _frozenStatus = nil,
       _frozenAdapter = nil,
     }, OakIntroState)
@@ -315,6 +319,17 @@ end
 function OakIntroState:_clearFrozen()
   self._frozenStatus = nil
   self._frozenAdapter = nil
+end
+
+-- Consumes a successfully presented full-black handoff frame, if any, by
+-- acknowledging it to the controller. Only a later update may finalize the
+-- handoff; drawing itself never completes it.
+function OakIntroState:_acknowledgePresentedHandoff()
+  if not self._blackHandoffPresented then
+    return
+  end
+  self._blackHandoffPresented = false
+  self.controller:confirmHandoffPresented()
 end
 
 function OakIntroState:_stepDialogue(snapshot)
@@ -395,6 +410,7 @@ end
 
 function OakIntroState:update(dt)
   assert(type(dt) == "number" and dt >= 0, "Oak update dt must be non-negative")
+  self:_acknowledgePresentedHandoff()
   self.accumulator = self.accumulator + dt
   while self.accumulator + SOURCE_FRAME_EPSILON >= SOURCE_FRAME_DURATION do
     self.accumulator = math.max(0, self.accumulator - SOURCE_FRAME_DURATION)
@@ -420,6 +436,7 @@ end
 
 function OakIntroState:tick(frames)
   assert(frames >= 0 and frames % 1 == 0, "Oak tick count must be a non-negative integer")
+  self:_acknowledgePresentedHandoff()
   for _ = 1, frames do
     local phaseBeforeDialogue = self.controller:view().phase
     if self.dialogueController then
@@ -467,6 +484,12 @@ function OakIntroState:draw()
     then
       self.dialogueRenderer:draw(self._frozenAdapter, view.dialoguePresentation)
     end
+  end
+  -- Only a successful draw of the waiting full-black frame unlocks the
+  -- handoff; a failed draw raises above and records nothing. Completion
+  -- itself happens on a later update, never here.
+  if view.phase == "handoff_black" and view.finalFadeAlpha >= 1 then
+    self._blackHandoffPresented = true
   end
 end
 

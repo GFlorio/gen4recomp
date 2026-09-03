@@ -24,6 +24,7 @@ local DIALOGUE_CURSOR_PLACEMENT = { x = 240, y = 168, width = 16, height = 16 }
 ---@field compositionProgress number
 ---@field start fun(self: OakIntroStateTest.Controller)
 ---@field tick fun(self: OakIntroStateTest.Controller, frames: number)
+---@field confirmHandoffPresented fun(self: OakIntroStateTest.Controller): boolean
 ---@field press fun(self: OakIntroStateTest.Controller, action: string)
 ---@field inputText fun(self: OakIntroStateTest.Controller, text: string)
 ---@field deleteGlyph fun(self: OakIntroStateTest.Controller)
@@ -122,6 +123,9 @@ local function fakeController()
     self.started = self.started + 1
   end
   function controller:tick() end
+  function controller:confirmHandoffPresented()
+    return false
+  end
   function controller:press(action)
     self.pressed[#self.pressed + 1] = action
   end
@@ -146,6 +150,7 @@ local function fakeController()
       genderFocus = 0,
       message = "generated.message",
       visual = "background",
+      finalFadeAlpha = 0,
       virtualKeys = {
         { kind = "glyph", glyph = "A" },
         { kind = "glyph", glyph = "B" },
@@ -510,7 +515,12 @@ local function stateAtFreshFullArtHold(frameDuration, frameCount)
   local recorded = {}
   local renderer = {
     draw = function(_, view)
-      recorded[#recorded + 1] = { phase = view.phase, visual = view.visual, frameIndex = view.visualFrameIndex }
+      recorded[#recorded + 1] = {
+        phase = view.phase,
+        visual = view.visual,
+        frameIndex = view.visualFrameIndex,
+        finalFadeAlpha = view.finalFadeAlpha,
+      }
     end,
     dispose = function() end,
   }
@@ -595,6 +605,16 @@ function T.source_timed_update_draw_cadence_preserves_full_art_hold_and_shrink_f
     Assert.equal(draws, 9, "each generated shrink frame must remain draw-visible for exactly nine source ticks")
   end
 
+  Assert.isTrue(
+    controller:view().phase ~= "complete",
+    "reaching full black must wait for the presented draw, not complete"
+  )
+  Assert.isNil(controller:result(), "the candidate stays unpublished until the black frame is presented")
+  Assert.near(controller:view().finalFadeAlpha, 1, 1e-9, "the waiting cover stays black")
+
+  -- The loop above ends with the presented full-black draw, so exactly one
+  -- more update acknowledges that presentation and completes the handoff.
+  state:update(1 / 30)
   Assert.equal(controller:view().phase, "complete")
 end
 
@@ -664,6 +684,111 @@ function T.two_half_source_frame_updates_drain_one_controller_tick()
   Assert.equal(controller:view().sourceFrames, sourceFrames + 1)
 end
 
+-- Drives a real controller/state pair from a fresh full-art hold through the
+-- shrink into the post-shrink cover, leaving exactly one source tick before
+-- full black (cover coefficient 13/16).
+local function stateAtCoverPenultimateTick()
+  local state, controller, recorded = stateAtFreshFullArtHold(9, 4)
+  state:tick(30 + 9 * 4 + 5)
+  Assert.near(controller:view().finalFadeAlpha, 13 / 16, 1e-9, "the cover must be one tick from full black")
+  Assert.isTrue(controller:view().phase ~= "complete")
+  Assert.isNil(controller:result())
+  return state, controller, recorded
+end
+
+-- Reaching full black must not complete: only a successfully drawn black
+-- frame, acknowledged on a later update, may publish the finalized candidate.
+function T.full_black_handoff_completes_only_after_a_presented_draw()
+  local state, controller, recorded = stateAtCoverPenultimateTick()
+  local completions = 0
+  state.onComplete = function()
+    completions = completions + 1
+  end
+
+  state:tick(1)
+  Assert.near(controller:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+  Assert.isTrue(controller:view().phase ~= "complete", "full black must wait for presentation, not complete")
+  Assert.isNil(controller:result(), "the candidate must stay unpublished until the black frame is presented")
+  Assert.equal(completions, 0)
+
+  state:tick(20)
+  Assert.isTrue(controller:view().phase ~= "complete", "ticks without a draw must not complete")
+  Assert.isNil(controller:result())
+  Assert.equal(completions, 0)
+
+  local drawsBefore = #recorded
+  state:draw()
+  Assert.equal(#recorded, drawsBefore + 1, "the waiting black frame must be drawn")
+  local presented = recorded[#recorded]
+  Assert.near(presented.finalFadeAlpha, 1, 1e-9, "the presented handoff draw must be fully black")
+  Assert.isTrue(presented.phase ~= "complete", "the presented draw must still be Oak-owned")
+  Assert.isTrue(controller:view().phase ~= "complete", "drawing must not itself complete the handoff")
+  Assert.equal(completions, 0, "drawing must not invoke completion; the next update does")
+
+  state:tick(1)
+  Assert.equal(controller:view().phase, "complete")
+  Assert.notNil(controller:result())
+  Assert.equal(completions, 1)
+end
+
+-- Only a successful draw unlocks the handoff: a failed full-black draw must
+-- leave the controller waiting exactly as if no draw had happened.
+function T.failed_full_black_draw_does_not_unlock_completion()
+  local state, controller, recorded = stateAtCoverPenultimateTick()
+  local completions = 0
+  state.onComplete = function()
+    completions = completions + 1
+  end
+
+  state:tick(1)
+  Assert.near(controller:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+  Assert.isTrue(controller:view().phase ~= "complete")
+
+  local presentedDraw = state.renderer.draw
+  state.renderer.draw = function()
+    error("synthetic full-black draw failure", 0)
+  end
+  Assert.throws(function()
+    state:draw()
+  end, "a failing renderer must surface its draw failure")
+  state.renderer.draw = presentedDraw
+
+  state:tick(1)
+  Assert.isTrue(controller:view().phase ~= "complete", "a failed draw must not unlock completion")
+  Assert.isNil(controller:result())
+  Assert.equal(completions, 0)
+
+  state:draw()
+  local presented = recorded[#recorded]
+  Assert.near(presented.finalFadeAlpha, 1, 1e-9, "the recovery draw must present the full-black frame")
+  state:tick(1)
+  Assert.equal(controller:view().phase, "complete")
+  Assert.equal(completions, 1)
+end
+
+-- A single host update large enough to cross the final fade boundary must stop
+-- at the full-black wait: reaching black and consuming the presentation
+-- barrier cannot happen in the same update loop without a draw in between.
+function T.large_host_update_stops_at_full_black_without_a_draw()
+  local state, controller, _ = stateAtCoverPenultimateTick()
+  local completions = 0
+  state.onComplete = function()
+    completions = completions + 1
+  end
+
+  state:update(10 / 30)
+  Assert.near(controller:view().finalFadeAlpha, 1, 1e-9, "the large update must still reach full black")
+  Assert.isTrue(controller:view().phase ~= "complete", "a large host update must stop at the full-black wait")
+  Assert.isNil(controller:result(), "the candidate must stay unpublished without a presented draw")
+  Assert.equal(completions, 0)
+
+  state:update(10 / 30)
+  Assert.isTrue(controller:view().phase ~= "complete", "repeated updates without a draw must keep waiting")
+  Assert.isNil(controller:result())
+  Assert.equal(completions, 0)
+  Assert.near(controller:view().finalFadeAlpha, 1, 1e-9, "the waiting cover stays black")
+end
+
 function T.completion_preserves_unconsumed_host_time_and_hands_off_once()
   local state, controller = stateAtFreshFullArtHold(9, 4)
   local completions = 0
@@ -671,17 +796,37 @@ function T.completion_preserves_unconsumed_host_time_and_hands_off_once()
     completions = completions + 1
   end
 
+  -- A large host update with no presented draw reaches the full-black wait
+  -- without completing, draining its source frames.
+  state:update(5)
+
+  Assert.isTrue(
+    controller:view().phase ~= "complete",
+    "an update without a presented black draw must stop at the full-black wait"
+  )
+  Assert.isNil(controller:result(), "the candidate stays unpublished without a presented draw")
+  Assert.equal(completions, 0)
+
+  -- Presenting the black frame unlocks exactly one handoff on the next
+  -- update, which still preserves time it cannot drain.
+  state:draw()
   state:update(5)
 
   Assert.equal(controller:view().phase, "complete")
   Assert.isTrue(state.accumulator > 0)
   Assert.equal(completions, 1)
+
+  state:update(5)
+  state:tick(5)
+  Assert.equal(controller:view().phase, "complete")
+  Assert.equal(completions, 1, "the handoff must stay a single event after completion")
 end
 
 -- Drawing must not alter the semantic state that a later host update drains.
--- The second update crosses completion so the handoff remains a single
--- semantic event in both draw/no-draw paths.
-function T.draw_cadence_does_not_change_semantic_progress()
+-- Matching updates still produce matching semantics regardless of earlier
+-- draw cadence, but only a presented full-black draw unlocks the handoff:
+-- the undrawn path keeps waiting while the presented path completes.
+function T.black_presentation_gates_completion_independent_of_prior_draw_cadence()
   local drawnState, drawnController = stateAtFreshFullArtHold(9, 4)
   local undrawnState, undrawnController = stateAtFreshFullArtHold(9, 4)
   local drawnCompletions = 0
@@ -708,7 +853,24 @@ function T.draw_cadence_does_not_change_semantic_progress()
     )
   end
 
+  Assert.isTrue(drawnController:view().phase ~= "complete", "both paths must wait at full black")
+  Assert.isTrue(undrawnController:view().phase ~= "complete", "both paths must wait at full black")
+  Assert.equal(drawnCompletions, 0)
+  Assert.equal(undrawnCompletions, 0)
+
+  -- Presenting the black frame on only the drawn path unlocks only that path.
+  drawnState:draw()
+  Assert.equal(drawnCompletions, 0, "drawing must not itself complete the handoff")
+  drawnState:update(1 / 30)
+  undrawnState:update(1 / 30)
+  Assert.equal(drawnController:view().phase, "complete")
   Assert.equal(drawnCompletions, 1)
+  Assert.isTrue(undrawnController:view().phase ~= "complete", "no presented draw means no completion")
+  Assert.equal(undrawnCompletions, 0)
+
+  undrawnState:draw()
+  undrawnState:update(1 / 30)
+  Assert.equal(undrawnController:view().phase, "complete")
   Assert.equal(undrawnCompletions, 1)
 end
 

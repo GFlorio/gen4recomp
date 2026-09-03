@@ -305,6 +305,8 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
           or phase == "final_full_art_fade_in"
           or phase == "final_full_art_hold"
           or phase == "shrink_animation"
+          or phase == "shrink_handoff_cover"
+          or phase == "handoff_black"
         then
           App.draw()
         end

@@ -94,6 +94,7 @@ local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 ---@field private _result table|nil
 ---@field private _events OakIntroEvent[]
 ---@field tick fun(self: OakIntroController, frames: integer)
+---@field confirmHandoffPresented fun(self: OakIntroController): boolean
 ---@field start fun(self: OakIntroController): boolean
 ---@field press fun(self: OakIntroController, action: string): boolean
 ---@field inputText fun(self: OakIntroController, text: string): boolean
@@ -438,7 +439,9 @@ function OakIntroController:_stepFrame()
     local coefficient = fade:updateSourceFrame()
     self._finalFadeAlpha = coefficient / 16
     if fade:status().completed then
-      self:_finish()
+      -- Fully black but still Oak-owned: the finalized candidate publishes
+      -- only after the host presents this frame and acknowledges it.
+      self._phase = "handoff_black"
     end
     return
   elseif self._phase == "ball_open_wait" then
@@ -589,6 +592,18 @@ function OakIntroController:tick(frames)
     end
     self:_stepFrame()
   end
+end
+
+--- Records that the host successfully presented the full-black handoff frame.
+--- Only a presented black frame may publish the finalized candidate; source
+--- ticks alone never leave the waiting state.
+---@return boolean true when the acknowledgement finalized the handoff
+function OakIntroController:confirmHandoffPresented()
+  if self._disposed or not self._started or self._phase ~= "handoff_black" then
+    return false
+  end
+  self:_finish()
+  return true
 end
 
 function OakIntroController:start()

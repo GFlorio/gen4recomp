@@ -926,6 +926,10 @@ function T.shrink_frames_remain_drawable_until_their_generated_durations_end()
   Assert.isNil(state:result())
   Assert.near(state:view().finalFadeAlpha, 0, 1e-9)
   state:tick(6)
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+  Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement")
+  Assert.isNil(state:result(), "the candidate stays unpublished until the black frame is presented")
+  Assert.isTrue(state:confirmHandoffPresented(), "acknowledging the presented black frame finalizes the handoff")
   Assert.equal(state:view().phase, "complete")
   Assert.notNil(state:result())
 end
@@ -993,6 +997,9 @@ function T.final_handoff_shows_selected_full_art_then_source_timed_shrink_for_bo
       state:tick(1)
       Assert.near(state:view().finalFadeAlpha, alpha, 1e-9)
     end
+    Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement")
+    Assert.isNil(state:result(), "the candidate stays unpublished until the black frame is presented")
+    Assert.isTrue(state:confirmHandoffPresented(), "acknowledging the presented black frame finalizes the handoff")
     Assert.equal(state:view().phase, "complete")
     Assert.notNil(state:result())
     local handoffs = 0
@@ -1002,6 +1009,7 @@ function T.final_handoff_shows_selected_full_art_then_source_timed_shrink_for_bo
       end
     end
     Assert.equal(handoffs, 1)
+    Assert.isFalse(state:confirmHandoffPresented(), "acknowledging after completion must not finalize a second handoff")
     state:tick(20)
     local repeatedHandoffs = 0
     for _, event in ipairs(state:view().events) do
@@ -1040,6 +1048,10 @@ function T.shrink_animation_uses_each_generated_frame_duration()
   Assert.isTrue(state:view().phase ~= "complete", "the last shrink frame must enter the cover, not complete")
   Assert.isNil(state:result())
   state:tick(6)
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+  Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement")
+  Assert.isNil(state:result(), "the candidate stays unpublished until the black frame is presented")
+  Assert.isTrue(state:confirmHandoffPresented(), "acknowledging the presented black frame finalizes the handoff")
   Assert.equal(state:view().phase, "complete")
 
   local oneFrameAssets = finalSequenceAssets()
@@ -1056,6 +1068,10 @@ function T.shrink_animation_uses_each_generated_frame_duration()
   Assert.isTrue(state:view().phase ~= "complete", "the last shrink frame must enter the cover, not complete")
   Assert.isNil(state:result())
   state:tick(6)
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+  Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement")
+  Assert.isNil(state:result(), "the candidate stays unpublished until the black frame is presented")
+  Assert.isTrue(state:confirmHandoffPresented(), "acknowledging the presented black frame finalizes the handoff")
   Assert.equal(state:view().phase, "complete")
 end
 
@@ -1158,6 +1174,10 @@ function T.finalization_handoff_keeps_reserved_identity_without_storage_publicat
   Assert.isTrue(state:view().phase ~= "complete", "completion must wait for the full-black cover")
   Assert.isNil(state:result())
   state:tick(6)
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+  Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement")
+  Assert.isNil(state:result(), "the candidate stays unpublished until the black frame is presented")
+  Assert.isTrue(state:confirmHandoffPresented(), "acknowledging the presented black frame finalizes the handoff")
   Assert.equal(state:view().phase, "complete")
   local result = assert(state:result())
   Assert.equal(result.saveId, "save-00000017")
@@ -1210,6 +1230,10 @@ function T.blank_name_default_survives_into_the_finalized_profile()
     Assert.isTrue(state:view().phase ~= "complete", "completion must wait for the full-black cover")
     Assert.isNil(state:result())
     state:tick(6)
+    Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+    Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement")
+    Assert.isNil(state:result(), "the candidate stays unpublished until the black frame is presented")
+    Assert.isTrue(state:confirmHandoffPresented(), "acknowledging the presented black frame finalizes the handoff")
     Assert.equal(state:view().phase, "complete")
     Assert.equal(assert(state:result()).playerData.profile.name, expected)
   end
@@ -1345,7 +1369,7 @@ function T.shrink_completion_enters_the_covered_handoff_instead_of_completing()
   Assert.near(state:view().finalFadeAlpha, 0, 1e-9, "the cover starts transparent over the shrink visual")
 end
 
-function T.covered_handoff_follows_the_shared_fade_and_completes_only_at_full_black()
+function T.covered_handoff_waits_at_full_black_until_presentation_is_acknowledged()
   local state = advanceToShrinkAnimation()
   tickToShrinkEnd(state)
   state:tick(1)
@@ -1366,8 +1390,11 @@ function T.covered_handoff_follows_the_shared_fade_and_completes_only_at_full_bl
       Assert.isNil(state:result(), "the candidate must stay unpublished before full black")
     end
   end
+  Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement")
+  Assert.isNil(state:result(), "the candidate must stay unpublished until the black frame is presented")
+  Assert.isTrue(state:confirmHandoffPresented(), "acknowledging the presented black frame finalizes the handoff")
   Assert.equal(state:view().phase, "complete")
-  Assert.notNil(state:result(), "the finalized candidate publishes exactly at full black")
+  Assert.notNil(state:result(), "the finalized candidate publishes after the presented full black")
   Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "completion keeps the full-black cover")
   local handoffs = 0
   for _, event in ipairs(state:view().events) do
@@ -1379,6 +1406,39 @@ function T.covered_handoff_follows_the_shared_fade_and_completes_only_at_full_bl
   state:tick(20)
   Assert.equal(state:view().phase, "complete")
   Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the completed cover stays black")
+end
+
+-- The full-black cover is a waiting state, not completion: the finalized
+-- candidate stays unpublished until the host presents the black frame and the
+-- state acknowledges that presentation on a later update.
+function T.full_black_cover_waits_for_presentation_before_publishing_the_candidate()
+  local state = advanceToShrinkAnimation()
+  tickToShrinkEnd(state)
+  state:tick(1)
+  Assert.isTrue(
+    state:view().phase ~= "complete",
+    "the last shrink frame must enter the post-shrink cover, not complete"
+  )
+  Assert.isNil(state:result(), "the candidate must stay unpublished while the cover is not yet black")
+  for step = 1, 5 do
+    state:tick(1)
+    Assert.isTrue(
+      state:view().phase ~= "complete",
+      "the cover must not complete before full black (leaked at cover step " .. step .. ")"
+    )
+    Assert.isNil(state:result(), "the candidate must stay unpublished before full black")
+  end
+  state:tick(1)
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the cover must reach full black")
+  Assert.isTrue(state:view().phase ~= "complete", "full black must wait for presentation acknowledgement, not complete")
+  Assert.isNil(state:result(), "the candidate must stay unpublished until the black frame is presented")
+  state:tick(20)
+  Assert.isTrue(
+    state:view().phase ~= "complete",
+    "extra source ticks without presentation acknowledgement must not complete"
+  )
+  Assert.isNil(state:result(), "the candidate must stay unpublished without presentation acknowledgement")
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the waiting cover stays black")
 end
 
 return { tests = T }

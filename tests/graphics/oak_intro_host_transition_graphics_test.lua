@@ -1,5 +1,7 @@
 -- Production-composed Oak/profile transition checks using the generated cache
--- and the offscreen graphics host, without invoking the draw path.
+-- and the offscreen graphics host. Ticks alone never complete the handoff:
+-- one real draw presents the full-black frame before the next tick may
+-- finalize it.
 
 local Assert = require("tests.support.Assert")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
@@ -422,10 +424,11 @@ local function spyRectangles(sink)
 end
 
 -- The state-boundary contract of the covered handoff, asserted semantically:
--- the last intro-owned frame is fully black with the candidate published
--- only there, the first field-owned frame is fully black with the
--- player/runtime already constructed, and the reveal out of black is
--- monotonic with bounded steps, so no visible cut can occur between them.
+-- the last intro-owned frame is a presented fully black frame with the
+-- candidate published only after that presentation, the first field-owned
+-- frame is fully black with the player/runtime already constructed, and the
+-- reveal out of black is monotonic with bounded steps, so no visible cut can
+-- occur between them.
 T.covered_handoff_keeps_black_between_intro_and_field = function(scope)
   local state = compose(scope, AcceptanceHarness.defaultVersion(), 640, 480)
   driveToShrink(state)
@@ -449,8 +452,14 @@ T.covered_handoff_keeps_black_between_intro_and_field = function(scope)
     { 2 / 16, 5 / 16, 7 / 16, 10 / 16, 13 / 16, 1 },
     "the outgoing cover follows the shared outward fade"
   )
-  Assert.equal(state:view().phase, "complete", "the intro completes exactly at full black")
-  Assert.notNil(state.controller:result(), "the candidate publishes exactly at full black")
+  Assert.isTrue(state:view().phase ~= "complete", "full black must wait for a presented draw, not complete")
+  Assert.isNil(state.controller:result(), "the candidate stays unpublished until the black frame is presented")
+  Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the waiting cover stays black")
+  state:draw()
+  Assert.isTrue(state:view().phase ~= "complete", "drawing must not itself complete the handoff")
+  state:tick(1)
+  Assert.equal(state:view().phase, "complete", "the intro completes on the update after the presented black frame")
+  Assert.notNil(state.controller:result(), "the candidate publishes after the presented full black")
   Assert.near(state:view().finalFadeAlpha, 1, 1e-9, "the last intro-owned frame is fully black")
 
   local field = bootCoveredField(scope)
