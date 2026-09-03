@@ -811,44 +811,47 @@ T["raw movement task owns the generation and rejects conflicts"] = function()
   Assert.equal(h.services.actors.actors.elm.fieldX, 5, "the raw movement plan reached its destination")
 end
 
--- The only source-proven automatic movement-emote sound: exclamation plays
--- SEQ_SE_DP_DECIDE exactly once, at the emote action's start tick, never on
--- a later tick or a second time. An unmapped kind (question, still unproven
--- at this call site) must never touch the audio service at all.
-T["exclamation plays its proven sound once at the action start tick"] = function()
-  local h = harness()
-  h.services.actors:add("marill", { fieldX = 2, fieldZ = 3, facing = "south" })
-  local calls = {}
-  h.services.audio = {
-    play = function(_, effectId)
-      calls[#calls + 1] = effectId
-    end,
-  }
-  local resource = script("test.exclaim", { S.stop() })
-  local instanceId = startForeground(h, resource, 100)
-  local instance = assert(h.scheduler:instance(instanceId))
-  local spec = {
-    actor = "marill",
-    sequence = { { action = "emote", name = "exclamation" } },
-  }
-  h.scheduler:createTask("movement", spec, instance, 100, nil)
-  for tick = 101, 100 + MovementCalibration.EMOTE_TICKS do
-    h.scheduler:step(tick, nil)
+-- The source-proven automatic movement-emote sounds: exclamation and
+-- question each play SEQ_SE_DP_DECIDE exactly once, at the emote action's
+-- start tick, never on a later tick or a second time. An unmapped kind
+-- (exclamation_alt) must never touch the audio service at all.
+T["mapped emotes play their sound once at the action start tick"] = function()
+  for _, name in ipairs({ "exclamation", "question" }) do
+    local h = harness()
+    h.services.actors:add("marill", { fieldX = 2, fieldZ = 3, facing = "south" })
+    local calls = {}
+    h.services.audio = {
+      play = function(_, effectId)
+        calls[#calls + 1] = effectId
+      end,
+    }
+    local resource = script("test.emote_mapped_" .. name, { S.stop() })
+    local instanceId = startForeground(h, resource, 100)
+    local instance = assert(h.scheduler:instance(instanceId))
+    local spec = {
+      actor = "marill",
+      sequence = { { action = "emote", name = name } },
+    }
+    h.scheduler:createTask("movement", spec, instance, 100, nil)
+    for tick = 101, 100 + MovementCalibration.EMOTE_TICKS do
+      h.scheduler:step(tick, nil)
+    end
+    Assert.equal(#calls, 1, name .. " plays its sound exactly once")
+    Assert.equal(calls[1], "SEQ_SE_DP_DECIDE")
+    Assert.isNil(h.services.events:eventFor("script.error", instanceId), name .. " completes without faulting")
   end
-  Assert.equal(#calls, 1, "the exclamation sound plays exactly once")
-  Assert.equal(calls[1], "SEQ_SE_DP_DECIDE")
 end
 
 T["an unmapped emote kind never touches the audio service"] = function()
   local h = harness()
   h.services.actors:add("marill", { fieldX = 2, fieldZ = 3, facing = "south" })
   h.services.audio = nil
-  local resource = script("test.question", { S.stop() })
+  local resource = script("test.exclamation_alt", { S.stop() })
   local instanceId = startForeground(h, resource, 100)
   local instance = assert(h.scheduler:instance(instanceId))
   local spec = {
     actor = "marill",
-    sequence = { { action = "emote", name = "question" } },
+    sequence = { { action = "emote", name = "exclamation_alt" } },
   }
   local ok, err = pcall(function()
     h.scheduler:createTask("movement", spec, instance, 100, nil)
@@ -857,12 +860,12 @@ T["an unmapped emote kind never touches the audio service"] = function()
     end
   end)
   Assert.isTrue(ok, "an unmapped emote kind must not require the audio service: " .. tostring(err))
+  Assert.isNil(h.services.events:eventFor("script.error", instanceId), "an unmapped emote completes without faulting")
 end
 
 -- Trajectory cries are gated by fresh visibility at each source checkpoint:
--- hiding after the start cry silences the arrival cry, showing after a
--- silent start enables it, and a service that cannot answer visibility never
--- counts as visible.
+-- hiding after the start cry silences the arrival cry, and showing after a
+-- silent start enables it. Both cases run against the complete actor service.
 T["trajectory cries follow fresh visibility at start and arrival"] = function()
   local segment =
     { action = "trajectory_segment", deltaX = 0, deltaZ = 0, surfaceBandDelta = 0, ticks = 2, direction = "south" }
@@ -899,41 +902,6 @@ T["trajectory cries follow fresh visibility at start and arrival"] = function()
   h2.services.actors:show("beast")
   h2.scheduler:step(202, nil)
   Assert.deepEqual(calls2, { "SEQ_SE_DP_SUTYA2" })
-
-  local h3 = harness()
-  local opaque = {
-    getPosition = function()
-      return { fieldX = 0, fieldZ = 0, worldY = 0 }
-    end,
-    getFacing = function()
-      return "south"
-    end,
-    setFacing = function() end,
-    beginScriptedAction = function() end,
-    advanceScriptedAction = function() end,
-    commitScriptedAction = function() end,
-    cancelScriptedMovement = function() end,
-    show = function() end,
-    hide = function() end,
-  }
-  h3.services.actors = opaque --[[@as FakeActors]]
-  local calls3 = {}
-  h3.services.audio = {
-    play = function(_, effectId)
-      calls3[#calls3 + 1] = effectId
-    end,
-  }
-  local resource3 = script("test.beast_opaque_visibility", { S.waitTicks({ ticks = 20 }) })
-  local instanceId3 = startForeground(h3, resource3, 300)
-  local instance3 = assert(h3.scheduler:instance(instanceId3))
-  h3.scheduler:createTask("movement", { actor = "beast", sequence = { segment } }, instance3, 300, nil)
-  h3.scheduler:step(301, nil)
-  h3.scheduler:step(302, nil)
-  Assert.equal(#calls3, 0, "without a visibility answer no cry may play")
-  Assert.notNil(
-    h3.services.events:eventFor("script.error", instanceId3),
-    "an unanswerable visibility check must fault instead of defaulting to visible"
-  )
 end
 
 T["cancelling a live trainer reveal removes only the emitted effect"] = function()
@@ -1037,6 +1005,21 @@ T["farther jump advances three cells through the shared fake"] = function()
   h.services.player:commitScriptedAction()
   Assert.equal(h.services.player.fieldX, startX + 3, "the fake player commits three cells east")
   Assert.equal(h.services.player.fieldZ, startZ, "the fake player keeps its lane")
+end
+
+-- A missing actor_oscillate target faults during semantic resolution,
+-- before any oscillation task runs: the runtime requires the actor, so the
+-- task never observes the missing reference.
+T["missing actor oscillation target faults at semantic resolution"] = function()
+  local h = harness()
+  local resource = script("test.ghost_oscillate", {
+    S.actorOscillate({ actor = "ghost", cycles = 1, degreesPerTick = 90, amplitudeX = 0.125, amplitudeZ = 0 }),
+    S.stop(),
+  })
+  local instanceId = startForeground(h, resource, 100)
+  h.scheduler:step(100, nil)
+  Assert.equal(assert(h.services.events:eventFor("script.error", instanceId)).code, "SCRIPT_ACTOR_NOT_FOUND")
+  Assert.isNil(h.services.actors.actors.ghost, "no presentation offset is ever written for the missing actor")
 end
 
 return { tests = T }

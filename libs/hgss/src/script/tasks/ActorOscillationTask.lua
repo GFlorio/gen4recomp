@@ -93,12 +93,6 @@ function ActorOscillationTask.create(spec, ctx)
       amplitudeZ = amplitudeZ,
     })
   end
-  -- Verify actor exists via actor service if available; task will also fail at poll if missing.
-  if ctx and ctx.services and ctx.services.actors and ctx.services.actors.exists then
-    if not ctx.services.actors:exists(actor) then
-      Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actor), { actor = actor })
-    end
-  end
   return {
     actor = actor,
     remainingCycles = cycles,
