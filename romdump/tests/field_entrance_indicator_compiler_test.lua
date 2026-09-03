@@ -48,6 +48,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
         modelMembers = { 124 },
         animationMembers = { 148 },
         lifecycle = { mode = "once", frameCount = 7 },
+        placementOffset = { x = 0, y = 0, z = 0.5 },
       },
     },
   }
@@ -208,7 +209,9 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   Assert.equal(result.effects.trainer_reveal.model.kind, "nitro-dynamic")
   Assert.equal(result.effects.trainer_reveal.lifecycle.mode, "once")
   Assert.equal(result.effects.trainer_reveal.lifecycle.frameCount, 7)
-  Assert.isNil(result.effects.trainer_reveal.placementOffset)
+  Assert.equal(result.effects.trainer_reveal.placementOffset.x, 0)
+  Assert.equal(result.effects.trainer_reveal.placementOffset.y, 0)
+  Assert.equal(result.effects.trainer_reveal.placementOffset.z, 0.5)
 
   invalidSelector = true
   local invalidOk, invalidErr = pcall(compiler.compile, romFs)
