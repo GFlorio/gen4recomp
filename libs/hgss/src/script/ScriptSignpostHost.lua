@@ -14,6 +14,28 @@
 local ScriptSignpostHost = {}
 ScriptSignpostHost.__index = ScriptSignpostHost
 
+-- Resolve the message and start the controller print as one transaction: if
+-- either step raises on an already-presented signpost, that window is
+-- cleaned up immediately, exactly once, before the original fault
+-- propagates. A successful print leaves normal signpost/task ownership
+-- untouched.
+---@param message any
+---@param bindings table
+---@param textArgs table
+---@param printStart fun(formatted: FieldMessageProvider.FormattedMessage)
+function ScriptSignpostHost:_startPrintTransaction(message, bindings, textArgs, printStart)
+  local ok, err = pcall(function()
+    local formatted = self._resolveMessage(message, bindings, textArgs)
+    printStart(formatted)
+  end)
+  if not ok then
+    if self._controller:isModal() then
+      self._controller:hideImmediately()
+    end
+    error(err, 0)
+  end
+end
+
 ---@param opts table { controller, resolveMessage }
 ---@return ScriptSignpostHost
 function ScriptSignpostHost.new(opts)
@@ -70,8 +92,10 @@ end
 ---@param bindings table|nil
 ---@param textArgs table|nil
 function ScriptSignpostHost:printInstant(message, bindings, textArgs)
-  local formatted = self._resolveMessage(message, bindings or {}, textArgs or {})
-  self._controller:printInstant(formatted)
+  local controller = self._controller
+  self:_startPrintTransaction(message, bindings or {}, textArgs or {}, function(formatted)
+    controller:printInstant(formatted)
+  end)
 end
 
 -- Print at the player's configured text speed (Trainer Tips path). The
@@ -81,8 +105,10 @@ end
 ---@param bindings table|nil
 ---@param textArgs table|nil
 function ScriptSignpostHost:printTyped(message, bindings, textArgs)
-  local formatted = self._resolveMessage(message, bindings or {}, textArgs or {})
-  self._controller:printTyped(formatted)
+  local controller = self._controller
+  self:_startPrintTransaction(message, bindings or {}, textArgs or {}, function(formatted)
+    controller:printTyped(formatted)
+  end)
 end
 
 -- The instant-fill operation (Trainer Tips A/B speed-up): reveal the whole

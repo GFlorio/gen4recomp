@@ -22,6 +22,12 @@ local manifest = require("romdump.src.config.FieldMessages")
 -- and no map header references it either; it must be listed explicitly.
 local OAK_INTRO_MESSAGE_BANK = 219
 
+-- The opposite protagonist's canonical name bank: the field
+-- name-resolution boundary reads it through the player gender
+-- (`BufferFriendsName`), so no map header or script bank entry references
+-- it either; it must be listed explicitly.
+local OPPOSITE_PROTAGONIST_NAME_BANK = 445
+
 ---@class FieldMessageCompiler.Bundle
 ---@field marker string
 ---@field index { schema: string, version: string, bankIds: integer[] }
@@ -120,6 +126,7 @@ function FieldMessageCompiler.requiredBankIds()
   -- runtime protocol constant rather than a map-header association.
   set[MenuProtocol.STANDARD_MESSAGE_BANK] = true
   set[OAK_INTRO_MESSAGE_BANK] = true
+  set[OPPOSITE_PROTAGONIST_NAME_BANK] = true
   local out = {}
   for bankId in pairs(set) do
     out[#out + 1] = bankId

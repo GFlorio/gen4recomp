@@ -23,15 +23,53 @@ local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local ScriptDialogueHost = {}
 ScriptDialogueHost.__index = ScriptDialogueHost
 
--- Text-value descriptor resolvers for the implemented forms: player name
+-- Text-value descriptor resolvers for the implemented forms: player name,
+-- the opposite protagonist's canonical name from the generated name bank,
 -- and integers backed by a variable. Any other form is a fault: the
 -- resolver contract never leaves a marker visible in the stream.
+--
+-- The opposite protagonist's canonical name lives in generated message bank
+-- 445: message 1 names her for a male player, message 0 names him for a
+-- female player. The source `BufferFriendsName` operation addresses that
+-- bank through the player gender, so this boundary reads it the same way
+-- instead of hard-coding either name.
+local FRIEND_NAME_BANK_ID = 445
+
+-- Read one generated message as substitution glyphs with scoped bank
+-- ownership: the nested bank reference is released after a successful read
+-- and also released before rethrowing the original fault when the bank get,
+-- text parsing, or substitution formatting fails.
+---@param provider FieldMessageProvider
+---@param bankId integer
+---@param messageId integer
+---@param fontDef table
+---@return table replacementTokens glyph-kind tokens without a terminal marker
+local function scopedNameGlyphs(provider, bankId, messageId, fontDef)
+  local acquired, acquireErr = provider:acquireBank(bankId)
+  if not acquired then
+    error(acquireErr, 0)
+  end
+  local template, templateErr = provider:get(bankId, messageId)
+  if not template then
+    provider:releaseBank(bankId)
+    error(templateErr, 0)
+  end
+  local tokens, parseErr = FieldMessageProvider.asciiGlyphTokens(template.text, fontDef)
+  if not tokens then
+    provider:releaseBank(bankId)
+    error(parseErr, 0)
+  end
+  provider:releaseBank(bankId)
+  return tokens
+end
+
 ---@param descriptor table
 ---@param player table
 ---@param fontDef table
 ---@param world table|nil
+---@param provider FieldMessageProvider
 ---@return table|nil replacementTokens
-local function resolveTextValue(descriptor, player, fontDef, world)
+local function resolveTextValue(descriptor, player, fontDef, world, provider)
   if type(descriptor) ~= "table" or descriptor.text == nil then
     return nil
   end
@@ -39,6 +77,9 @@ local function resolveTextValue(descriptor, player, fontDef, world)
   local value = descriptor.value
   if kind == "player_name" then
     return FieldMessageProvider.asciiGlyphTokens(player:name(), fontDef)
+  elseif kind == "friend_name" then
+    local gender = player:gender()
+    return scopedNameGlyphs(provider, FRIEND_NAME_BANK_ID, gender == 0 and 1 or 0, fontDef)
   elseif kind == "integer" then
     if value == nil or type(value) ~= "table" or value.value ~= "var" then
       return nil
@@ -142,7 +183,7 @@ function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
       local function resolveSubstitution(_, args, _)
         local slot = args and args[1]
         local descriptor = bindings[slot] or textArgs[slot]
-        return resolveTextValue(descriptor, self._player, self._fontDef, self._world)
+        return resolveTextValue(descriptor, self._player, self._fontDef, self._world, self._provider)
       end
       resolvers[token.control] = resolveSubstitution
     end

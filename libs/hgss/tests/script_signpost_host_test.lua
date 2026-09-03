@@ -4,10 +4,14 @@
 -- underscored helper or duplicated substitution semantics); configuration
 -- and window/printer requests pass through presentation-neutral; the host
 -- never writes world variables; modal ownership is the controller's alone;
--- and close() releases that ownership exactly once through the controller's
--- explicit cleanup.
+-- a failed print start on an already-presented signpost cleans up
+-- immediately exactly once before the original fault propagates; and close()
+-- releases that ownership exactly once through the controller's explicit
+-- cleanup.
 
 local Assert = require("tests.support.Assert")
+local Errors = require("libs.errors.src.Errors")
+local ScriptErrors = require("libs.script.src.errors")
 local ScriptSignpostHost = require("libs.hgss.src.script.ScriptSignpostHost")
 
 local T = {}
@@ -355,6 +359,106 @@ function T.print_paths_touch_only_the_resolver_and_the_controller()
   h:printInstant("msg.hgss.0542.00000", {}, {})
   Assert.equal(seen, 1)
   Assert.deepEqual(controller.calls, { "printInstant" }, "the print path performs no other interaction")
+end
+
+-- Presents the fake controller's window through the host's own command path.
+local function presentedHost(controller, resolver)
+  local h = ScriptSignpostHost.new({ controller = controller, resolveMessage = resolver })
+  h:setCommand("show")
+  h:advance()
+  Assert.isTrue(h:isModal(), "the signpost is presented before the failing print starts")
+  return h
+end
+
+local function hideCount(controller)
+  local hides = 0
+  for _, call in ipairs(controller.calls) do
+    if call == "hideImmediately" then
+      hides = hides + 1
+    end
+  end
+  return hides
+end
+
+-- A typed print whose message resolution fails on an already-presented
+-- signpost must reset that window immediately, exactly once, and let the
+-- original attributed fault through unchanged: no modal window survives the
+-- fault for a later task cancellation to clean up a second time.
+function T.typed_print_resolution_failure_on_a_presented_signpost_hides_once_and_reraises()
+  local controller = fakeController()
+  local failure = Errors.new(ScriptErrors.SCRIPT_INVALID_REFERENCE, "boom")
+  local h = presentedHost(controller, function()
+    error(failure, 0)
+  end)
+  local err = Assert.throws(function()
+    h:printTyped("msg.hgss.0542.00009", {}, {})
+  end)
+  Assert.equal(err, failure, "the resolution failure propagates unchanged")
+  Assert.equal(hideCount(controller), 1, "the presented signpost is cleaned up exactly once")
+  Assert.isFalse(h:isModal(), "no modal window survives the failed print start")
+  Assert.isNil(controller.typed, "a failed resolve never reaches the printer")
+end
+
+-- The same transaction boundary for the instant print path.
+function T.instant_print_resolution_failure_on_a_presented_signpost_hides_once_and_reraises()
+  local controller = fakeController()
+  local failure = Errors.new(ScriptErrors.SCRIPT_INVALID_REFERENCE, "boom")
+  local h = presentedHost(controller, function()
+    error(failure, 0)
+  end)
+  local err = Assert.throws(function()
+    h:printInstant("msg.hgss.0542.00000", {}, {})
+  end)
+  Assert.equal(err, failure, "the resolution failure propagates unchanged")
+  Assert.equal(hideCount(controller), 1, "the presented signpost is cleaned up exactly once")
+  Assert.isFalse(h:isModal(), "no modal window survives the failed print start")
+  Assert.isNil(controller.instant, "a failed resolve never reaches the printer")
+end
+
+-- The transaction covers the whole print-start boundary, not only resolver
+-- failures: a controller print-start fault after successful resolution also
+-- resets the presented window exactly once before propagating.
+function T.typed_print_start_failure_after_resolution_hides_once_and_reraises()
+  local controller = fakeController()
+  local failure = Errors.new(ScriptErrors.SCRIPT_TASK_CALLBACK_FAULT, "printer boom")
+  function controller:printTyped(_)
+    self.calls[#self.calls + 1] = "printTyped"
+    error(failure, 0)
+  end
+  local resolved = 0
+  local h = presentedHost(controller, function()
+    resolved = resolved + 1
+    return { text = "resolved", tokens = {} }
+  end)
+  local err = Assert.throws(function()
+    h:printTyped("msg.hgss.0542.00009", {}, {})
+  end)
+  Assert.equal(resolved, 1, "resolution ran before the print-start fault")
+  Assert.equal(err, failure, "the print-start failure propagates unchanged")
+  Assert.equal(hideCount(controller), 1, "the presented signpost is cleaned up exactly once")
+  Assert.isFalse(h:isModal(), "no modal window survives the failed print start")
+end
+
+-- The same whole-boundary coverage for the instant print path.
+function T.instant_print_start_failure_after_resolution_hides_once_and_reraises()
+  local controller = fakeController()
+  local failure = Errors.new(ScriptErrors.SCRIPT_TASK_CALLBACK_FAULT, "printer boom")
+  function controller:printInstant(_)
+    self.calls[#self.calls + 1] = "printInstant"
+    error(failure, 0)
+  end
+  local resolved = 0
+  local h = presentedHost(controller, function()
+    resolved = resolved + 1
+    return { text = "resolved", tokens = {} }
+  end)
+  local err = Assert.throws(function()
+    h:printInstant("msg.hgss.0542.00000", {}, {})
+  end)
+  Assert.equal(resolved, 1, "resolution ran before the print-start fault")
+  Assert.equal(err, failure, "the print-start failure propagates unchanged")
+  Assert.equal(hideCount(controller), 1, "the presented signpost is cleaned up exactly once")
+  Assert.isFalse(h:isModal(), "no modal window survives the failed print start")
 end
 
 return { tests = T }

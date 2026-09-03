@@ -165,6 +165,47 @@ function T.map_header_bank_associations_are_emitted(romFs)
   Assert.equal(associations[61], 543)
 end
 
+function T.opposite_protagonist_name_bank_is_selected_for_the_derived_cache(_)
+  -- The field name-resolution boundary reads the opposite protagonist's
+  -- canonical name from generated bank 445, so the message compiler must
+  -- select that bank for the derived cache like any other runtime-read bank.
+  local selected = {}
+  for _, bankId in ipairs(FieldMessageCompiler.requiredBankIds()) do
+    selected[bankId] = true
+  end
+  Assert.isTrue(selected[445] == true, "the derived message cache must select bank 445")
+end
+
+function T.opposite_protagonist_name_bank_holds_two_plain_name_messages(romFs)
+  -- The source bank behind the gender-selected counterpart names decodes to
+  -- at least the two plain name messages the runtime selects between. Only
+  -- structural facts are pinned here: glyph-only streams with distinct
+  -- non-empty text, no retail wording.
+  local messages = assert(romFs:openNarc("messages"))
+  local bank = assert(FieldMessageBank.decode(messages:readMember(445), { label = "msgdata-member-445" }))
+  Assert.isTrue(bank.messageCount >= 2, "bank 445 must hold at least the two counterpart names")
+  local texts = {}
+  for _, messageId in ipairs({ 0, 1 }) do
+    local tokens = assert(FieldMessageTokenizer.tokenize(bank.messages[messageId + 1].raw, charmap, {
+      bankId = 445,
+      messageId = messageId,
+    }))
+    local glyphs = 0
+    for _, token in ipairs(tokens) do
+      Assert.isTrue(
+        token.kind == "glyph" or token.kind == "eos",
+        "bank 445 message " .. messageId .. " must be a plain name, not a control stream"
+      )
+      if token.kind == "glyph" then
+        glyphs = glyphs + 1
+      end
+    end
+    Assert.isTrue(glyphs > 0, "bank 445 message " .. messageId .. " must name someone")
+    texts[#texts + 1] = FieldMessageText.tokensToText(tokens)
+  end
+  Assert.isTrue(texts[1] ~= texts[2], "the two counterpart names must differ")
+end
+
 function T.artifact_text_round_trips_through_marker_parse(romFs, version)
   -- The published text form is canonical: parsing a bank message's text with
   -- the compiled font charmap and rendering it back yields the same string.

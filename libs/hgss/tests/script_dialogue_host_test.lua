@@ -1,7 +1,9 @@
 -- ScriptDialogueHost tests: buffered text values resolve through the world
 -- (an integer backed by a variable renders its numeric value, never its
--- identifier), unsupported buffered text forms are attributed faults rather
--- than visible markers, and the message-bank error codes flow through.
+-- identifier; the opposite-protagonist name resolves from the generated name
+-- bank selected by the player profile gender with scoped bank ownership),
+-- unsupported buffered text forms are attributed faults rather than visible
+-- markers, and the message-bank error codes flow through.
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
@@ -29,6 +31,31 @@ local function bankArtifact(bankId)
           { kind = "eos", raw = { 0xFFFF } },
         },
       },
+    },
+  }
+end
+
+-- A name-bank fixture in the shape the generated message cache publishes:
+-- plain glyph text plus a terminal eos, addressable by message id.
+local function glyphTokensFor(word)
+  local tokens = {}
+  for i = 1, #word do
+    local ch = word:sub(i, i)
+    tokens[#tokens + 1] = { kind = "glyph", code = 0x0400 + i, text = ch, raw = { 0x0400 + i } }
+  end
+  tokens[#tokens + 1] = { kind = "eos", raw = { 0xFFFF } }
+  return tokens
+end
+
+local function nameBankArtifact(bankId, zeroName, oneName)
+  return {
+    schema = FieldMessageCache.SCHEMA,
+    bankId = bankId,
+    messageCount = 2,
+    source = { narc = "NARC_msgdata_msg", memberId = bankId, memberSha1 = "synthetic" },
+    messages = {
+      [0] = { id = 0, raw = {}, text = zeroName, tokens = glyphTokensFor(zeroName) },
+      [1] = { id = 1, raw = {}, text = oneName, tokens = glyphTokensFor(oneName) },
     },
   }
 end
@@ -66,7 +93,10 @@ end
 
 local function host(opts)
   opts = opts or {}
-  local provider = opts.provider or assert(FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542) })))
+  local provider = opts.provider
+    or assert(
+      FieldMessageProvider.new(cacheWith({ [542] = bankArtifact(542), [445] = nameBankArtifact(445, "Ethan", "Lyra") }))
+    )
   local controller = {
     open = function(self, request)
       self.request = request
@@ -93,8 +123,24 @@ local function host(opts)
       ["8"] = 0x0108,
       ["9"] = 0x0109,
       ["0"] = 0x0110,
+      -- The name fixtures resolve through the same text parser as the
+      -- runtime, so every letter of the player and counterpart names needs
+      -- a field glyph here.
+      ["G"] = 0x0111,
+      ["o"] = 0x0112,
+      ["l"] = 0x0113,
+      ["d"] = 0x0114,
+      ["L"] = 0x0115,
+      ["y"] = 0x0116,
+      ["r"] = 0x0117,
+      ["a"] = 0x0118,
+      ["E"] = 0x0119,
+      ["t"] = 0x011A,
+      ["h"] = 0x011B,
+      ["n"] = 0x011C,
     },
   }
+  local gender = opts.gender or 0
   return ScriptDialogueHost.new({
     controller = controller,
     provider = provider,
@@ -107,13 +153,14 @@ local function host(opts)
         return "Gold"
       end,
       gender = function()
-        return 0
+        return gender
       end,
     },
     world = opts.world,
     frameIndex = opts.frameIndex,
   }),
-    controller
+    controller,
+    provider
 end
 
 -- An integer text value backed by a variable renders the variable's numeric
@@ -221,6 +268,76 @@ function T.unresolved_substitution_fails_explicitly()
   Assert.equal(err.code, "SCRIPT_INVALID_REFERENCE")
   Assert.equal(err.context.bankId, 542)
   Assert.equal(err.context.messageId, 0)
+end
+
+-- The opposite-protagonist name comes from the generated name bank selected
+-- by the player profile gender: a male player reads message 1.
+function T.friend_name_resolves_to_the_male_counterpart_name_for_a_male_player()
+  local h = host({ gender = 0 })
+  local formatted = h:resolveMessage("msg.hgss.0542.00000", { [0] = { text = "friend_name" } }, {})
+  Assert.equal(formatted.text, "Lyra")
+  Assert.isFalse(formatted.hadUnresolvedSubstitutions)
+  -- Only replacement glyphs splice into the host template: the name bank's
+  -- own terminal marker must not leak into the formatted stream.
+  local eosCount = 0
+  for _, token in ipairs(formatted.tokens) do
+    if token.kind == "eos" then
+      eosCount = eosCount + 1
+    end
+  end
+  Assert.equal(eosCount, 1, "exactly the host template's own terminal marker survives")
+  Assert.equal(formatted.tokens[#formatted.tokens].kind, "eos", "the terminal marker stays terminal")
+end
+
+-- A female player reads message 0 instead.
+function T.friend_name_resolves_to_the_female_counterpart_name_for_a_female_player()
+  local h = host({ gender = 1 })
+  local formatted = h:resolveMessage("msg.hgss.0542.00000", { [0] = { text = "friend_name" } }, {})
+  Assert.equal(formatted.text, "Ethan")
+  Assert.isFalse(formatted.hadUnresolvedSubstitutions)
+end
+
+-- The nested name-bank acquisition is scoped: after a successful resolution
+-- the provider holds no more references than before it.
+function T.friend_name_resolution_releases_the_name_bank()
+  local _, _, provider = host({})
+  local before = provider:stats().references
+  for _, gender in ipairs({ 0, 1 }) do
+    local h = host({ provider = provider, gender = gender })
+    h:resolveMessage("msg.hgss.0542.00000", { [0] = { text = "friend_name" } }, {})
+  end
+  Assert.equal(provider:stats().references, before, "the name bank reference must be released")
+end
+
+-- A failure while reading the name bank still releases it before the
+-- original fault reaches the caller: here the counterpart name carries a
+-- character with no field glyph, so substitution parsing fails.
+function T.failed_friend_name_read_releases_the_name_bank()
+  local provider = assert(FieldMessageProvider.new(cacheWith({
+    [542] = bankArtifact(542),
+    [445] = nameBankArtifact(445, "Ethan", "Lyr~"),
+  })))
+  local h = host({ provider = provider, gender = 0 })
+  local before = provider:stats().references
+  local err = Assert.throws(function()
+    h:resolveMessage("msg.hgss.0542.00000", { [0] = { text = "friend_name" } }, {})
+  end)
+  Assert.isTrue(Errors.is(err), "the original name-bank fault must propagate attributed")
+  Assert.equal(
+    err.code,
+    "MESSAGE_SUBSTITUTION_UNRESOLVED",
+    "the fault must come from name parsing, not a generic branch"
+  )
+  Assert.equal(provider:stats().references, before, "the name bank reference must be released on failure")
+end
+
+-- The player-name form keeps resolving through the player facade,
+-- unchanged by the counterpart-name support.
+function T.player_name_resolution_is_unchanged()
+  local h = host({})
+  local formatted = h:resolveMessage("msg.hgss.0542.00000", { [0] = { text = "player_name" } }, {})
+  Assert.equal(formatted.text, "Gold")
+  Assert.isFalse(formatted.hadUnresolvedSubstitutions)
 end
 
 return { tests = T }

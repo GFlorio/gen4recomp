@@ -30,6 +30,10 @@ local function sourceReferenceBankIds()
   -- Oak's scripted opening introduction reads directly from this bank; see
   -- FieldMessageCompiler's OAK_INTRO_MESSAGE_BANK.
   ids[219] = true
+  -- The friend-name buffer command reads the opposite protagonist's name
+  -- from this bank through the player gender; see FieldMessageCompiler's
+  -- opposite-protagonist name bank.
+  ids[445] = true
   local out = {}
   for bankId in pairs(ids) do
     out[#out + 1] = bankId
@@ -166,6 +170,10 @@ function T.source_references_form_one_sorted_bank_set()
   -- Oak's scripted opening introduction reads directly from this bank; see
   -- FieldMessageCompiler's OAK_INTRO_MESSAGE_BANK.
   expected[219] = true
+  -- The friend-name buffer command reads the opposite protagonist's name
+  -- from this bank through the player gender; see FieldMessageCompiler's
+  -- opposite-protagonist name bank.
+  expected[445] = true
 
   Assert.deepEqual(required, sourceReferenceBankIds())
 
