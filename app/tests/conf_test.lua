@@ -2,8 +2,6 @@
 -- size before applying independent environment overrides, and invalid
 -- overrides must fail with the offending variable named.
 
----@diagnostic disable: duplicate-set-field
-
 local Assert = require("tests.support.Assert")
 local WindowConfig = require("game.src.WindowConfig")
 
@@ -13,7 +11,9 @@ local function withOrdinaryConf(env, fn)
   local savedArg = arg
   local savedGetenv = os.getenv
   local savedConf = love.conf
+  ---@diagnostic disable-next-line: duplicate-set-field
   arg = {}
+  ---@diagnostic disable-next-line: duplicate-set-field
   os.getenv = function(name)
     local v = env[name]
     if v ~= nil then
@@ -26,8 +26,11 @@ local function withOrdinaryConf(env, fn)
     love.conf(t)
     fn(t)
   end)
+  ---@diagnostic disable-next-line: duplicate-set-field
   arg = savedArg
+  ---@diagnostic disable-next-line: duplicate-set-field
   os.getenv = savedGetenv
+  ---@diagnostic disable-next-line: duplicate-set-field
   love.conf = savedConf
   if not ok then
     error(err, 0)
@@ -38,7 +41,9 @@ local function assertInvalid(env, expectedVar)
   local savedArg = arg
   local savedGetenv = os.getenv
   local savedConf = love.conf
+  ---@diagnostic disable-next-line: duplicate-set-field
   arg = {}
+  ---@diagnostic disable-next-line: duplicate-set-field
   os.getenv = function(name)
     local v = env[name]
     if v ~= nil then
@@ -50,8 +55,11 @@ local function assertInvalid(env, expectedVar)
   local ok, err = pcall(function()
     love.conf(t)
   end)
+  ---@diagnostic disable-next-line: duplicate-set-field
   arg = savedArg
+  ---@diagnostic disable-next-line: duplicate-set-field
   os.getenv = savedGetenv
+  ---@diagnostic disable-next-line: duplicate-set-field
   love.conf = savedConf
   Assert.isFalse(ok, "invalid environment must raise")
   Assert.notNil(err, "error must name " .. expectedVar)
