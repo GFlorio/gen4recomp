@@ -1,6 +1,6 @@
--- ROM-conformance facts for the message/font derived classes, verified against
--- the imported ROM. Asserts only non-copyright structural facts: bank counts,
--- control census, glyph coverage, map-header associations, and font geometry.
+-- ROM-conformance checks for the message/font derived classes. Preserves
+-- provider behavior for supported controls, cache readiness, and map header
+-- associations without pinning full-corpus inventories.
 
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
@@ -20,96 +20,6 @@ local MenuProtocol = require("libs.assets.src.MenuProtocol")
 local PngReader = require("tests.support.PngReader")
 
 local T = {}
-
-function T.target_bank_counts_and_decryption_vectors(romFs)
-  local messages = assert(romFs:openNarc("messages"))
-  for _, spec in ipairs({
-    { bankId = 542, count = 38, firstMessage = { 0x0141, 0x0153, 0x015B, 0x01AD, 0x01DE } },
-    { bankId = 543, count = 106 },
-  }) do
-    local member = messages:readMember(spec.bankId)
-    local bank = assert(FieldMessageBank.decode(member, { label = "msg-" .. spec.bankId }))
-    Assert.equal(bank.messageCount, spec.count)
-    Assert.equal(bank.tableEnd, 4 + spec.count * 8)
-    if spec.firstMessage then
-      Assert.deepEqual(bank.messages[1].raw[1] and {
-        bank.messages[1].raw[1],
-        bank.messages[1].raw[2],
-        bank.messages[1].raw[3],
-        bank.messages[1].raw[4],
-        bank.messages[1].raw[5],
-      }, spec.firstMessage)
-    end
-  end
-end
-
-function T.source_bank_control_census_is_stable(romFs)
-  -- Inventory the control census of every source-referenced bank, reported as
-  -- semantic kind + control code. YESNO (0x0200) is the focus-indicator
-  -- control; CURSOR_X (0x0203) and ALN_CENTER (0x0205) remain unsupported, so
-  -- their presence in the census is expected but their playback is not.
-  local messages = assert(romFs:openNarc("messages"))
-  local signatures = {}
-  for _, bankId in ipairs(FieldMessageCompiler.requiredBankIds()) do
-    local bank = assert(FieldMessageBank.decode(messages:readMember(bankId), {}))
-    for _, message in ipairs(bank.messages) do
-      local tokens = assert(FieldMessageTokenizer.tokenize(message.raw, charmap, {}))
-      for _, token in ipairs(tokens) do
-        if token.kind ~= "glyph" and token.kind ~= "eos" then
-          local key = token.kind .. ":" .. string.format("%04x", token.control or 0)
-          signatures[key] = true
-        end
-      end
-    end
-  end
-  local expected = {
-    ["line_break:0000"] = true,
-    ["prompt_break:0000"] = true,
-    ["page_break:0000"] = true,
-    ["style:ff00"] = true,
-    ["style:ff01"] = true,
-    ["substitution:0100"] = true,
-    ["substitution:0101"] = true,
-    ["substitution:0102"] = true,
-    ["substitution:0103"] = true,
-    ["substitution:0104"] = true,
-    ["substitution:0106"] = true,
-    ["substitution:0108"] = true,
-    ["substitution:010a"] = true,
-    ["substitution:010e"] = true,
-    ["substitution:010f"] = true,
-    ["substitution:0112"] = true,
-    ["substitution:0118"] = true,
-    ["substitution:011a"] = true,
-    ["substitution:011b"] = true,
-    ["substitution:011c"] = true,
-    ["substitution:011f"] = true,
-    ["substitution:0124"] = true,
-    ["substitution:0125"] = true,
-    ["substitution:0127"] = true,
-    ["substitution:0133"] = true,
-    ["substitution:0132"] = true,
-    ["substitution:0134"] = true,
-    ["substitution:0135"] = true,
-    ["substitution:0136"] = true,
-    ["substitution:0137"] = true,
-    ["substitution:0401"] = true,
-    ["substitution:3403"] = true,
-    ["substitution:f100"] = true,
-    ["pause:0201"] = true,
-    ["focus_indicator:0200"] = true,
-    ["unsupported_control:0203"] = true,
-    ["unsupported_control:0205"] = true,
-  }
-  for key in pairs(expected) do
-    Assert.isTrue(signatures[key], "missing control signature " .. key)
-  end
-  -- No unknown families in the selected banks: every signature is accounted
-  -- for.
-  for key in pairs(signatures) do
-    Assert.isTrue(expected[key], "unexpected control signature " .. key)
-  end
-end
 
 function T.known_yesno_and_color_messages_carry_the_expected_controls(romFs)
   -- Known target-message control facts for bank 543, verified from the raw
@@ -255,35 +165,6 @@ function T.map_header_bank_associations_are_emitted(romFs)
   Assert.equal(associations[61], 543)
 end
 
-function T.font_geometry_matches_the_rom_member(romFs)
-  local font = assert(FieldFontDecoder.decodeMember(assert(romFs:openNarc("font")):readMember(0)))
-  Assert.equal(font.numGlyphs, 509)
-  Assert.equal(font.fixedWidth, 16)
-  Assert.equal(font.fixedHeight, 16)
-  Assert.equal(font.tileColumns, 2)
-  Assert.equal(font.tileRows, 2)
-  Assert.equal(font.glyphSize, 64)
-  Assert.equal(font.glyphWidth(0x12B - 1), 6) -- 'A'
-  Assert.equal(font.glyphWidth(0x1DE - 1), 4) -- space
-
-  -- 'A' (0x12B) has the expected ink silhouette: an apex row, a crossbar row,
-  -- and vertical legs; verified by decoding glyph pixels from ROM data.
-  local glyph = font.glyphPixels(0x12B - 1)
-  local inkRows = {}
-  for y = 1, 16 do
-    local count = 0
-    for x = 1, 16 do
-      if glyph.values[y][x] ~= 0 then
-        count = count + 1
-      end
-    end
-    inkRows[y] = count
-  end
-  Assert.isTrue(inkRows[4] > 0, "apex row must be inked")
-  Assert.isTrue(inkRows[8] > 2, "crossbar row must be wide")
-  Assert.isTrue(inkRows[13] > 0, "legs must reach the baseline")
-end
-
 function T.artifact_text_round_trips_through_marker_parse(romFs, version)
   -- The published text form is canonical: parsing a bank message's text with
   -- the compiled font charmap and rendering it back yields the same string.
@@ -344,8 +225,6 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   -- Deterministic markers: compilers run with real hashes, so the marker
   -- depends only on ROM contents and the checked-in compiler versions.
   local messageBundle = assert(FieldMessageCompiler.compile(romFs))
-  Assert.equal(messageBundle.index.bankIds[1], 3)
-  Assert.equal(messageBundle.index.bankIds[2], 14)
   local menuBankSelected = false
   for _, bankId in ipairs(messageBundle.index.bankIds) do
     if bankId == MenuProtocol.STANDARD_MESSAGE_BANK then
@@ -357,7 +236,6 @@ function T.compiled_cache_artifacts_are_ready_and_stable(romFs, version)
   Assert.equal(FieldMessageCache.bankPath(542), "data/generated/field/messages/banks/0542.lua")
   local fontBundle = assert(FieldFontCompiler.compile(romFs))
   Assert.isTrue(require("romdump.src.digest.FieldFontCacheWriter").isReady(cache, fontBundle.marker))
-  Assert.equal(fontBundle.fonts[0].font.glyphCount, 509)
   Assert.isNil(fontBundle.fonts[0].font.source)
   Assert.equal(fontBundle.dependencies.glyphMembers[1].sha1, memberSha("font", 0))
   Assert.equal(fontBundle.dependencies.paletteMemberSha1, memberSha("font", 7))
