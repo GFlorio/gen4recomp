@@ -203,6 +203,15 @@ Schema.MOVEMENT_ACTIONS = {
       count = { type = "integer", default = 1 },
     },
   },
+  trajectory_segment = {
+    fields = {
+      deltaX = { type = "integer", required = true },
+      deltaZ = { type = "integer", required = true },
+      surfaceBandDelta = { type = "integer", required = true },
+      direction = { type = "enum:direction", required = true },
+      ticks = { type = "integer", required = true },
+    },
+  },
   unsupported = {
     fields = {
       code = { type = "integer", required = true },

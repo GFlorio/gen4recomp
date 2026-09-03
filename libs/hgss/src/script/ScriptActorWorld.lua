@@ -289,6 +289,17 @@ function ScriptActorWorld:allPausable()
   return self._manager:allPausable()
 end
 
+function ScriptActorWorld:isVisible(actorId)
+  if actorId == "player" then
+    return true
+  end
+  local actor = self._manager:getActor(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  return actor.visible ~= false
+end
+
 function ScriptActorWorld:syncPresence()
   if self._manager.syncEventStateChanges then
     self._manager:syncEventStateChanges()

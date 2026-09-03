@@ -58,13 +58,92 @@ local SINGLES = {
   [153] = { action = "emote", name = "exclamation_alt" },
 }
 
--- Decode one movement action. Returns the DSL action table, or nil plus the
--- unsupported descriptor.
+local TRAJECTORIES = {
+  [105] = {
+    { deltaX = 0, surfaceBandDelta = 1, deltaZ = 5, direction = "west", ticks = 15 },
+    { deltaX = 4, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 12 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = -5, direction = "north", ticks = 15 },
+    { deltaX = -2, surfaceBandDelta = 0, deltaZ = -3, direction = "north", ticks = 9 },
+    { deltaX = -4, surfaceBandDelta = 1, deltaZ = -4, direction = "west", ticks = 12 },
+  },
+  [106] = {
+    { deltaX = 2, surfaceBandDelta = 1, deltaZ = 0, direction = "east", ticks = 6 },
+    { deltaX = -1, surfaceBandDelta = 0, deltaZ = 5, direction = "south", ticks = 12 },
+    { deltaX = -3, surfaceBandDelta = 0, deltaZ = 0, direction = "west", ticks = 6 },
+    { deltaX = -3, surfaceBandDelta = 0, deltaZ = 0, direction = "west", ticks = 9 },
+  },
+  [107] = {
+    { deltaX = 3, surfaceBandDelta = 1, deltaZ = -1, direction = "east", ticks = 6 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = 4, direction = "south", ticks = 9 },
+    { deltaX = -4, surfaceBandDelta = 0, deltaZ = 0, direction = "west", ticks = 12 },
+    { deltaX = 0, surfaceBandDelta = -1, deltaZ = -4, direction = "north", ticks = 6 },
+    { deltaX = 1, surfaceBandDelta = 1, deltaZ = -3, direction = "north", ticks = 9 },
+    { deltaX = 3, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 9 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = 4, direction = "south", ticks = 12 },
+  },
+  [109] = {
+    { deltaX = 3, surfaceBandDelta = 1, deltaZ = -1, direction = "east", ticks = 6 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = 4, direction = "south", ticks = 9 },
+    { deltaX = -4, surfaceBandDelta = 0, deltaZ = 0, direction = "west", ticks = 12 },
+    { deltaX = 0, surfaceBandDelta = -1, deltaZ = -4, direction = "north", ticks = 6 },
+    { deltaX = 1, surfaceBandDelta = 1, deltaZ = -3, direction = "north", ticks = 9 },
+    { deltaX = 3, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 9 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = 5, direction = "south", ticks = 12 },
+  },
+  [108] = {
+    { deltaX = 2, surfaceBandDelta = 1, deltaZ = 5, direction = "south", ticks = 9 },
+    { deltaX = 1, surfaceBandDelta = 0, deltaZ = 5, direction = "south", ticks = 12 },
+  },
+  [110] = {
+    { deltaX = 2, surfaceBandDelta = 1, deltaZ = 4, direction = "south", ticks = 9 },
+    { deltaX = 1, surfaceBandDelta = 0, deltaZ = 5, direction = "south", ticks = 12 },
+  },
+  [111] = {
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = 2, direction = "south", ticks = 6 },
+    { deltaX = 2, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 6 },
+    { deltaX = 3, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 9 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = 2, direction = "south", ticks = 6 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = 2, direction = "south", ticks = 6 },
+    { deltaX = -3, surfaceBandDelta = 0, deltaZ = 0, direction = "west", ticks = 9 },
+    { deltaX = -3, surfaceBandDelta = 0, deltaZ = 0, direction = "west", ticks = 9 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = -2, direction = "north", ticks = 6 },
+    { deltaX = 0, surfaceBandDelta = 0, deltaZ = -3, direction = "north", ticks = 9 },
+    { deltaX = 3, surfaceBandDelta = 0, deltaZ = 1, direction = "south", ticks = 9 },
+  },
+  [112] = {
+    { deltaX = 4, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 9 },
+    { deltaX = 4, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 9 },
+    { deltaX = 4, surfaceBandDelta = 0, deltaZ = 0, direction = "east", ticks = 9 },
+  },
+}
+
+-- Decode one movement action. Returns an ordered list of DSL action tables, or
+-- nil plus the unsupported descriptor. Simple commands return a one-element list.
+-- Trajectory commands 105-112 expand to their full semantic segment list, with
+-- count repetitions cloned as independent ordered entries.
 ---@param action table
----@return table|nil step, table|nil unsupported
+---@return table[]|nil steps, table|nil unsupported
 function MovementDecoder.decode(action)
   local code = action.movementCode or -1
   local count = action.count or 1
+  local trajectory = TRAJECTORIES[code]
+  if trajectory ~= nil then
+    assert(type(count) == "number" and count % 1 == 0 and count > 0, "trajectory count must be a positive integer")
+    local result = {}
+    for _ = 1, count do
+      for _, segment in ipairs(trajectory) do
+        result[#result + 1] = {
+          action = "trajectory_segment",
+          deltaX = segment.deltaX,
+          surfaceBandDelta = segment.surfaceBandDelta,
+          deltaZ = segment.deltaZ,
+          direction = segment.direction,
+          ticks = segment.ticks,
+        }
+      end
+    end
+    return result, nil
+  end
   local single = SINGLES[code]
   if single ~= nil then
     local step = {}
@@ -74,7 +153,7 @@ function MovementDecoder.decode(action)
     if step.action == "emote" or step.action == "gesture" then
       step.count = count
     end
-    return step, nil
+    return { step }, nil
   end
   if code == 94 or code == 95 then
     local direction = DIRECTIONS[code % 4]
@@ -94,35 +173,41 @@ function MovementDecoder.decode(action)
     if code >= family.first and code <= family.last then
       local direction = DIRECTIONS[code % 4]
       if family.fn ~= nil then
-        return family.fn(code, count), nil
+        return { family.fn(code, count) }, nil
       end
       if family.delayTicks ~= nil then
-        return { action = "delay", ticks = family.delayTicks[code - family.first + 1], count = count }, nil
+        return { { action = "delay", ticks = family.delayTicks[code - family.first + 1], count = count } }, nil
       end
       if family.jump ~= nil then
         return {
-          action = "jump",
-          direction = direction,
-          distance = family.jump.distance,
-          speed = family.jump.speed,
-          count = count,
+          {
+            action = "jump",
+            direction = direction,
+            distance = family.jump.distance,
+            speed = family.jump.speed,
+            count = count,
+          },
         },
           nil
       end
       if family.inPlace ~= nil then
         return {
-          action = "walk_in_place",
-          direction = direction,
-          speed = family.inPlace,
-          count = count,
+          {
+            action = "walk_in_place",
+            direction = direction,
+            speed = family.inPlace,
+            count = count,
+          },
         },
           nil
       end
       return {
-        action = "walk",
-        direction = direction,
-        speed = family.speed,
-        tiles = count,
+        {
+          action = "walk",
+          direction = direction,
+          speed = family.speed,
+          tiles = count,
+        },
       },
         nil
     end

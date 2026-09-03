@@ -2003,6 +2003,17 @@ function FieldActorManager:allPausable()
   return true
 end
 
+---@param actorId string
+---@return boolean
+---@param self FieldActorManager
+function FieldActorManager:isVisible(actorId)
+  local actor = self:getById(actorId)
+  if actor == nil then
+    Errors.raise(ScriptErrors.SCRIPT_ACTOR_NOT_FOUND, "no live actor " .. tostring(actorId), { actor = actorId })
+  end
+  return actor.visible ~= false
+end
+
 -- Scripted pause_animation/resume_animation: the actor's pose clock stops
 -- advancing while paused (the manager's fixed-tick step honors the flag).
 ---@param actorId string
@@ -2123,6 +2134,62 @@ function FieldActorManager:_resolveScriptedDestination(actor, direction, distanc
   }
 end
 
+---@param actor FieldActorManager.Actor
+---@param deltaX integer
+---@param deltaZ integer
+---@param surfaceBandDelta integer
+---@param self FieldActorManager
+---@return table destination
+function FieldActorManager:_resolveTrajectoryDestination(actor, deltaX, deltaZ, surfaceBandDelta)
+  assert(type(deltaX) == "number" and deltaX % 1 == 0, "trajectory deltaX must be an integer")
+  assert(type(deltaZ) == "number" and deltaZ % 1 == 0, "trajectory deltaZ must be an integer")
+  assert(
+    type(surfaceBandDelta) == "number" and surfaceBandDelta % 1 == 0,
+    "trajectory surfaceBandDelta must be an integer"
+  )
+  local entry = assert(self.maps[actor.mapId], "actor map entry missing")
+  local startFieldX, startFieldZ = actor.fieldX, actor.fieldZ
+  local startWorldX, startWorldY, startWorldZ = actor.worldX, actor.worldY, actor.worldZ
+  local destFieldX = startFieldX + deltaX
+  local destFieldZ = startFieldZ + deltaZ
+  local destResident = isResident(entry.runtimeMap, destFieldX, destFieldZ)
+  local hintWorldY = (startWorldY or 0) + surfaceBandDelta * 0.5
+  local localX, localZ = FieldCoordinates.fieldToLocal(entry.runtimeMap, destFieldX, destFieldZ)
+  local sample = SurfaceResolver.new(entry.runtimeMap.terrain):resolve({
+    localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+    localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+    currentY = hintWorldY,
+  })
+  local world = FieldCoordinates.fieldToWorld(entry.runtimeMap, destFieldX, destFieldZ, sample.worldY)
+  local plate = assert(entry.runtimeMap.terrain:plate(sample.surfaceId), "trajectory destination surface is missing")
+  local destCellKey, destSourceSurfaceId = sourceIdentityFromPlate(plate)
+  destCellKey = destCellKey or cellKeyFor(destFieldX, destFieldZ)
+  return {
+    start = {
+      fieldX = startFieldX,
+      fieldZ = startFieldZ,
+      worldX = startWorldX,
+      worldY = startWorldY,
+      worldZ = startWorldZ,
+      surfaceId = actor.surfaceId,
+      cellKey = actor.cellKey,
+      sourceSurfaceId = actor.sourceSurfaceId,
+      resident = actor.resident,
+    },
+    dest = {
+      fieldX = destFieldX,
+      fieldZ = destFieldZ,
+      worldX = world.x,
+      worldY = world.y,
+      worldZ = world.z,
+      surfaceId = sample.surfaceId,
+      cellKey = destCellKey,
+      sourceSurfaceId = destSourceSurfaceId,
+      resident = destResident,
+    },
+  }
+end
+
 ---@param actorId string
 ---@param action table
 ---@param self FieldActorManager
@@ -2159,6 +2226,8 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     or kind == "delay"
     or kind == "emote"
     or kind == "gesture"
+    or kind == "reveal_trainer"
+    or kind == "trajectory_segment"
   then
     durationTicks = MovementCalibration.actionTicks(action)
   else
@@ -2175,7 +2244,9 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     -- distance param not used; use direction delta.
   elseif kind == "jump" then
     destInfo = self:_resolveScriptedDestination(actor, direction, distance, action.tiles)
-  elseif kind == "walk_in_place" or kind == "face" or kind == "delay" or kind == "emote" or kind == "gesture" then
+  elseif kind == "trajectory_segment" then
+    destInfo = self:_resolveTrajectoryDestination(actor, action.deltaX, action.deltaZ, action.surfaceBandDelta)
+  elseif kind == "walk_in_place" or kind == "face" or kind == "delay" or kind == "emote" or kind == "gesture" or kind == "reveal_trainer" then
     destInfo = {
       start = {
         fieldX = actor.fieldX,
@@ -2206,6 +2277,10 @@ function FieldActorManager:beginScriptedAction(actorId, action)
     direction = direction,
     distance = distance,
     speed = speed,
+    deltaX = action.deltaX,
+    deltaZ = action.deltaZ,
+    surfaceBandDelta = action.surfaceBandDelta,
+    ticks = action.ticks,
     start = destInfo.start,
     dest = destInfo.dest,
     durationTicks = durationTicks,

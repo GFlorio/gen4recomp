@@ -76,7 +76,9 @@ local function movementFor(movementLabel, memberIr, _)
         originalName = action.name,
       }
     else
-      actions[#actions + 1] = decoded
+      for _, step in ipairs(decoded) do
+        actions[#actions + 1] = step
+      end
     end
   end
   return actions, unsupported == nil, unsupported

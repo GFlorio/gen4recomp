@@ -123,7 +123,28 @@ local function advanceAction(state, action, ctx)
     return true
   end
   local isFace = kind == "face"
-  local isLocomotion = kind == "walk" or kind == "walk_in_place" or kind == "jump"
+  local isLocomotion = kind == "walk" or kind == "walk_in_place" or kind == "jump" or kind == "trajectory_segment"
+
+  local function isVisibleAtStart()
+    local actors = ctx.services.actors
+    if actors.isVisible then
+      return actors:isVisible(state.actor)
+    end
+    if actors.snapshot then
+      local snap = actors:snapshot(state.actor)
+      if snap ~= nil then
+        return snap.visible ~= false
+      end
+    end
+    local mgr = actors._manager
+    if mgr and mgr.getActor then
+      local actor = mgr:getActor(state.actor)
+      if actor ~= nil then
+        return actor.visible ~= false
+      end
+    end
+    return true
+  end
   -- Lock facing controls whether the task's internal facing (and the actor
   -- facing applied at action end) follows the command; it does not gate the
   -- test-observable fake facing because the production beginScriptedAction
@@ -178,6 +199,9 @@ local function advanceAction(state, action, ctx)
       state.revealOwnerId = ownerId
       state.revealEffectId = handle
     end
+    if kind == "trajectory_segment" and isVisibleAtStart() then
+      assert(ctx.services.audio, "trajectory segment with visible actor requires audio service"):play("SEQ_SE_DP_DANSA")
+    end
   end
   state.progressTicks = state.progressTicks + 1
   if kind == "gesture" then
@@ -209,6 +233,25 @@ local function advanceAction(state, action, ctx)
       local tiles = action.tiles or 1
       state.destination.fieldX = state.destination.fieldX + delta.fieldX * tiles
       state.destination.fieldZ = state.destination.fieldZ + delta.fieldZ * tiles
+    end
+  elseif kind == "trajectory_segment" then
+    assert(type(action.deltaX) == "number" and action.deltaX % 1 == 0, "trajectory deltaX must be an integer")
+    assert(type(action.deltaZ) == "number" and action.deltaZ % 1 == 0, "trajectory deltaZ must be an integer")
+    assert(
+      type(action.surfaceBandDelta) == "number" and action.surfaceBandDelta % 1 == 0,
+      "trajectory surfaceBandDelta must be an integer"
+    )
+    assert(
+      type(action.ticks) == "number" and action.ticks % 1 == 0 and action.ticks > 0,
+      "trajectory ticks must be a positive integer"
+    )
+    assert(action.direction ~= nil, "trajectory direction is required")
+    state.destination.fieldX = state.destination.fieldX + action.deltaX
+    state.destination.fieldZ = state.destination.fieldZ + action.deltaZ
+    if isVisibleAtStart() then
+      assert(ctx.services.audio, "trajectory segment with visible actor requires audio service"):play(
+        "SEQ_SE_DP_SUTYA2"
+      )
     end
   elseif kind == "emote" or kind == "gesture" or kind == "reveal_trainer" then
     -- pose-only; the renderer consumes the recorded action.

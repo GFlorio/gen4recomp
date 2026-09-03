@@ -171,10 +171,45 @@ function MovementCalibration.poseProgressTicks(action, progressTicks)
     type(progressTicks) == "number" and progressTicks >= 0 and progressTicks % 1 == 0,
     "pose progress must be a non-negative integer"
   )
+  if action.action == "trajectory_segment" then
+    return progressTicks
+  end
   local actionCadences = POSE_CADENCES[action.action]
   local cadence = actionCadences and actionCadences[action.speed]
   assert(cadence, "unknown pose cadence " .. tostring(action.action) .. " " .. tostring(action.speed))
   return cumulativePoseProgress(cadence, progressTicks)
+end
+
+function MovementCalibration.trajectoryProgressAt(progressTicks, durationTicks)
+  assert(
+    type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 0,
+    "trajectory progress must be a non-negative integer"
+  )
+  assert(
+    type(durationTicks) == "number" and durationTicks % 1 == 0 and durationTicks > 0,
+    "trajectory duration must be a positive integer"
+  )
+  assert(progressTicks <= durationTicks, "trajectory progress exceeds duration")
+  if progressTicks >= durationTicks then
+    return 1
+  end
+  return (progressTicks - 1) / durationTicks
+end
+
+function MovementCalibration.trajectoryArcAt(progressTicks, durationTicks)
+  assert(
+    type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 0,
+    "trajectory progress must be a non-negative integer"
+  )
+  assert(
+    type(durationTicks) == "number" and durationTicks % 1 == 0 and durationTicks > 0,
+    "trajectory duration must be a positive integer"
+  )
+  assert(progressTicks <= durationTicks, "trajectory progress exceeds duration")
+  if progressTicks <= 1 or progressTicks >= durationTicks then
+    return 0
+  end
+  return math.sin(math.rad((progressTicks - 1) * (180 / durationTicks))) * 1.0
 end
 
 -- Resolve the tick duration of one movement action. The
@@ -209,11 +244,17 @@ function MovementCalibration.actionTicks(action)
     return profile.durationTicks
   elseif kind == "reveal_trainer" then
     return MovementCalibration.REVEAL_TRAINER_TICKS
+  elseif kind == "trajectory_segment" then
+    assert(
+      type(action.ticks) == "number" and action.ticks % 1 == 0 and action.ticks > 0,
+      "trajectory ticks must be a positive integer"
+    )
+    return action.ticks
   end
   error("unknown movement action " .. tostring(kind))
 end
 
-<function MovementCalibration.jumpOffsetAt(action, progressTicks, durationTicks)
+function MovementCalibration.jumpOffsetAt(action, progressTicks, durationTicks)
   assert(
     type(progressTicks) == "number" and progressTicks % 1 == 0 and progressTicks >= 0,
     "jump progress must be a non-negative integer"

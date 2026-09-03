@@ -71,7 +71,7 @@ local FACINGS = { north = true, south = true, west = true, east = true }
 local WALK_IN_PLACE_BOB_AMPLITUDE = 0.15
 
 local function isLocomotionAction(action)
-  return action == "walk" or action == "walk_in_place" or action == "jump"
+  return action == "walk" or action == "walk_in_place" or action == "jump" or action == "trajectory_segment"
 end
 
 -- Render-only vertical bob for a walk-in-place cycle, derived deterministically
@@ -324,7 +324,20 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
   m.progressTicks = progressTicks
   m.durationTicks = durationTicks
   local t = durationTicks > 0 and (progressTicks / durationTicks) or 1
-  if m.action == "walk" or m.action == "jump" then
+  if m.action == "trajectory_segment" then
+    if progressTicks >= durationTicks then
+      self.worldX = m.destWorldX
+      self.worldY = m.destWorldY
+      self.worldZ = m.destWorldZ
+    else
+      local progress = MovementCalibration.trajectoryProgressAt(progressTicks, durationTicks)
+      self.worldX = m.startWorldX + (m.destWorldX - m.startWorldX) * progress
+      self.worldZ = m.startWorldZ + (m.destWorldZ - m.startWorldZ) * progress
+      local baseY = m.startWorldY + (m.destWorldY - m.startWorldY) * progress
+      local arc = MovementCalibration.trajectoryArcAt(progressTicks, durationTicks)
+      self.worldY = baseY + arc
+    end
+  elseif m.action == "walk" or m.action == "jump" then
     self.worldX = m.startWorldX + (m.destWorldX - m.startWorldX) * t
     self.worldZ = m.startWorldZ + (m.destWorldZ - m.startWorldZ) * t
     if m.action == "jump" then
@@ -374,7 +387,7 @@ function FieldObjectActor:advanceAction(progressTicks, durationTicks)
     applyIdlePresentation(self, not self.animationPaused)
   end
   if progressTicks == durationTicks then
-    if m.action == "walk" or m.action == "jump" then
+    if m.action == "walk" or m.action == "jump" or m.action == "trajectory_segment" then
       self.worldX = m.destWorldX
       self.worldY = m.destWorldY
       self.worldZ = m.destWorldZ
