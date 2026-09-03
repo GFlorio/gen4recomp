@@ -283,9 +283,11 @@ local function buildAnimatedIdlePose(sourcePose, context)
 end
 
 -- Turn per-range displayed frames into the direction-keyed pose sets. Ranges
--- 1-4 are the base directional set in global_fieldmap.h order; a descriptor with
--- eight ranges carries a second set whose gameplay trigger is not yet traced, so
--- it is preserved under a neutral name.
+-- 1-4 are the base directional set in global_fieldmap.h order; additional
+-- source ranges have actor-family/state-specific selectors
+-- (ov01_021FA44C/021FA458/021FA464) with no single generic runtime meaning, so
+-- unclaimed ranges remain producer-private and only named semantic poses are
+-- published.
 local function buildPoses(perRange, ranges, idleMode)
   local order = manifest.directionOrder
 
@@ -304,26 +306,23 @@ local function buildPoses(perRange, ranges, idleMode)
     }
   end
 
-  local directions, alternate = {}, nil
+  local directions = {}
   if #ranges < #order then
-    local animations = {}
-    for index = 1, #ranges do
-      animations[index] = poseFor(index)
-    end
+    local pose = poseFor(1)
     for _, direction in ipairs(order) do
       local idle
       if idleMode == "animated" then
-        idle = buildAnimatedIdlePose(animations[1], { direction = direction })
+        idle = buildAnimatedIdlePose(pose, { direction = direction })
       else
         idle = {
-          frames = { { frameIndex = animations[1].frames[1].frameIndex, ticks = 1, displayOffsetY = 0 } },
+          frames = { { frameIndex = pose.frames[1].frameIndex, ticks = 1, displayOffsetY = 0 } },
           loop = true,
           durationTicks = 1,
         }
       end
-      directions[direction] = { idle = idle, walk = animations[1] }
+      directions[direction] = { idle = idle, walk = pose }
     end
-    return directions, nil, animations, idlePresentation(idleMode)
+    return directions, idlePresentation(idleMode)
   end
   for i, direction in ipairs(order) do
     local walk = poseFor(i)
@@ -343,13 +342,7 @@ local function buildPoses(perRange, ranges, idleMode)
       walk = walk,
     }
   end
-  if #ranges >= #order * 2 then
-    alternate = {}
-    for i, direction in ipairs(order) do
-      alternate[direction] = poseFor(#order + i)
-    end
-  end
-  return directions, alternate, nil, idlePresentation(idleMode)
+  return directions, idlePresentation(idleMode)
 end
 
 local function staticDirections()
@@ -514,7 +507,7 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local frameSet = FieldActorFrames.collect(timeline, descriptor.ranges, #pack.textures, #pack.palettes, context)
   local frames, perRange = frameSet.frames, frameSet.perRange
   local atlas = decodeAtlas(pack, frames, context)
-  local directions, alternate, animations, idleProfile = buildPoses(perRange, descriptor.ranges, idleMode)
+  local directions, idleProfile = buildPoses(perRange, descriptor.ranges, idleMode)
   local gestures = buildGestures(record, perRange, descriptor.ranges, context)
 
   local placement = {
@@ -565,8 +558,6 @@ local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
     frames = frames,
     directions = directions,
     idlePresentation = idleProfile,
-    directionalSet2 = alternate,
-    nonDirectionalAnimations = animations,
     gestures = gestures,
   }
   return visual, atlas
