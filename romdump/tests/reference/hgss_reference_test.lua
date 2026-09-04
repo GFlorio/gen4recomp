@@ -149,12 +149,11 @@ function T.signpost_command_constants_are_complete()
   Assert.isNil(signpostCommands.semanticName("2"), "a non-numeric code resolves to nothing")
 end
 
-function T.player_avatar_transition_order_covers_all_fifteen_source_bits()
+function T.player_avatar_transition_order_covers_all_supported_visual_bits()
   Assert.deepEqual(playerAvatar.transitionOrder, {
     "walking",
     "cycling",
     "surfing",
-    "restore_control",
     "watering",
     "fishing",
     "poketch",
@@ -169,7 +168,7 @@ function T.player_avatar_transition_order_covers_all_fifteen_source_bits()
   })
 end
 
-function T.player_avatar_visual_states_cover_both_genders_without_the_control_transition()
+function T.player_avatar_visual_states_cover_both_genders()
   Assert.deepEqual(playerAvatar.visualStates, {
     "walking",
     "cycling",
@@ -208,7 +207,6 @@ function T.player_avatar_visual_states_cover_both_genders_without_the_control_tr
       )
     end
     Assert.equal(count, 14, "gender " .. gender .. " maps every visual state")
-    Assert.isNil(states.restore_control, "the control transition has no visual state")
   end
   Assert.equal(playerAvatar.statesForGender(0).walking, 0, "male default visual")
   Assert.equal(playerAvatar.statesForGender(1).walking, 97, "female default visual")
@@ -218,12 +216,26 @@ function T.player_avatar_visual_states_cover_both_genders_without_the_control_tr
   Assert.isFalse(playerAvatar.isDurable("heal"), "heal is temporary")
 end
 
-function T.player_avatar_mask_selects_transitions_in_source_bit_order()
-  Assert.deepEqual(playerAvatar.transitionsForMask(0), {})
-  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 3), { "restore_control" })
-  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 0 + 2 ^ 8), { "walking", "heal" })
-  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 8 + 2 ^ 0), { "walking", "heal" })
-  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 15), {}, "bit 15 queues no transition")
+T["producer distinguishes unsupported bit 3 from supported transitions"] = function()
+  local transitions, unsupportedBits = playerAvatar.transitionsForMask(0)
+  Assert.deepEqual(transitions, {})
+  Assert.deepEqual(unsupportedBits, {})
+
+  transitions, unsupportedBits = playerAvatar.transitionsForMask(2 ^ 0 + 2 ^ 8)
+  Assert.deepEqual(transitions, { "walking", "heal" })
+  Assert.deepEqual(unsupportedBits, {})
+
+  transitions, unsupportedBits = playerAvatar.transitionsForMask(2 ^ 3)
+  Assert.deepEqual(transitions, {})
+  Assert.deepEqual(unsupportedBits, { 3 })
+
+  transitions, unsupportedBits = playerAvatar.transitionsForMask(2 ^ 0 + 2 ^ 3 + 2 ^ 8)
+  Assert.deepEqual(transitions, { "walking", "heal" })
+  Assert.deepEqual(unsupportedBits, { 3 })
+
+  transitions, unsupportedBits = playerAvatar.transitionsForMask(2 ^ 15)
+  Assert.deepEqual(transitions, {}, "bit 15 queues no transition")
+  Assert.deepEqual(unsupportedBits, {}, "bit 15 is ignored, not unsupported")
 end
 
 return { tests = T }

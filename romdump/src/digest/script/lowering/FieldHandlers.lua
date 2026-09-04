@@ -292,16 +292,28 @@ local function yieldFollowerCheck()
   return { op = "yield_tick" }
 end
 
--- ScrCmd_SetAvatarBits (188): the u16 mask queues one semantic transition
--- per set source bit 0..14 in fixed source bit order, then yields one
--- script update exactly like the source TRUE return. Bit 15 has no
--- transition handler and selects nothing; the raw mask never survives into
--- the generated graph. The mask validates as a u16 producer invariant with
--- no clamping.
+-- ScrCmd_SetAvatarBits (188): fully supported masks queue one semantic
+-- transition per set source bit in fixed source bit order, then yield one
+-- script update exactly like the source TRUE return. Bit 15 has no transition
+-- handler and selects nothing; bit 3 has an unmodeled movement side effect
+-- and makes the whole source instruction unsupported. The raw mask never
+-- survives into the generated graph. The mask validates as a u16 producer
+-- invariant with no clamping.
 local function setAvatarBits(ins)
   local mask = Operands.operandValue(ins.operands[1])
+  local transitions, unsupportedBits = PlayerAvatar.transitionsForMask(mask)
+  if #unsupportedBits > 0 then
+    return {
+      op = "unsupported",
+      command = 188,
+      originalName = "ScrCmd_SetAvatarBits",
+      arguments = { mask },
+      sourceOffset = ins.offset,
+      reason = "PLAYER_TRANSITION_x0008 has an unmodeled movement side effect",
+    }
+  end
   local steps = {}
-  for _, transition in ipairs(PlayerAvatar.transitionsForMask(mask)) do
+  for _, transition in ipairs(transitions) do
     steps[#steps + 1] = { op = "queue_avatar_transition", transition = transition }
   end
   steps[#steps + 1] = { op = "yield_tick" }

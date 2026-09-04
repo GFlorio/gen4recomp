@@ -1,11 +1,10 @@
--- ROM-gated avatar-transition lowering coverage: every retail SetAvatarBits
--- (188) and UpdateAvatarState (189) call site in the field-script corpus
--- lowers to supported semantic queue/yield/apply operations instead of
--- unsupported nodes. Representative flows pinned here are the Pokemon Center
--- heal/restore choreography (member 3), the Rocket-costume switches
--- (member 94), and the Pokeathlon switches (member 167). Full-script
--- acceptance is out of scope: neighboring unsupported commands never fail
--- this suite.
+-- ROM-gated avatar-transition lowering coverage: current retail SetAvatarBits
+-- (188) and UpdateAvatarState (189) call sites select only supported semantic
+-- transitions and preserve source ordering/timing. Representative flows
+-- pinned here are the Pokemon Center heal/restore choreography (member 3),
+-- the Rocket-costume switches (member 94), and the Pokeathlon switches
+-- (member 167). Full-script acceptance is out of scope: neighboring
+-- unsupported commands never fail this suite.
 
 local Assert = require("tests.support.Assert")
 local FieldScripts = require("tests.rom.support.FieldScripts")
@@ -18,7 +17,7 @@ local function provenanceMatches(item, offset, opcode)
   return provenance ~= nil and provenance.offsets[1] == offset and provenance.opcodes[1] == opcode
 end
 
-T["retail avatar transition commands lower to semantic queue and apply operations"] = function(romFs)
+T["retail supported avatar transition sites remain supported"] = function(romFs)
   local archive, memberIrs = FieldScripts.decode(romFs)
   local queueSites = 0
   local applySites = 0
@@ -48,7 +47,17 @@ T["retail avatar transition commands lower to semantic queue and apply operation
         )
         Assert.isTrue(mask >= 0 and mask <= 0xFFFF, "the queue mask fits in one unsigned word")
         recordMemberMasks(member, mask)
-        local expected = PlayerAvatar.transitionsForMask(mask)
+        local expected, unsupportedBits = PlayerAvatar.transitionsForMask(mask)
+        Assert.deepEqual(
+          unsupportedBits,
+          {},
+          string.format(
+            "member %d script %d offset 0x%X: the retail mask selects no unsupported bits",
+            member,
+            index,
+            ins.offset
+          )
+        )
         for _, name in ipairs(expected) do
           seenTransitions[name] = true
         end

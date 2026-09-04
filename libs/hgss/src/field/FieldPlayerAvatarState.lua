@@ -8,13 +8,12 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 
--- The fifteen semantic transitions in fixed source application order,
+-- The fourteen supported semantic transitions in fixed source application order,
 -- independent of queue insertion order.
 local TRANSITION_ORDER = {
   "walking",
   "cycling",
   "surfing",
-  "restore_control",
   "watering",
   "fishing",
   "poketch",
@@ -31,30 +30,6 @@ local TRANSITION_ORDER = {
 local TRANSITION_SET = {}
 for _, name in ipairs(TRANSITION_ORDER) do
   TRANSITION_SET[name] = true
-end
-
--- The fourteen visual states the capability must map to compiled sprites.
--- `restore_control` carries no visual by construction.
-local VISUAL_STATES = {
-  "walking",
-  "cycling",
-  "surfing",
-  "watering",
-  "fishing",
-  "poketch",
-  "saving",
-  "heal",
-  "ladder",
-  "rocket",
-  "rocket_heal",
-  "pokeathlon",
-  "apricorn_shake",
-  "rocket_saving",
-}
-
-local VISUAL_SET = {}
-for _, name in ipairs(VISUAL_STATES) do
-  VISUAL_SET[name] = true
 end
 
 -- The only states kept across save/reload; every other visual is temporary.
@@ -101,14 +76,14 @@ local function checkCapability(capability)
   assert(type(capability.states) == "table", "the avatar capability requires a visual-state map")
   local count = 0
   for state, spriteId in pairs(capability.states) do
-    assert(VISUAL_SET[state] == true, "the avatar capability carries an unknown visual state " .. tostring(state))
+    assert(TRANSITION_SET[state] == true, "the avatar capability carries an unknown visual state " .. tostring(state))
     assert(
       type(spriteId) == "number" and spriteId >= 0 and spriteId % 1 == 0,
       "the avatar capability requires a compiled spriteId for " .. tostring(state)
     )
     count = count + 1
   end
-  assert(count == #VISUAL_STATES, "the avatar capability must map every visual state")
+  assert(count == #TRANSITION_ORDER, "the avatar capability must map every visual state")
 end
 
 local function checkSurfPresentation(presentation)
@@ -202,7 +177,7 @@ function FieldPlayerAvatarState:applyTransitions()
   local beforeSpriteId = states[self._visual]
   -- Validate every selected visual before committing anything.
   for _, name in ipairs(TRANSITION_ORDER) do
-    if self._pending[name] == true and name ~= "restore_control" then
+    if self._pending[name] == true then
       local spriteId = states[name]
       if type(spriteId) ~= "number" then
         Errors.raise(
@@ -238,7 +213,7 @@ function FieldPlayerAvatarState:applyTransitions()
         if name == "cycling" then
           working.sounds[#working.sounds + 1] = CYCLING_SOUND
         end
-      elseif name ~= "restore_control" then
+      else
         working.visual = name
       end
     end

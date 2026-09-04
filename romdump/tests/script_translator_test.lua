@@ -1104,15 +1104,14 @@ T["opcode 582 lowers to a named special-spawn setter"] = function()
 end
 
 -- Opcode 188 (SetAvatarBits) unfolds its u16 mask into one semantic queue
--- operation per selected transition in fixed source bit order, followed by
--- exactly one scheduler yield -- even when the mask selects nothing. Source
--- bit 15 has no transition handler and vanishes; the raw mask never survives
--- into the generated graph.
+-- operation per selected supported transition in fixed source bit order,
+-- followed by exactly one scheduler yield -- even when the mask selects
+-- nothing. Source bit 15 has no transition handler and vanishes; the raw mask
+-- never survives into the generated graph. Unsupported bit 3 is tested below.
 local AVATAR_TRANSITION_ORDER = {
   "walking",
   "cycling",
   "surfing",
-  "restore_control",
   "watering",
   "fishing",
   "poketch",
@@ -1140,6 +1139,21 @@ local function lowerSingleAvatar(opcode, operandRaw)
   return SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
 end
 
+local function lowerAvatarMember(mask)
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 188, args = { { value = mask, width = 2 } } },
+        },
+      },
+    },
+  })
+  local ir = assert(ScriptBinaryDecoder.parseMember(bytes, 5, "synthetic", { msgBank = 543, catalog = CATALOG }))
+  return SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+end
+
 T["set avatar bits unfolds to ordered queue operations with one yield"] = function()
   local cases = {
     { mask = 0, queues = {} },
@@ -1147,7 +1161,7 @@ T["set avatar bits unfolds to ordered queue operations with one yield"] = functi
     { mask = 0x0100, queues = { "heal" } },
     { mask = 0x0900, queues = { "heal", "rocket_heal" } },
     { mask = 0x8900, queues = { "heal", "rocket_heal" } },
-    { mask = 0xFFFF, queues = AVATAR_TRANSITION_ORDER },
+    { mask = 0xFFF7, queues = AVATAR_TRANSITION_ORDER },
   }
   for _, case in ipairs(cases) do
     local lowered = lowerSingleAvatar(188, case.mask)
@@ -1172,6 +1186,37 @@ T["set avatar bits unfolds to ordered queue operations with one yield"] = functi
         Assert.equal(type(item.transition), "string", "queued transitions are semantic names")
       end
     end
+  end
+end
+
+T["unsupported bit-3 avatar masks lower atomically"] = function()
+  for _, case in ipairs({ { mask = 0x0008 }, { mask = 0x0109 } }) do
+    local lowered = lowerAvatarMember(case.mask)
+    Assert.equal(#lowered.items, 1, string.format("mask 0x%04X is one source instruction", case.mask))
+    Assert.equal(#lowered.unsupported, 1, string.format("mask 0x%04X has one unsupported node", case.mask))
+
+    local node = lowered.unsupported[1]
+    Assert.isTrue(node == lowered.items[1], "the unsupported node is the lowered instruction")
+    Assert.equal(node.op, "unsupported")
+    Assert.equal(node.command, 188)
+    Assert.equal(node.originalName, "ScrCmd_SetAvatarBits")
+    Assert.deepEqual(node.arguments, { case.mask })
+    Assert.equal(node.sourceOffset, 0x20)
+    Assert.deepEqual(node.provenance, { offsets = { 0x20 }, opcodes = { 188 } })
+    Assert.equal(type(node.reason), "string")
+    Assert.isTrue(node.reason:find("PLAYER_TRANSITION_x0008", 1, true) ~= nil)
+    Assert.isTrue(node.reason:find("movement side effect", 1, true) ~= nil)
+
+    local queueCount, yieldCount = 0, 0
+    for _, item in ipairs(lowered.items) do
+      if item.op == "queue_avatar_transition" then
+        queueCount = queueCount + 1
+      elseif item.op == "yield_tick" then
+        yieldCount = yieldCount + 1
+      end
+    end
+    Assert.equal(queueCount, 0, string.format("mask 0x%04X queues no partial transitions", case.mask))
+    Assert.equal(yieldCount, 0, string.format("mask 0x%04X emits no synthesized yield", case.mask))
   end
 end
 

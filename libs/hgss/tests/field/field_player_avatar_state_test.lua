@@ -201,24 +201,6 @@ function T.unknown_transition_raises_and_keeps_pending()
   Assert.deepEqual(result.sounds, { "SEQ_SE_DP_JITENSYA" })
 end
 
-function T.control_reset_applies_as_an_ordered_no_op()
-  local alone = walkingState()
-  alone:queueTransition("restore_control")
-  local aloneResult = alone:applyTransitions()
-  Assert.equal(aloneResult.spriteId, spriteOf("walking"))
-  Assert.isFalse(aloneResult.spriteChanged)
-  Assert.deepEqual(aloneResult.sounds, {})
-  Assert.isTrue(alone:isStableForSave())
-  Assert.isFalse(alone:presentationState().surf.active)
-
-  local withHeal = walkingState()
-  withHeal:queueTransition("heal")
-  withHeal:queueTransition("restore_control")
-  local healResult = withHeal:applyTransitions()
-  Assert.equal(healResult.spriteId, spriteOf("heal"), "the reset consumes in order without changing the visual")
-  Assert.deepEqual(withHeal:capture(), { state = "walking" })
-end
-
 function T.reapplying_surfing_restarts_the_creation_phase()
   local state = walkingState()
   state:queueTransition("surfing")

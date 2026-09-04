@@ -1,8 +1,9 @@
--- Pinned HGSS player-avatar transition catalog: the fifteen semantic
--- transitions applied in source bit order plus the gendered sprite selected
--- for each visual state. Normalized from pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981
+-- Pinned HGSS player-avatar transition catalog: source-independent visual
+-- transitions plus the gendered sprite selected for each visual state.
+-- Normalized from pret/pokeheartgold@0985e8718df4f25e64d6507d89c0c97c0d288981
 -- src/player_avatar.c (PlayerAvatar_GetSpriteByStateAndGender,
--- Field_PlayerAvatar_ApplyTransitionFlags) and
+-- Field_PlayerAvatar_ApplyTransitionFlags),
+-- asm/overlay_01_021F1AFC.s (the source bit-3 handler), and
 -- include/constants/sprites.h. Producer-only; generated output carries
 -- semantic state names and compiled sprite IDs, never transition bit
 -- positions. Pure data; no love dependency.
@@ -10,14 +11,12 @@
 ---@class PlayerAvatarReference
 local PlayerAvatar = {}
 
--- The fifteen transitions in source bit order (bit 0 first). Every entry but
--- `restore_control` selects a player visual; `restore_control` (source bit 3)
--- carries no sprite and succeeds as an ordered no-op.
+-- The supported source-independent transitions in source bit order (bit 0
+-- first, with source bit 3 intentionally omitted).
 PlayerAvatar.transitionOrder = {
   "walking",
   "cycling",
   "surfing",
-  "restore_control",
   "watering",
   "fishing",
   "poketch",
@@ -31,8 +30,27 @@ PlayerAvatar.transitionOrder = {
   "rocket_saving",
 }
 
--- The fourteen visual states, in transition order. `restore_control` is
--- absent by construction.
+-- Source bit 3 calls PlayerAvatar_SetFlag1 in the pinned handler. Its
+-- movement side effect is not modeled by the runtime, so it remains known but
+-- unsupported rather than becoming a visual or successful no-op semantic.
+local transitionsByBit = {
+  [0] = "walking",
+  [1] = "cycling",
+  [2] = "surfing",
+  [4] = "watering",
+  [5] = "fishing",
+  [6] = "poketch",
+  [7] = "saving",
+  [8] = "heal",
+  [9] = "ladder",
+  [10] = "rocket",
+  [11] = "rocket_heal",
+  [12] = "pokeathlon",
+  [13] = "apricorn_shake",
+  [14] = "rocket_saving",
+}
+
+-- The fourteen visual states, in transition order.
 PlayerAvatar.visualStates = {
   "walking",
   "cycling",
@@ -96,8 +114,8 @@ local spritesByGender = {
   },
 }
 
-assert(#PlayerAvatar.transitionOrder == 15, "the transition table covers source bits 0..14")
-assert(#PlayerAvatar.visualStates == 14, "every transition but the control reset selects a visual")
+assert(#PlayerAvatar.transitionOrder == 14, "the transition table covers supported visual source bits")
+assert(#PlayerAvatar.visualStates == 14, "every supported transition selects a visual")
 do
   local durableCount = 0
   for _ in pairs(PlayerAvatar.durableStates) do
@@ -140,18 +158,24 @@ function PlayerAvatar.isDurable(state)
 end
 
 -- The semantic transitions selected by a raw u16 queue mask, in source bit
--- order. Bits outside 0..14 select nothing.
+-- order, plus selected source bits whose movement side effects are unsupported.
 ---@param mask integer
----@return string[]
+---@return string[], integer[]
 function PlayerAvatar.transitionsForMask(mask)
   assert(type(mask) == "number" and mask >= 0 and mask <= 0xFFFF and mask % 1 == 0, "queue mask is a u16")
   local selected = {}
+  local unsupportedBits = {}
   for bit = 0, 14 do
     if math.floor(mask / (2 ^ bit)) % 2 == 1 then
-      selected[#selected + 1] = PlayerAvatar.transitionOrder[bit + 1]
+      local transition = transitionsByBit[bit]
+      if transition ~= nil then
+        selected[#selected + 1] = transition
+      else
+        unsupportedBits[#unsupportedBits + 1] = bit
+      end
     end
   end
-  return selected
+  return selected, unsupportedBits
 end
 
 return PlayerAvatar
