@@ -49,24 +49,27 @@ end
 function T.no_options_default_to_the_normal_boot_flow()
   local opts = parses({})
   Assert.isFalse(opts.test)
-  Assert.isFalse(opts.actors)
   Assert.isFalse(opts.dev)
+  Assert.keySet(opts, "dev,test")
 end
 
 function T.remaining_product_options_parse()
-  Assert.isTrue(parses({ "--actors" }).actors)
   Assert.isTrue(parses({ "--dev" }).dev)
 end
 
 function T.usage_advertises_the_app_root()
   local usage = loadOptions().USAGE
   Assert.isTrue(usage:find("love app/", 1, true) ~= nil, "usage must name the app root")
+  Assert.isFalse(usage:find("--actors", 1, true) ~= nil, "usage must not advertise the removed launch mode")
 end
 
-function T.modifiers_compose_with_the_modes_they_apply_to()
-  local preview = parses({ "--actors", "--dev" })
-  Assert.isTrue(preview.actors)
-  Assert.isTrue(preview.dev)
+function T.dev_modifier_composes_with_the_normal_boot_mode()
+  Assert.isTrue(parses({ "--dev" }).dev)
+end
+
+function T.removed_actor_launch_flag_is_rejected_as_an_unknown_option()
+  local message = rejects({ "--actors" })
+  Assert.isTrue(contains(message, "unknown option '--actors'"))
 end
 
 function T.unknown_options_are_rejected()
@@ -81,7 +84,7 @@ function T.stray_arguments_are_rejected()
 end
 
 function T.stray_arguments_after_modes_are_rejected()
-  Assert.isTrue(contains(rejects({ "--actors", "foo" }), "foo"))
+  Assert.isTrue(contains(rejects({ "--dev", "foo" }), "foo"))
 end
 
 -- The test command owns argument parsing once --test is present: the app
@@ -91,7 +94,7 @@ function T.test_mode_defers_every_remaining_argument_to_the_test_command()
   local opts = parses({ "--test", "--list", "--layer", "unit" })
   Assert.isTrue(opts.test)
 
-  local mixed = parses({ "--test", "--actors", "--dev", "--bogus" })
+  local mixed = parses({ "--test", "--dev", "--bogus" })
   Assert.isTrue(mixed.test)
 end
 

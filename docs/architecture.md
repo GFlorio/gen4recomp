@@ -33,7 +33,7 @@ the only runtime path that reaches `romdump`, and only for ROM provisioning.
 | --- | --- | --- |
 | Process and provisioning | `app/` | LÖVE callbacks, launcher, version selection, file drops, cache routing, and process exit |
 | Generic game host | `game/src/` | state lifecycle, host adapters, resize, input forwarding, and exit notification |
-| HGSS product | `game/hgss/` | menu, New Game/Oak, field composition, saves, application audio, and developer preview |
+| HGSS product | `game/hgss/` | menu, New Game/Oak, field composition, saves, and application audio |
 | HGSS mechanisms | `libs/hgss/` | reusable field, script adapters, audio, presentation, and save behavior |
 | Shared widgets | `libs/ui/` | game-independent button primitives |
 | Mod scripting | `libs/script/` | the `gen4.script` runtime, composition, scheduling, and persistence |

@@ -11,11 +11,10 @@ local Options = {}
 -- Cli.EXIT_USAGE so scripts/test.sh and the game agree on "bad invocation".
 Options.EXIT_USAGE = 2
 
-Options.USAGE = "usage: love app/ [--test ...] [--actors] [--dev]"
+Options.USAGE = "usage: love app/ [--test ...] [--dev]"
 
 ---@class LaunchOptions
 ---@field test boolean
----@field actors boolean
 ---@field dev boolean
 
 -- argv: the array LÖVE passes to love.load.
@@ -30,18 +29,16 @@ function Options.parse(argv)
   -- with the usage exit status. Nothing here is validated once --test appears.
   for _, token in ipairs(argv) do
     if token == "--test" then
-      return { test = true, actors = false, dev = false }
+      return { test = true, dev = false }
     end
   end
 
-  local opts = { test = false, actors = false, dev = false }
+  local opts = { test = false, dev = false }
 
   local i = 1
   while i <= #argv do
     local option = argv[i]
-    if option == "--actors" then
-      opts.actors = true
-    elseif option == "--dev" then
+    if option == "--dev" then
       opts.dev = true
     elseif option:sub(1, 2) == "--" then
       return nil, "unknown option '" .. option .. "'\n" .. Options.USAGE

@@ -253,9 +253,8 @@ function T.boot_existing_with_one_ready_version_enters_the_main_menu()
   end, function(result)
     App._bootExisting()
     local launch = assert(result.launches[1])
-    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
+    Assert.keySet(launch, "development,onExit,versionId")
     Assert.equal(launch.versionId, "heartgold")
-    Assert.isFalse(launch.actorPreview)
     Assert.isFalse(launch.development)
     Assert.equal(App.state, result.state)
   end)
@@ -272,9 +271,8 @@ function T.boot_existing_with_two_ready_versions_offers_the_selector_over_the_re
     Assert.deepEqual(selector.ready, { "heartgold", "soulsilver" })
     selector.onPick("soulsilver")
     local launch = assert(result.launches[1])
-    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
+    Assert.keySet(launch, "development,onExit,versionId")
     Assert.equal(launch.versionId, "soulsilver")
-    Assert.isFalse(launch.actorPreview)
     Assert.isTrue(launch.development)
     Assert.equal(App.state, result.state)
   end)
@@ -286,9 +284,8 @@ function T.completed_import_launches_the_imported_version_through_the_hgss_entry
   end, function(result)
     App._onImported("heartgold")
     local launch = assert(result.launches[1])
-    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
+    Assert.keySet(launch, "development,onExit,versionId")
     Assert.equal(launch.versionId, "heartgold")
-    Assert.isFalse(launch.actorPreview)
     Assert.equal(App.state, result.state)
   end)
 end
@@ -305,31 +302,6 @@ function T.shell_exit_mapping_quits_only_for_a_hgss_quit_result()
     launch.onExit({ kind = "quit" })
     Assert.deepEqual(result.quitCodes, { 0 })
   end)
-end
-
-function T.actor_preview_launches_the_first_ready_version_through_the_hgss_entry()
-  withAppHarness({ dev = true }, function(id)
-    return id == "soulsilver"
-  end, function(result)
-    App._bootActorPreview()
-    local launch = assert(result.launches[1])
-    Assert.keySet(launch, "actorPreview,development,onExit,versionId")
-    Assert.equal(launch.versionId, "soulsilver")
-    Assert.isTrue(launch.actorPreview)
-    Assert.isTrue(launch.development)
-    Assert.equal(App.state, result.state)
-  end)
-end
-
-function T.actor_preview_without_a_ready_version_enters_import()
-  local state
-  withAppHarness({}, function()
-    return false
-  end, function()
-    App._bootActorPreview()
-    state = App.state
-  end)
-  Assert.equal(getmetatable(state).__index, ImportState)
 end
 
 return { tests = T }

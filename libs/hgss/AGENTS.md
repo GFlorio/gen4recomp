@@ -23,8 +23,8 @@ those mechanisms are part of a concrete runtime responsibility. It must not impo
 Launcher state, LÖVE process composition, version selection, ROM provisioning, and process
 exit policy belong to `app`.
 Story flow, Main Menu, new-game sequencing, Professor Oak intro policy, field application
-composition, save compatibility, application audio, and developer preview belong to the
-concrete `game/hgss` package. Do not move those policies into this library merely because
+composition, save compatibility, and application audio belong to the concrete `game/hgss`
+package. Do not move those policies into this library merely because
 they invoke a reusable HGSS mechanism.
 The generic running-game lifecycle and host adapters belong to `game`; `FieldSession` is a
 field-simulation mechanism, not a game entry point.

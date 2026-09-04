@@ -106,7 +106,7 @@ package.
   `WindowConfig`, `LocalClock`, `RepoFs`, and audio output). It must not import `app`,
   `game/hgss`, `libs/hgss`, `libs/nds`, or `romdump`.
 - `game/hgss/` owns the concrete HeartGold/SoulSilver application: menu, new-game/Oak,
-  field application, save compatibility, application audio, and developer preview. It
+  field application, save compatibility, and application audio. It
   consumes the generic `game` host and reusable mechanisms, but does not import `app`,
   `romdump`, or `libs/nds`.
 - Domain logic should remain independently testable from LÖVE. `libs/assets`, `libs/codec`,

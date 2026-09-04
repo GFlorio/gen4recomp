@@ -9,8 +9,7 @@ playable product.
 - `game/hgss/src/HgssGame.lua` is the concrete HGSS game entry. It creates the generic
   `game.src.Game` host and installs the HGSS states and services for one selected version.
 - This package owns HGSS application policy and composition for the Main Menu, Continue,
-  New Game, Professor Oak's intro, field entry, save compatibility, application audio, and
-  the developer actor preview.
+  New Game, Professor Oak's intro, field entry, save compatibility, and application audio.
 - `field/` owns the HGSS `FieldRuntime`/`FieldState` application composition; its
   `FieldSession` remains the reusable field-simulation mechanism in `libs/hgss` and is not
   the game entry point.
@@ -34,7 +33,7 @@ playable product.
 - The package split is an internal ownership boundary, not a public/mod plugin API. Do not
   add a registry, generic Gen-IV framework, or second-game protocol without concrete evidence
   of a shared contract.
-- Preserve the current HGSS boot, menu, new-game/Oak, continue, field, actor-preview, save,
-  input, resize, and shutdown behavior when changing composition.
+- Preserve the current HGSS boot, menu, new-game/Oak, continue, field, save, input, resize,
+  and shutdown behavior when changing composition.
 - Unit/component tests live under `game/hgss/tests`; acceptance tests use the real HGSS
   application/field composition when wiring or user-visible sequencing is the contract.

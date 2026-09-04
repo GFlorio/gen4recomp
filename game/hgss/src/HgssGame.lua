@@ -8,7 +8,6 @@ local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local NewGameInitialization = require("game.hgss.src.newgame.NewGameInitialization")
 local FieldState = require("game.hgss.src.field.FieldState")
-local ActorPreviewState = require("game.hgss.src.dev.ActorPreviewState")
 local MainMenuState = require("game.hgss.src.menu.MainMenuState")
 local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
 local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
@@ -18,7 +17,6 @@ local RepoFs = require("game.src.RepoFs")
 ---@field versionId string
 ---@field onExit fun(result: table<string, unknown>|nil)
 ---@field development boolean?
----@field actorPreview boolean?
 
 local HgssGame = {}
 
@@ -104,11 +102,6 @@ function HgssGame.new(options)
   assert(type(options.onExit) == "function", "HgssGame requires an onExit callback")
 
   local game = Game.new({ onExit = options.onExit })
-
-  if options.actorPreview then
-    game:setState(ActorPreviewState.new(versionId))
-    return game
-  end
 
   local saveValidation = GameSaveValidation.new({
     overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),

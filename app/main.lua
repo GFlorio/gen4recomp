@@ -2,9 +2,8 @@
 -- (the source base directory) is added to package.path first so `require`
 -- resolves libs and sibling apps by their full repo-relative path (libs.*,
 -- game.src.*, data.*) independent of the working directory. Flags: --test runs
--- the recursively discovered, layer-selectable test suite and exits; --actors
--- opens the compiled field-actor preview
--- grid; --dev enables the playtest HUD and the F1/F2 developer binds; without
+-- the recursively discovered, layer-selectable test suite and exits; --dev enables
+-- the playtest HUD and the F1/F2 developer binds; without
 -- it the app runs in product mode; otherwise App drives the normal
 -- boot/import/Main Menu flow. Options.parse owns strictness: unknown options and
 -- stray arguments are rejected with a message on

@@ -18,8 +18,6 @@ local function loadApplicationModules()
   Assert.isTrue(okInit, "the HGSS application must own new-game initialization: " .. tostring(initOrError))
   local okMenu, menuOrError = pcall(require, "game.hgss.src.menu.MainMenuState")
   Assert.isTrue(okMenu, "the HGSS application must own Main Menu: " .. tostring(menuOrError))
-  local okPreview, previewOrError = pcall(require, "game.hgss.src.dev.ActorPreviewState")
-  Assert.isTrue(okPreview, "the HGSS application must own actor preview: " .. tostring(previewOrError))
   local okValidation, validationOrError = pcall(require, "game.hgss.src.save.GameSaveValidation")
   Assert.isTrue(okValidation, "the HGSS application must own save validation: " .. tostring(validationOrError))
   local okStore, storeOrError = pcall(require, "libs.hgss.src.save.GameSaveStore")
@@ -34,7 +32,6 @@ local function loadApplicationModules()
     fieldState = fieldOrError,
     initialization = initOrError,
     menu = menuOrError,
-    preview = previewOrError,
     validation = validationOrError,
     store = storeOrError,
     newGame = newGameOrError,
@@ -91,7 +88,6 @@ local function withCompositionSpies(fn)
     storeNew = modules.store.new,
     candidate = modules.newGame.createCandidate,
     oakCompose = modules.oak.compose,
-    previewNew = modules.preview.new,
   }
   local context
   context = {
@@ -101,7 +97,6 @@ local function withCompositionSpies(fn)
     storeCalls = {},
     candidateCalls = {},
     oakCalls = {},
-    previewCalls = {},
     stores = {},
     validationFactory = function(_)
       return {
@@ -118,9 +113,6 @@ local function withCompositionSpies(fn)
     end,
     oakFactory = function(_)
       return assert(context.oakState, "test Oak state not configured")
-    end,
-    previewFactory = function(_)
-      return assert(context.previewState, "test preview state not configured")
     end,
   }
 
@@ -148,11 +140,6 @@ local function withCompositionSpies(fn)
     context.oakCalls[#context.oakCalls + 1] = options
     return context.oakFactory(options)
   end)
-  rawset(modules.preview, "new", function(versionId)
-    context.previewCalls[#context.previewCalls + 1] = versionId
-    return context.previewFactory(versionId)
-  end)
-
   local ok, err = pcall(function()
     fn(modules, context)
   end)
@@ -163,7 +150,6 @@ local function withCompositionSpies(fn)
   rawset(modules.store, "new", original.storeNew)
   rawset(modules.newGame, "createCandidate", original.candidate)
   rawset(modules.oak, "compose", original.oakCompose)
-  rawset(modules.preview, "new", original.previewNew)
   if not ok then
     error(err, 0)
   end
@@ -210,7 +196,6 @@ function T.hgss_entry_owns_menu_continue_new_game_oak_and_quit_routing()
         exits[#exits + 1] = result
       end,
       development = false,
-      actorPreview = false,
     })
     Assert.equal(getmetatable(game).__index, modules.game)
     Assert.equal(getmetatable(game.state).__index, modules.menu)
@@ -255,32 +240,6 @@ function T.hgss_entry_owns_menu_continue_new_game_oak_and_quit_routing()
     quitGame.state:keypressed("escape")
     Assert.deepEqual(exits, { { kind = "quit" } })
     quitGame:dispose()
-  end)
-end
-
-function T.actor_preview_does_not_construct_save_services()
-  withCompositionSpies(function(modules, context)
-    local preview = disposableState("actor_preview")
-    context.previewState = preview
-    context.validationFactory = function()
-      error("actor preview must not construct save validation")
-    end
-    context.storeFactory = function()
-      error("actor preview must not construct save store")
-    end
-
-    local game = modules.hgssGame.new({
-      versionId = READY_VERSION,
-      onExit = function() end,
-      actorPreview = true,
-    })
-    Assert.equal(#context.validationCalls, 0)
-    Assert.equal(#context.storeCalls, 0)
-    Assert.equal(#context.previewCalls, 1)
-    Assert.equal(context.previewCalls[1], READY_VERSION)
-    Assert.equal(game.state, preview)
-    game:dispose()
-    Assert.equal(preview.disposed, 1)
   end)
 end
 

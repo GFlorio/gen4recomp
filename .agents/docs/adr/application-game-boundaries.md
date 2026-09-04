@@ -33,7 +33,7 @@ The shipped interactive topology has four application/runtime levels:
   sink live here.
 - `game/hgss` is the concrete HeartGold/SoulSilver application. `game.hgss.src.HgssGame`
   configures the generic host with Main Menu, Continue, New Game/Oak, field, save
-  compatibility, application audio, and actor-preview composition.
+  compatibility, and application audio.
 - `libs/hgss` contains reusable HGSS mechanisms, including field simulation, scripts, audio,
   presentation, UI, and save semantics. `FieldSession` remains a field-simulation mechanism,
   not a game entry point.

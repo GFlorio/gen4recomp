@@ -18,7 +18,6 @@ local App = {}
 ---@class AppOptions
 ---@field test boolean?
 ---@field dev boolean?
----@field actors boolean?
 
 local function readyVersions()
   local out = {}
@@ -30,7 +29,7 @@ local function readyVersions()
   return out
 end
 
-local function launchHgss(versionId, actorPreview)
+local function launchHgss(versionId)
   local function onExit(result)
     if result and result.kind == "quit" then
       love.event.quit(0)
@@ -40,7 +39,6 @@ local function launchHgss(versionId, actorPreview)
     versionId = versionId,
     onExit = onExit,
     development = App.opts.dev,
-    actorPreview = actorPreview,
   }))
 end
 
@@ -52,9 +50,6 @@ function App.load(opts)
   love.graphics.setBackgroundColor(unpack(WindowConfig.BACKGROUND_COLOR))
   App.saveDir = love.filesystem.getSaveDirectory()
 
-  if App.opts.actors then
-    return App._bootActorPreview()
-  end
   App._bootExisting()
 end
 
@@ -64,15 +59,6 @@ function App.setState(nextState)
   if previous and previous.dispose then
     previous:dispose()
   end
-end
-
-function App._bootActorPreview()
-  local ready = readyVersions()
-  if #ready == 0 then
-    App._startImport()
-    return
-  end
-  launchHgss(ready[1], true)
 end
 
 function App._startImport()
@@ -90,7 +76,7 @@ end
 
 function App._bootMainMenu(versions)
   assert(type(versions) == "table" and #versions == 1, "Main Menu needs exactly one selected version")
-  launchHgss(versions[1], false)
+  launchHgss(versions[1])
 end
 
 function App._bootExisting()
