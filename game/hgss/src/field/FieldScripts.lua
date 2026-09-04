@@ -27,6 +27,7 @@ local MapInitScriptController = require("libs.hgss.src.field.MapInitScriptContro
 ---@field private _player FieldPlayer|nil
 ---@field private _profile table|nil { gender: integer, name: string }
 ---@field private _avatarState table|nil avatar transition owner for queue/apply consumers
+---@field private _avatarApplier fun(): table|nil materializes pending transitions through the owning runtime composition
 local ScriptPlayerFacade = {}
 ScriptPlayerFacade.__index = ScriptPlayerFacade
 
@@ -44,15 +45,51 @@ function ScriptPlayerFacade:setPlayer(player)
 end
 
 -- Wire the avatar transition owner once the composition owns one; transition
--- queue/apply consumers reach it through this facade only.
+-- queue/apply consumers reach it through this facade only. The owner must
+-- carry the queue/apply shape so direct setter callers cannot bypass the
+-- composition validation.
 ---@param avatarState table
 function ScriptPlayerFacade:setAvatarState(avatarState)
+  assert(
+    type(avatarState.queueTransition) == "function" and type(avatarState.applyTransitions) == "function",
+    "field scripts require a queue/apply-shaped avatar transition owner"
+  )
   self._avatarState = avatarState
 end
 
----@return table
-function ScriptPlayerFacade:avatarState()
-  return assert(self._avatarState, "player facade has no avatar transition owner")
+-- Wire the runtime materializer that applies pending transitions with their
+-- visual and sound effects. Queue/apply consumers require it: an apply
+-- without one fails instead of moving avatar state without presenting it.
+---@param applier fun(): table|nil
+function ScriptPlayerFacade:setAvatarApplier(applier)
+  assert(type(applier) == "function", "the avatar applier must be callable")
+  self._avatarApplier = applier
+end
+
+-- Queue one semantic transition by opaque name. Never touches logical
+-- movement, coordinates, or facing; pending membership belongs to the
+-- transition owner, not to the live player instance.
+---@param name string
+function ScriptPlayerFacade:queueAvatarTransition(name)
+  assert(type(name) == "string", "avatar transition name must be a string")
+  local owner = self._avatarState
+  if owner == nil then
+    Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "player facade has no avatar transition owner", {})
+  end
+  (owner --[[@as table]]):queueTransition(name)
+end
+
+-- Apply every pending transition in source order and continue same-tick
+-- through the runtime materializer, so the final visual and sound effects
+-- apply through the owning composition. An apply without a materializer is
+-- a composition fault: avatar state must never move without presenting it.
+---@return table|nil
+function ScriptPlayerFacade:applyAvatarTransitions()
+  local applier = self._avatarApplier
+  if applier ~= nil then
+    return applier()
+  end
+  Errors.raise(ScriptErrors.SCRIPT_SERVICE_MISSING, "player facade has no avatar transition materializer", {})
 end
 
 -- Wire the real player profile (gender and name) when the game owns one;
@@ -163,7 +200,8 @@ end
 ---@field menu FieldMenuHost modal field menu host
 ---@field startMenuReopen table|nil optional { request: fun() } service for the opcode-61 Start Menu reopen (absent -> SCRIPT_SERVICE_MISSING on use)
 ---@field effects table|nil semantic field-effect controller (absent -> SCRIPT_SERVICE_MISSING on reveal)
----@field playerAvatar table|nil avatar transition owner wired into the player facade
+---@field playerAvatar table|nil avatar transition owner wired into the player facade (required together with avatarApplier)
+---@field avatarApplier (fun(): table|nil)|nil pending-transition materializer wired into the player facade (required together with playerAvatar)
 
 ---@class FieldScripts
 ---@field registry table
@@ -240,6 +278,9 @@ function FieldScripts.new(opts)
   -- for transition queue/apply consumers.
   if opts.playerAvatar ~= nil then
     player:setAvatarState(opts.playerAvatar)
+  end
+  if opts.avatarApplier ~= nil then
+    player:setAvatarApplier(opts.avatarApplier)
   end
   local actors = ScriptActorWorld.new(opts.actors --[[@as ScriptActorManager]], player)
   local dialogueHost = ScriptDialogueHost.new({

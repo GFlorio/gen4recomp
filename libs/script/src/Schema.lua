@@ -290,6 +290,17 @@ Schema.OPERATIONS = {
   -- exposed as a public constructor; generated scripts may use it and
   -- handwritten scripts are warned.
   signal_caller = { fields = {} },
+  -- Generated HGSS avatar-transition carriers: one opaque queued transition
+  -- per selected source bit (opcode 188, always followed by a yield_tick
+  -- node) and one same-tick pending-set apply (opcode 189). The transition
+  -- name is semantic only; no source bit positions or state numbers survive
+  -- lowering, and there is no public constructor for either operation.
+  queue_avatar_transition = {
+    fields = {
+      transition = { type = "string", required = true },
+    },
+  },
+  apply_avatar_transitions = { fields = {} },
   ["return"] = { fields = { value = { type = "scalar_or_value" } } },
   label = { fields = { name = { type = "string", required = true } } },
   ["goto"] = { fields = { target = { type = "string", required = true } } },

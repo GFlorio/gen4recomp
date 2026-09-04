@@ -727,6 +727,35 @@ local function handleGetPlayerFacing(node, run)
   return Runtime.OUTCOME_CONTINUE
 end
 
+-- The avatar-transition carriers delegate opaque semantic names to the
+-- injected player service without learning any game transition vocabulary.
+-- Both require foreground execution like every other player-mutating op.
+---@param run table
+---@param op string
+---@return table player
+local function requireAvatarPlayer(run, op)
+  requireForeground(run, op)
+  local player = run.services.player
+  if player == nil then
+    Errors.raise(
+      ScriptErrors.SCRIPT_SERVICE_MISSING,
+      "player service is unavailable",
+      { scriptId = run.instance.scriptId }
+    )
+  end
+  return player --[[@as table]]
+end
+
+local function handleQueueAvatarTransition(node, run)
+  requireAvatarPlayer(run, "queue_avatar_transition"):queueAvatarTransition(node.transition)
+  return Runtime.OUTCOME_CONTINUE
+end
+
+local function handleApplyAvatarTransitions(_, run)
+  requireAvatarPlayer(run, "apply_avatar_transitions"):applyAvatarTransitions()
+  return Runtime.OUTCOME_CONTINUE
+end
+
 local function handleRandom(node, run)
   local roll = run.services.world.rng:nextInt(node.maxExclusive)
   semanticsFor(run).writeRef(node.result, roll, run)
@@ -1202,6 +1231,8 @@ HANDLERS.set_object_movement_type = handleSetObjectMovementType
 HANDLERS.get_player_coords = handleGetPlayerCoords
 HANDLERS.get_object_coords = handleGetObjectCoords
 HANDLERS.get_player_facing = handleGetPlayerFacing
+HANDLERS.queue_avatar_transition = handleQueueAvatarTransition
+HANDLERS.apply_avatar_transitions = handleApplyAvatarTransitions
 HANDLERS.random = handleRandom
 HANDLERS.apply_movement = handleApplyMovement
 HANDLERS.wait_ticks = handleWaitTicks

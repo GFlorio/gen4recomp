@@ -1103,4 +1103,130 @@ T["opcode 582 lowers to a named special-spawn setter"] = function()
   Assert.equal(#lowered.unsupported, 0)
 end
 
+-- Opcode 188 (SetAvatarBits) unfolds its u16 mask into one semantic queue
+-- operation per selected transition in fixed source bit order, followed by
+-- exactly one scheduler yield -- even when the mask selects nothing. Source
+-- bit 15 has no transition handler and vanishes; the raw mask never survives
+-- into the generated graph.
+local AVATAR_TRANSITION_ORDER = {
+  "walking",
+  "cycling",
+  "surfing",
+  "restore_control",
+  "watering",
+  "fishing",
+  "poketch",
+  "saving",
+  "heal",
+  "ladder",
+  "rocket",
+  "rocket_heal",
+  "pokeathlon",
+  "apricorn_shake",
+  "rocket_saving",
+}
+
+local function lowerSingleAvatar(opcode, operandRaw)
+  local operands = {}
+  if operandRaw ~= nil then
+    operands[1] = { raw = operandRaw }
+  end
+  local ir = {
+    instructions = { { opcode = opcode, operands = operands, offset = 0x20 } },
+    scripts = {},
+    movements = {},
+  }
+  ir.scripts[0] = { label = 0x20, instructions = ir.instructions }
+  return SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+end
+
+T["set avatar bits unfolds to ordered queue operations with one yield"] = function()
+  local cases = {
+    { mask = 0, queues = {} },
+    { mask = 0x8000, queues = {} },
+    { mask = 0x0100, queues = { "heal" } },
+    { mask = 0x0900, queues = { "heal", "rocket_heal" } },
+    { mask = 0x8900, queues = { "heal", "rocket_heal" } },
+    { mask = 0xFFFF, queues = AVATAR_TRANSITION_ORDER },
+  }
+  for _, case in ipairs(cases) do
+    local lowered = lowerSingleAvatar(188, case.mask)
+    Assert.equal(#lowered.unsupported, 0, string.format("mask 0x%04X must not lower as unsupported", case.mask))
+    local expected = {}
+    for _, transition in ipairs(case.queues) do
+      expected[#expected + 1] = {
+        op = "queue_avatar_transition",
+        transition = transition,
+        provenance = { offsets = { 0x20 }, opcodes = { 188 } },
+      }
+    end
+    expected[#expected + 1] = { op = "yield_tick" }
+    Assert.deepEqual(
+      lowered.items,
+      expected,
+      string.format("mask 0x%04X must unfold to ordered queues plus exactly one yield", case.mask)
+    )
+    for _, item in ipairs(lowered.items) do
+      Assert.isNil(item.mask, "the raw transition mask must not survive lowering")
+      if item.op == "queue_avatar_transition" then
+        Assert.equal(type(item.transition), "string", "queued transitions are semantic names")
+      end
+    end
+  end
+end
+
+-- Opcode 189 (UpdateAvatarState) is one same-tick apply operation with no
+-- operands and no appended yield. Adjacent 188/189 pairs are never combined:
+-- the queue group, its yield, and the apply node survive as separate steps.
+T["update avatar state lowers to a single same-tick apply operation"] = function()
+  local lowered = lowerSingleAvatar(189, nil)
+  Assert.equal(#lowered.unsupported, 0)
+  Assert.deepEqual(lowered.items, {
+    { op = "apply_avatar_transitions", provenance = { offsets = { 0x20 }, opcodes = { 189 } } },
+  })
+
+  local ir = {
+    instructions = {
+      { opcode = 188, operands = { { raw = 0x0100 } }, offset = 0x20 },
+      { opcode = 189, operands = {}, offset = 0x24 },
+    },
+    scripts = {},
+    movements = {},
+  }
+  ir.scripts[0] = { label = 0x20, instructions = ir.instructions }
+  local adjacent = SemanticLowering.lowerScript(ir.scripts[0], ir, { stdCatalog = SourceCatalog.catalog() })
+  Assert.equal(#adjacent.unsupported, 0)
+  Assert.deepEqual(adjacent.items, {
+    {
+      op = "queue_avatar_transition",
+      transition = "heal",
+      provenance = { offsets = { 0x20 }, opcodes = { 188 } },
+    },
+    { op = "yield_tick" },
+    { op = "apply_avatar_transitions", provenance = { offsets = { 0x24 }, opcodes = { 189 } } },
+  })
+
+  local bytes = ScriptFixture.member({
+    scripts = {
+      {
+        offset = 0x20,
+        instructions = {
+          { op = 188, args = { { value = 0x0100, width = 2 } } },
+          { op = 189, args = {} },
+          { op = 2, args = {} },
+        },
+      },
+    },
+  })
+  local _, steps, report = translate(bytes, 5, 0)
+  local ops = {}
+  for _, step in ipairs(steps) do
+    ops[#ops + 1] = step.op
+    Assert.isNil(step.mask, "the raw transition mask must not survive compilation")
+  end
+  Assert.deepEqual(ops, { "queue_avatar_transition", "yield_tick", "apply_avatar_transitions", "stop" })
+  Assert.equal(steps[1].transition, "heal")
+  Assert.equal(report.unsupportedCount, 0)
+end
+
 return { tests = T }

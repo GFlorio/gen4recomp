@@ -2,6 +2,7 @@
 local Operands = require("romdump.src.digest.script.lowering.Operands")
 local MovementDecoder = require("romdump.src.digest.script.MovementDecoder")
 local SignpostCommands = require("romdump.src.reference.hgss.signpost_commands")
+local PlayerAvatar = require("romdump.src.reference.hgss.player_avatar")
 local MenuProtocol = require("libs.assets.src.MenuProtocol")
 local Errors = require("libs.errors.src.Errors")
 local HgssObjectMovement = require("romdump.src.digest.HgssObjectMovement")
@@ -289,6 +290,29 @@ end
 
 local function yieldFollowerCheck()
   return { op = "yield_tick" }
+end
+
+-- ScrCmd_SetAvatarBits (188): the u16 mask queues one semantic transition
+-- per set source bit 0..14 in fixed source bit order, then yields one
+-- script update exactly like the source TRUE return. Bit 15 has no
+-- transition handler and selects nothing; the raw mask never survives into
+-- the generated graph. The mask validates as a u16 producer invariant with
+-- no clamping.
+local function setAvatarBits(ins)
+  local mask = Operands.operandValue(ins.operands[1])
+  local steps = {}
+  for _, transition in ipairs(PlayerAvatar.transitionsForMask(mask)) do
+    steps[#steps + 1] = { op = "queue_avatar_transition", transition = transition }
+  end
+  steps[#steps + 1] = { op = "yield_tick" }
+  return { steps = steps }
+end
+
+-- ScrCmd_UpdateAvatarState (189): applies the pending transition set in
+-- source order and continues in the same script tick (the source FALSE
+-- return); never a yield or a block.
+local function updateAvatarState(_)
+  return { op = "apply_avatar_transitions" }
 end
 
 local function setSpecialSpawn(ins)
@@ -678,6 +702,8 @@ return {
   [132] = genderedMessage,
   [144] = setFriendSprite,
   [176] = warp,
+  [188] = setAvatarBits,
+  [189] = updateAvatarState,
   [190] = bufferPlayerName,
   [191] = bufferRivalName,
   [192] = bufferFriendName,

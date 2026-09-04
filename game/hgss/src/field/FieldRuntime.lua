@@ -994,6 +994,9 @@ function FieldRuntime:_load()
       actors = self.actors,
       player = self.player,
       playerAvatar = self.playerAvatar,
+      avatarApplier = function()
+        return self:applyAvatarTransitions()
+      end,
       profile = self.playerData.profile,
       dialogue = self.dialogue,
       messageProvider = self.messageProvider,
