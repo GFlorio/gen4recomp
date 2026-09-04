@@ -246,6 +246,10 @@ function FieldScripts.new(opts)
     opts.transition and opts.mapLoader and opts.sourceMap and opts.auxiliaryUi and opts.menu and opts.contextChoice,
     "field scripts require transition, auxiliary UI, context choice, and menu host"
   )
+  assert(
+    (opts.playerAvatar == nil) == (opts.avatarApplier == nil),
+    "field scripts require playerAvatar and avatarApplier together"
+  )
 
   -- The registry is always installed lazily: only the generated layer's
   -- presence comes from the index, and each script decodes on first use. A
@@ -278,9 +282,7 @@ function FieldScripts.new(opts)
   -- for transition queue/apply consumers.
   if opts.playerAvatar ~= nil then
     player:setAvatarState(opts.playerAvatar)
-  end
-  if opts.avatarApplier ~= nil then
-    player:setAvatarApplier(opts.avatarApplier)
+    player:setAvatarApplier(assert(opts.avatarApplier))
   end
   local actors = ScriptActorWorld.new(opts.actors --[[@as ScriptActorManager]], player)
   local dialogueHost = ScriptDialogueHost.new({

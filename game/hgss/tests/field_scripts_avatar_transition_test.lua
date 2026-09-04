@@ -137,12 +137,21 @@ end
 
 -- Build production FieldScripts around the real transition owner. `files`
 -- selects the override layer: empty for bare facade tests, the heal slice
--- for scheduler-driven choreography. The materializer mirrors the runtime
--- composition: it applies pending transitions through the owner, swaps the
--- recording visual only when the graphic changed, and plays the ordered
--- sound intents through the recording audio. Pass false for `withApplier`
--- to prove an apply without its materializer fails instead of running quiet.
-local function build(files, withApplier)
+-- for scheduler-driven choreography. `avatarComposition` selects which
+-- collaborators enter the production constructor: both by default, neither,
+-- or one half for constructor-failure coverage. The materializer mirrors the
+-- runtime composition: it applies pending transitions through the owner,
+-- swaps the recording visual only when the graphic changed, and plays the
+-- ordered sound intents through the recording audio.
+local function build(files, avatarComposition)
+  avatarComposition = avatarComposition or "both"
+  assert(
+    avatarComposition == "both"
+      or avatarComposition == "none"
+      or avatarComposition == "owner-only"
+      or avatarComposition == "applier-only",
+    "unknown avatar composition: " .. tostring(avatarComposition)
+  )
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   cache:write(ScriptCache.markerPath(), "script-cache-v1:rom-sha:dep-sha")
   cache:writeLua(ScriptCache.indexPath(), { schema = ScriptCache.INDEX_SCHEMA, resources = {} })
@@ -196,9 +205,11 @@ local function build(files, withApplier)
     menu = {},
     contextChoice = {},
     audio = audio,
-    playerAvatar = owner,
   }
-  if withApplier ~= false then
+  if avatarComposition == "both" or avatarComposition == "owner-only" then
+    opts.playerAvatar = owner
+  end
+  if avatarComposition == "both" or avatarComposition == "applier-only" then
     opts.avatarApplier = function()
       local result = owner:applyTransitions()
       if result.spriteChanged then
@@ -214,7 +225,10 @@ local function build(files, withApplier)
   return { platform = platform, owner = owner, player = player, audio = audio, visual = visual }
 end
 
-function T.tests.avatar_heal_slice_queues_yields_and_applies_through_the_facade()
+function T.tests.avatar_composition_preserves_absent_and_present_capabilities()
+  local withoutAvatarTransitions = build({}, "none")
+  Assert.notNil(withoutAvatarTransitions.platform, "avatar transition support remains optional")
+
   local fixture = build({ [SLICE_ID] = SLICE_CHUNK })
   local composed = assert(fixture.platform.composition:effective(SLICE_ID))
   fixture.platform.scheduler:createForeground(composed, nil, 100)
@@ -273,18 +287,23 @@ function T.tests.avatar_facade_delegates_to_the_same_owner_across_map_swaps()
   Assert.isTrue(fixture.owner:status().pending.walking, "the same owner survives map rebinds")
 end
 
-function T.tests.avatar_apply_without_a_materializer_fails()
-  local fixture = build({}, false)
-  local facade = fixture.platform.player
-  facade:queueAvatarTransition("heal")
-  Assert.isTrue(fixture.owner:status().pending.heal)
-  local err = Assert.throws(function()
-    facade:applyAvatarTransitions()
+function T.tests.avatar_composition_rejects_each_half_at_construction()
+  local ownerOnlyConstructed, ownerOnlyError = pcall(function()
+    return build({}, "owner-only")
   end)
-  Assert.equal(err.code, "SCRIPT_SERVICE_MISSING")
-  Assert.isTrue(fixture.owner:status().pending.heal, "a missing materializer must not consume the queue")
-  Assert.equal(#fixture.audio.played, 0, "a missing materializer must not play transition sounds")
-  Assert.equal(#fixture.visual.swaps, 0, "a missing materializer must not swap the visual")
+  local applierOnlyConstructed, applierOnlyError = pcall(function()
+    return build({}, "applier-only")
+  end)
+  Assert.isFalse(ownerOnlyConstructed, "owner-only composition must fail at construction")
+  Assert.isTrue(
+    tostring(ownerOnlyError):find("playerAvatar", 1, true) ~= nil,
+    "owner-only failure must identify the paired collaborators: " .. tostring(ownerOnlyError)
+  )
+  Assert.isFalse(applierOnlyConstructed, "applier-only composition must fail at construction")
+  Assert.isTrue(
+    tostring(applierOnlyError):find("playerAvatar", 1, true) ~= nil,
+    "applier-only failure must identify the paired collaborators: " .. tostring(applierOnlyError)
+  )
 end
 
 function T.tests.avatar_owner_must_be_queue_apply_shaped()
