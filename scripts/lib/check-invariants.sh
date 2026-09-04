@@ -137,11 +137,11 @@ check_tracked_scope() {
       [ -r "$line" ] || continue
       check_header_diagnostic_disable_file "$line" || true
     fi
-    if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]] || [[ "$line" =~ ^romdump/src/.*\.lua$ ]]; then
+    if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^game/hgss/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]] || [[ "$line" =~ ^romdump/src/.*\.lua$ ]]; then
       # A tracked file deleted from the working tree (a pending deletion)
       # has no source content to scan.
       [ -r "$line" ] || continue
-      if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]]; then
+      if [[ "$line" =~ ^game/src/.*\.lua$ ]] || [[ "$line" =~ ^game/hgss/src/.*\.lua$ ]] || [[ "$line" =~ ^libs/[^/]+/src/.*\.lua$ ]]; then
         check_terminal_output_file "$line"
       fi
       if check_assigned_or_returned_anonymous_function_file "$line"; then

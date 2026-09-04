@@ -78,6 +78,7 @@ function T.input_callbacks_forward_complete_argument_tuples()
     Assert.equal(type(love.touchpressed), "function", "love.touchpressed must be registered by the entrypoint")
 
     local keypressedArgs = { "a", "a", true }
+    ---@diagnostic disable-next-line: param-type-mismatch -- Deliberately forward the complete LÖVE keypressed vararg payload.
     love.keypressed(unpack(keypressedArgs))
     local actual = assert(calls.keypressed, "love.keypressed must reach App.keypressed")
     Assert.equal(actual.n, #keypressedArgs, "love.keypressed must preserve every LÖVE argument")

@@ -987,6 +987,12 @@ function FieldRuntime:_load()
     local function requestStartMenuReopen()
       self.applicationHost:requestReopen()
     end
+    local function applyAvatarTransitionsForScripts()
+      return self:applyAvatarTransitions()
+    end
+    local function changeWeather(_, weatherId)
+      self:_setLiveWeather(assert(self.runtimeMap), weatherId)
+    end
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
       overrideFs = self.overrideFs,
@@ -994,9 +1000,7 @@ function FieldRuntime:_load()
       actors = self.actors,
       player = self.player,
       playerAvatar = self.playerAvatar,
-      avatarApplier = function()
-        return self:applyAvatarTransitions()
-      end,
+      avatarApplier = applyAvatarTransitionsForScripts,
       profile = self.playerData.profile,
       dialogue = self.dialogue,
       messageProvider = self.messageProvider,
@@ -1012,9 +1016,7 @@ function FieldRuntime:_load()
       effects = self.fieldTerrainEffectController,
       audio = audioService,
       weather = {
-        change = function(_, weatherId)
-          self:_setLiveWeather(assert(self.runtimeMap), weatherId)
-        end,
+        change = changeWeather,
       },
       camera = self.scriptHosts and self.scriptHosts.camera,
       -- Always the production semantic screen-fade controller: a script

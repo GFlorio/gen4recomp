@@ -88,6 +88,13 @@ One caller is strong evidence to keep code local unless the boundary itself owns
 responsibility such as resource lifetime, layer separation, a current public contract, or a
 source-grounded domain concept.
 
+Treat file size and directory density as review triggers, not permission to create forwarding
+modules or split cohesive catalogs, schemas, algorithms, or state owners mechanically. Split
+mixed-responsibility hotspots by ownership, lifecycle, or cohesive domain after tracing the
+real flow. A new top-level shared package requires a current cross-domain consumer and an owned
+responsibility; field mechanisms remain under `libs/hgss` rather than a generic `libs/field`
+package.
+
 ## Cross-cutting architecture
 
 - The repository has two runnable LÖVE apps, `app/` and `romdump/`, plus shared libraries.

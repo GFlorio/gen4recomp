@@ -281,13 +281,14 @@ function OakIntroRenderer:_draw(view)
           selectedRim = { palette.selectedRim[1], palette.selectedRim[2], palette.selectedRim[3], 1 },
           innerBorder = { palette.face[1], palette.face[2], palette.face[3], 1 },
         }
+        local function drawGenderPortrait(rect)
+          drawAsset(self, entry.portraitId, 1, rect)
+        end
         ImageButton.draw(graphics, entry.button, {
           selected = selected,
           colors = colors,
           imageRect = entry.portraitRect,
-          drawImage = function(rect)
-            drawAsset(self, entry.portraitId, 1, rect)
-          end,
+          drawImage = drawGenderPortrait,
         })
       end
     elseif layout.selectedProfileButton then
@@ -299,13 +300,14 @@ function OakIntroRenderer:_draw(view)
         rim = { palette.rim[1], palette.rim[2], palette.rim[3], 1 },
         selectedRim = { palette.selectedRim[1], palette.selectedRim[2], palette.selectedRim[3], 1 },
       }
+      local function drawSelectedProfilePortrait(rect)
+        drawAsset(self, entry.portraitId, 1, rect)
+      end
       ImageButton.draw(graphics, entry.button, {
         selected = true,
         colors = colors,
         imageRect = entry.portraitRect,
-        drawImage = function(rect)
-          drawAsset(self, entry.portraitId, 1, rect)
-        end,
+        drawImage = drawSelectedProfilePortrait,
       })
     end
   end
@@ -317,14 +319,16 @@ function OakIntroRenderer:_draw(view)
       background = paletteColor(self.choiceText.fontDef, 1),
     }
     textPalette.background.a = 0
+    local function measureChoiceText(text)
+      return self.choiceText:textWidth(text)
+    end
+    local function drawChoiceText(text, x, y)
+      self.choiceText:drawTextWithPalette(text, x, y, textPalette)
+    end
     local adapter = {
-      measure = function(text)
-        return self.choiceText:textWidth(text)
-      end,
+      measure = measureChoiceText,
       lineHeight = self.choiceText.fontDef.lineHeight,
-      draw = function(text, x, y)
-        self.choiceText:drawTextWithPalette(text, x, y, textPalette)
-      end,
+      draw = drawChoiceText,
     }
     for choice = 0, 1 do
       local entry = assert(layout.confirmationButtons[choice])

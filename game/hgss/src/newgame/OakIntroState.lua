@@ -353,13 +353,15 @@ function OakIntroState:_stepDialogue(snapshot)
     if view.confirmationChoice and view.confirmationChoice.kind == "name" then
       local frozen = candidate
       self._frozenStatus = frozen
+      local function frozenIsModal()
+        return true
+      end
+      local function frozenStatus()
+        return frozen
+      end
       self._frozenAdapter = {
-        isModal = function()
-          return true
-        end,
-        status = function()
-          return frozen
-        end,
+        isModal = frozenIsModal,
+        status = frozenStatus,
       }
     end
   end

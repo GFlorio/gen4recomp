@@ -42,14 +42,7 @@ mkdir -p \
 
 cp -- site/index.html site/styles.css "$SITE_ROOT/"
 
-git ls-files '*.lua' | while IFS= read -r path; do
-  case "$path" in
-    tests/*|*/tests/*|vendor/*|types/*|tools/*|scripts/*|site/*|.github/*|data/generated/*|data/scripts/overrides/*|.agents/*|.claude/*|.cache/*|import-output/*|tmp/*|log/*)
-      continue
-      ;;
-  esac
-  printf '%s\n' "$path"
-done > "$WORK_ROOT/production-lua-files.txt"
+python3 scripts/ci/source_scope.py --scope production > "$WORK_ROOT/production-lua-files.txt"
 
 if [ ! -s "$WORK_ROOT/production-lua-files.txt" ]; then
   echo "codehealth: production Lua manifest is empty" >&2
@@ -64,6 +57,10 @@ done < "$WORK_ROOT/production-lua-files.txt"
 FILE_LIST="$WORK_ROOT/production-lua-files.txt"
 lizard -l lua -t 4 -i -1 -f "$FILE_LIST" -H > "$REPORT_ROOT/lizard/index.html"
 lizard -l lua -t 4 -i -1 -f "$FILE_LIST" -V --csv > "$REPORT_ROOT/lizard/functions.csv"
+
+python3 scripts/ci/lua_policy.py \
+  --scope first-party \
+  --report "$REPORT_ROOT/lua-policy.json"
 
 (
   cd "$STRUCT_ROOT"
@@ -94,12 +91,16 @@ graphify export callflow-html \
   --output "$GRAPHIFY_REPORT_ROOT/callflow.html"
 
 python3 scripts/ci/codehealth_report.py --site-root tmp/codehealth-site
+python3 scripts/ci/check_structure_budget.py \
+  --report "$SITE_ROOT/codehealth/quality-report.json" \
+  --baseline scripts/ci/structure-baseline.json
 
 for required_file in \
   index.html \
   styles.css \
   codehealth/index.html \
   codehealth/quality-report.json \
+  codehealth/reports/lua-policy.json \
   codehealth/reports/lizard/index.html \
   codehealth/reports/lizard/functions.csv \
   codehealth/reports/jscpd/jscpd-report.html \

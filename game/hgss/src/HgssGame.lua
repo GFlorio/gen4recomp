@@ -113,10 +113,11 @@ function HgssGame.new(options)
   local saveValidation = GameSaveValidation.new({
     overrideFs = RepoFs.new(love.filesystem.getSourceBaseDirectory()),
   })
+  local function validateSaveRecord(record)
+    return saveValidation:validate(record)
+  end
   local saveStore = GameSaveStore.new(SaveFs.global(), {
-    recordValidate = function(record)
-      return saveValidation:validate(record)
-    end,
+    recordValidate = validateSaveRecord,
   })
   installRoutes(options, game, saveStore, saveValidation, versionId)
   return game

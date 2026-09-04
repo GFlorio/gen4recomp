@@ -7,6 +7,7 @@ import csv
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import types
@@ -45,6 +46,20 @@ class CodeHealthReportTest(unittest.TestCase):
             reports_root = site_root / "codehealth" / "reports"
             for report_directory in ("lizard", "jscpd", "graphify"):
                 (reports_root / report_directory).mkdir(parents=True)
+
+            for source_file, source in {
+                "game/a.lua": "return {}\n",
+                "game/b.lua": "return {}\nreturn {}\n",
+                "game/c.lua": "return {}\n",
+                "game/d.lua": "return {}\n",
+                "game/hgss/src/field/FieldRuntime.lua": "return {}\n-- concrete product source\n",
+                "libs/hgss/src/field/Map.lua": "return {}\n",
+            }.items():
+                path = site_root / source_file
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source, encoding="utf-8")
+            subprocess.run(["git", "init", "--quiet"], cwd=site_root, check=True)
+            subprocess.run(["git", "add", "."], cwd=site_root, check=True)
 
             (reports_root / "jscpd" / "jscpd-report.json").write_text(
                 json.dumps(
@@ -139,33 +154,34 @@ class CodeHealthReportTest(unittest.TestCase):
             ):
                 model = REPORT._build_model(site_root, site_root)
 
-            self.assertEqual(model["schemaVersion"], 3)
-            self.assertEqual(
-                set(model),
+            self.assertEqual(model["schemaVersion"], 4)
+            self.assertTrue(
                 {
                     "schemaVersion",
                     "commit",
                     "generatedAt",
                     "tools",
                     "scope",
+                    "source",
+                    "directories",
+                    "policy",
                     "complexity",
                     "duplication",
                     "architecture",
                     "structure",
-                },
+                }.issubset(model)
             )
-            self.assertNotIn("diagnostics", model)
             self.assertEqual(model["tools"], {"lizard": "test", "jscpd": "test", "graphify": "test"})
-            self.assertEqual(
-                model["scope"],
-                {
-                    "structural": "production-lua",
-                    "excludedPrefixes": REPORT.EXCLUDED_PREFIXES,
-                },
-            )
+            self.assertEqual(model["scope"]["structural"], "production-lua")
+            self.assertEqual(model["scope"]["excludedPrefixes"], REPORT.EXCLUDED_PREFIXES)
             self.assertNotIn("luaLanguageServer", model["tools"])
-            self.assertNotIn("diagnostics", model["scope"])
             self.assertNotIn("files", model["complexity"])
+            source_files = {row["path"]: row for row in model["source"]["files"]}
+            self.assertEqual(source_files["game/hgss/src/field/FieldRuntime.lua"]["physicalLines"], 2)
+            self.assertGreater(source_files["game/hgss/src/field/FieldRuntime.lua"]["bytes"], 0)
+            directories = {row["path"]: row for row in model["directories"]["files"]}
+            self.assertEqual(directories["libs/hgss/src/field"]["directProductionFiles"], 1)
+            self.assertEqual(model["policy"]["findings"], 0)
             structure = model["structure"]
             self.assertEqual(
                 structure["callableVisibility"]["lizardFunctions"],
@@ -236,6 +252,9 @@ class CodeHealthReportTest(unittest.TestCase):
 
             json.loads(json.dumps(model))
             summary = REPORT._render_summary(model).lower()
+            self.assertIn("source census", summary)
+            self.assertIn("directory density", summary)
+            self.assertIn("policy findings", summary)
             self.assertIn("luals", summary)
             self.assertIn("binding ci", summary)
             self.assertIn("visibility is a proxy", summary)
@@ -496,7 +515,7 @@ class CodeHealthReportTest(unittest.TestCase):
 
     def test_rendered_summary_has_relative_human_and_download_links(self) -> None:
         model = {
-            "schemaVersion": 3,
+            "schemaVersion": 4,
             "commit": "a" * 40,
             "generatedAt": "2026-01-01T00:00:00Z",
             "tools": {"lizard": "1.23.0", "jscpd": "5.0.16", "graphify": "0.9.50"},
@@ -504,6 +523,9 @@ class CodeHealthReportTest(unittest.TestCase):
             "complexity": {"functions": 1, "ccn": {"median": 1, "p90": 1, "p95": 1, "p99": 1, "max": 1}, "nloc": {"median": 1, "p95": 1, "max": 1}},
             "duplication": {"sources": 1, "clones": 0, "duplicatedLines": 0, "percentage": 0},
             "architecture": {"modules": 1, "nodes": 1, "edges": 1, "communities": 1, "importEdges": 1, "importCycleGroups": 0, "provenance": {"extracted": 1, "inferred": 0, "ambiguous": 0}},
+            "source": {"files": [{"path": "game/a.lua", "bytes": 10, "physicalLines": 1}]},
+            "directories": {"files": [{"path": "game", "directProductionFiles": 1}]},
+            "policy": {"findings": 0},
             "structure": {"callableVisibility": {"lizardFunctions": 1, "graphifyCallables": 1, "ratio": 1.0}, "files": [], "outliers": {"lowVisibility": [], "complexity": [], "fanOut": []}},
         }
         html = REPORT._render_summary(model)

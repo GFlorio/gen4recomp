@@ -7,6 +7,7 @@ import argparse
 import csv
 from datetime import datetime, timezone
 import html
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -168,6 +169,76 @@ def _normalize_source_file(source_file: Any, path: Path) -> str:
     if _is_excluded_source(normalized):
         raise ValueError(f"Graphify report {path} contains an excluded source_file {source_file!r}")
     return normalized
+
+
+def _load_source_scope():
+    module_path = Path(__file__).with_name("source_scope.py")
+    module_spec = importlib.util.spec_from_file_location("source_scope", module_path)
+    if module_spec is None or module_spec.loader is None:
+        raise ValueError(f"cannot load source scope from {module_path}")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module
+
+
+def _source_census(repository_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    source_scope = _load_source_scope()
+    production_paths = source_scope.paths_for_scope(repository_root, "production")
+    if not production_paths:
+        raise ValueError("source classification produced an empty production manifest")
+    source_files: list[dict[str, Any]] = []
+    directory_counts: dict[str, int] = {}
+    for source_file in production_paths:
+        source_path = repository_root / source_file
+        try:
+            raw = source_path.read_bytes()
+        except OSError as error:
+            raise ValueError(f"cannot read production source {source_file}: {error}") from error
+        source_files.append(
+            {
+                "path": source_file,
+                "bytes": len(raw),
+                "physicalLines": len(raw.decode("utf-8").splitlines()),
+            }
+        )
+        directory = str(Path(source_file).parent).replace("\\", "/")
+        directory_counts[directory] = directory_counts.get(directory, 0) + 1
+    directories = [
+        {"path": path, "directProductionFiles": count}
+        for path, count in sorted(directory_counts.items())
+    ]
+    return {"files": source_files}, {"files": directories}
+
+
+def _policy_report(site_root: Path, repository_root: Path) -> dict[str, Any]:
+    policy_path = site_root / "codehealth" / "reports" / "lua-policy.json"
+    if not policy_path.exists():
+        return {"findings": 0, "byKind": {}}
+    report = _load_json(policy_path)
+    findings = report.get("findings")
+    if not isinstance(findings, list):
+        raise ValueError(f"Lua policy report {policy_path} must contain findings")
+    source_scope = _load_source_scope()
+    tracked = set(source_scope.tracked_paths(repository_root))
+    normalized_findings: list[dict[str, Any]] = []
+    for finding in findings:
+        if not isinstance(finding, dict) or not isinstance(finding.get("path"), str):
+            raise ValueError(f"Lua policy report {policy_path} contains an invalid finding")
+        path = finding["path"].replace("\\", "/")
+        if path.startswith("/") or ".." in path.split("/") or path not in tracked:
+            raise ValueError(f"Lua policy report {policy_path} contains an out-of-scope path {path!r}")
+        normalized_findings.append(finding)
+    if normalized_findings != sorted(
+        normalized_findings, key=lambda finding: (finding["path"], finding.get("line", 0), finding.get("kind", ""))
+    ):
+        raise ValueError(f"Lua policy report {policy_path} findings are not deterministic")
+    by_kind: dict[str, int] = {}
+    for finding in normalized_findings:
+        kind = finding.get("kind")
+        if not isinstance(kind, str) or not kind:
+            raise ValueError(f"Lua policy report {policy_path} contains a finding without kind")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+    return {"findings": len(normalized_findings), "byKind": dict(sorted(by_kind.items()))}
 
 
 def _import_cycle_groups(adjacency: dict[Any, set[Any]]) -> int:
@@ -428,6 +499,9 @@ def _render_summary(model: dict[str, Any]) -> str:
     duplication = model["duplication"]
     architecture = model["architecture"]
     structure = model["structure"]
+    source = model["source"]
+    directories = model["directories"]
+    policy = model["policy"]
     visibility = structure["callableVisibility"]
     cards = (
         ("Functions", complexity["functions"]),
@@ -494,6 +568,18 @@ def _render_summary(model: dict[str, Any]) -> str:
         <div class="grid">
 {card_markup}
         </div>
+      </section>
+      <section class="panel" aria-labelledby="source-census-title">
+        <h2 id="source-census-title">Source census</h2>
+        <p>{value(len(source["files"]))} production Lua files, with bytes and physical-line measurements.</p>
+      </section>
+      <section class="panel" aria-labelledby="directory-density-title">
+        <h2 id="directory-density-title">Directory density</h2>
+        <p>{value(len(directories["files"]))} directories with direct production Lua files.</p>
+      </section>
+      <section class="panel" aria-labelledby="policy-findings-title">
+        <h2 id="policy-findings-title">Policy findings</h2>
+        <p>{value(policy["findings"])} report-mode Lua annotation and diagnostic findings.</p>
       </section>
       <section class="panel" aria-labelledby="tools-title">
         <h2 id="tools-title">Analyzer versions</h2>
@@ -562,8 +648,9 @@ def _build_model(site_root: Path, repository_root: Path) -> dict[str, Any]:
     architecture = {
         key: value for key, value in graphify.items() if key not in {"files", "extractedImportPairs"}
     }
+    source, directories = _source_census(repository_root)
     model = {
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "commit": _git_commit(repository_root),
         "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "tools": {
@@ -578,6 +665,9 @@ def _build_model(site_root: Path, repository_root: Path) -> dict[str, Any]:
         "complexity": complexity,
         "duplication": _parse_jscpd_report(report_paths["jscpd"]),
         "architecture": architecture,
+        "source": source,
+        "directories": directories,
+        "policy": _policy_report(site_root, repository_root),
         "structure": _build_structure_metrics(lizard, graphify),
     }
     return model
