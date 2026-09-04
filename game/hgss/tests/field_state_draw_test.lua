@@ -1134,26 +1134,63 @@ function T.presentation_sync_never_touches_simulation_side_avatar_references()
   state:dispose()
 end
 
-function T.surf_draw_items_reuse_the_shared_empty_draws_when_surf_is_inactive()
+function T.surf_draw_items_adapt_active_state_and_bypass_inactive_surf()
+  local anchor = { x = 2.25, y = 10.5, z = -3.75 }
+  local originalAnchor = { x = anchor.x, y = anchor.y, z = anchor.z }
+  local renderPositionCalls = 0
+  local surfActive = true
+  local capturedStatuses = {}
+  local drawItems = { { kind = "surf-attachment" } }
+  local player = {
+    facing = "east",
+    renderPosition = function(_, alpha)
+      Assert.equal(alpha, 0.25, "surf uses the frame's interpolated render alpha")
+      renderPositionCalls = renderPositionCalls + 1
+      return anchor
+    end,
+  }
   local state = setmetatable({
     runtime = {
       playerAvatar = {
         presentationState = function()
-          return { surf = { active = false, attachmentOffsetY = 0 } }
+          return { surf = { active = surfActive, attachmentOffsetY = 0.25 } }
         end,
       },
-      player = {},
+      player = player,
     },
-    fieldPlayerSurfRenderer = {
-      drawItems = function()
-        error("an inactive surf must not reach the surf renderer")
+    _surfPresentation = {
+      yawDegrees = { north = 211, south = 17, west = 293, east = 137 },
+    },
+    fieldSurfRenderer = {
+      drawItems = function(_, status)
+        capturedStatuses[#capturedStatuses + 1] = status
+        return drawItems
       end,
     },
   }, FieldState)
-  local first = state:_surfDrawItems(0.5)
-  local second = state:_surfDrawItems(0.5)
-  Assert.isTrue(first == second, "an inactive surf must reuse one shared empty draw list")
-  Assert.deepEqual(first, {})
+
+  local first = state:_surfDrawItems(0.25)
+  Assert.equal(#first, 1)
+  Assert.equal(first[1], drawItems[1])
+  Assert.equal(#capturedStatuses, 1)
+  local status = capturedStatuses[1]
+  Assert.isTrue(status.visible)
+  Assert.isFalse(status.position == anchor, "the normalized status owns an ephemeral position table")
+  Assert.deepEqual(status.position, { x = 2.25, y = 10.75, z = -3.75 })
+  Assert.equal(status.rotationDegrees, 137, "surf uses the generated yaw for the live facing")
+  Assert.equal(status.scale, 1)
+  Assert.equal(status.fieldEffect, "surf_attachment")
+  Assert.deepEqual(anchor, originalAnchor, "drawing must not mutate the player's render anchor")
+  Assert.equal(player.facing, "east", "drawing must not mutate the player's facing")
+  Assert.equal(renderPositionCalls, 1)
+
+  surfActive = false
+  local second = state:_surfDrawItems(0.25)
+  local third = state:_surfDrawItems(0.25)
+  Assert.isTrue(second == third, "an inactive surf must reuse one shared empty draw list")
+  Assert.deepEqual(second, {})
+  Assert.equal(#capturedStatuses, 1, "an inactive surf must bypass the renderer")
+  Assert.equal(renderPositionCalls, 1, "an inactive surf must not query the player anchor")
 end
 
 return { tests = T }

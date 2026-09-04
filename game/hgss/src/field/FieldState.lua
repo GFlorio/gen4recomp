@@ -10,8 +10,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 local FieldMenuRenderer = require("libs.hgss.src.ui.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.hgss.src.ui.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
-local FieldEntranceIndicatorRenderer = require("libs.hgss.src.presentation.FieldEntranceIndicatorRenderer")
-local FieldPlayerSurfRenderer = require("libs.hgss.src.presentation.FieldPlayerSurfRenderer")
+local FieldStaticEffectRenderer = require("libs.hgss.src.presentation.FieldStaticEffectRenderer")
 local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
 local FieldTerrainEffectRenderer = require("libs.hgss.src.presentation.FieldTerrainEffectRenderer")
 local GpuAssetPool = require("libs.hgss.src.presentation.GpuAssetPool")
@@ -54,7 +53,8 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _actorDrawStorage FieldActorDrawStorage
 ---@field _actorAssetLookup fun(spriteId: integer): table
 ---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, movement-emote, and terrain-effect draw arrays
----@field fieldPlayerSurfRenderer table? persistent player-relative surf attachment presenter
+---@field fieldSurfRenderer table? persistent player-relative surf attachment presenter
+---@field _surfPresentation table? borrowed generated surf attachment presentation configuration for yaw lookup
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field _entryFade StandardFade? one-shot covered-entry reveal, nil when inactive or complete
@@ -159,7 +159,7 @@ function FieldState.new(game, options)
     })
     self.fieldEntranceIndicatorPool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEntranceIndicatorRenderer =
-      FieldEntranceIndicatorRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
+      FieldStaticEffectRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
     -- The persistent player surf attachment shares the field-effect pool; the
     -- renderer owns no pool lifetime and draws only while surf is active. A
     -- ready cache always carries the compiled attachment, so a missing one
@@ -167,10 +167,8 @@ function FieldState.new(game, options)
     local surfEffects = runtime.fieldEntranceIndicatorAsset and runtime.fieldEntranceIndicatorAsset.effects
     local surfAttachment =
       assert(surfEffects and surfEffects.surf_attachment, "field-effect cache is missing surf_attachment")
-    self.fieldPlayerSurfRenderer = FieldPlayerSurfRenderer.new({
-      model = surfAttachment.model,
-      presentation = surfAttachment.presentation,
-    }, self.fieldEntranceIndicatorPool)
+    self._surfPresentation = assert(surfAttachment.presentation, "field-effect cache is missing surf presentation")
+    self.fieldSurfRenderer = FieldStaticEffectRenderer.new(surfAttachment.model, self.fieldEntranceIndicatorPool)
     self.fieldEmotePool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEmoteRenderer = FieldActorEmoteRenderer.new(runtime.fieldEmoteModels, self.fieldEmotePool)
     if runtime.fieldEffectAssets and runtime.fieldEffectAssets.effects then
@@ -332,7 +330,7 @@ end
 ---@param alpha number
 ---@return table[]
 function FieldState:_surfDrawItems(alpha)
-  local renderer = self.fieldPlayerSurfRenderer
+  local renderer = self.fieldSurfRenderer
   if renderer == nil then
     return NO_DRAWS
   end
@@ -346,11 +344,18 @@ function FieldState:_surfDrawItems(alpha)
     return NO_DRAWS
   end
   local anchor = runtime.player:renderPosition(alpha)
+  local surfPresentation = assert(self._surfPresentation, "surf presentation is unavailable")
+  local yaw = assert(surfPresentation.yawDegrees[runtime.player.facing], "surf presentation is missing facing yaw")
   return renderer:drawItems({
-    active = true,
-    position = anchor,
-    facing = runtime.player.facing,
-    attachmentOffsetY = presentation.surf.attachmentOffsetY,
+    visible = true,
+    position = {
+      x = anchor.x,
+      y = anchor.y + presentation.surf.attachmentOffsetY,
+      z = anchor.z,
+    },
+    rotationDegrees = yaw,
+    scale = 1,
+    fieldEffect = "surf_attachment",
   })
 end
 
@@ -1005,9 +1010,9 @@ function FieldState:dispose()
     self.fieldEntranceIndicatorRenderer:dispose()
     self.fieldEntranceIndicatorRenderer = nil
   end
-  if self.fieldPlayerSurfRenderer then
-    self.fieldPlayerSurfRenderer:dispose()
-    self.fieldPlayerSurfRenderer = nil
+  if self.fieldSurfRenderer then
+    self.fieldSurfRenderer:dispose()
+    self.fieldSurfRenderer = nil
   end
   if self.fieldTerrainEffectRenderer then
     self.fieldTerrainEffectRenderer:dispose()

@@ -1,6 +1,6 @@
--- Presentation adapter for the normalized directional entrance effect. The
--- field presentation owns the GPU pool; this adapter only assembles
--- world-space draw items from the current indicator status.
+-- Presentation adapter for normalized static field-effect draw items. The
+-- field presentation owns the GPU pool; this adapter prepares one static model
+-- and assembles world-space draw items from its current status.
 
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
@@ -54,11 +54,15 @@ function Renderer.new(model, pool)
 end
 
 function Renderer:drawItems(status)
-  if not status or not status.visible or not status.position then
+  if not status or not status.visible then
+    return {}
+  end
+  local position = status.position
+  if type(position) ~= "table" or position.x == nil or position.y == nil or position.z == nil then
     return {}
   end
   local transform = Matrix4.multiply(
-    Matrix4.translate(status.position.x, status.position.y, status.position.z),
+    Matrix4.translate(position.x, position.y, position.z),
     Matrix4.multiply(
       Matrix4.rotateY(math.rad(status.rotationDegrees)),
       Matrix4.scale(status.scale, status.scale, status.scale)

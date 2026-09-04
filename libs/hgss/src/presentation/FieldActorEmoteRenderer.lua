@@ -1,7 +1,7 @@
 -- Presentation adapter for the movement-emote billboard (currently
 -- exclamation only; other decoded emote kinds draw nothing until a proven
--- source model is compiled for them). Mirrors
--- FieldEntranceIndicatorRenderer's pool/material preparation, but its
+-- source model is compiled for them). Mirrors the static field-effect
+-- renderer's pool/material preparation, but its
 -- "status" input is one entry per acting field actor instead of one player
 -- state: every draw record whose activeEmoteKind names a compiled kind gets
 -- one draw item, positioned at the actor's own world position (matching the
