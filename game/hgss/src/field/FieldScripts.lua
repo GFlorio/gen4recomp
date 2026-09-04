@@ -26,6 +26,7 @@ local MapInitScriptController = require("libs.hgss.src.field.MapInitScriptContro
 ---@class ScriptPlayerFacade
 ---@field private _player FieldPlayer|nil
 ---@field private _profile table|nil { gender: integer, name: string }
+---@field private _avatarState table|nil avatar transition owner for queue/apply consumers
 local ScriptPlayerFacade = {}
 ScriptPlayerFacade.__index = ScriptPlayerFacade
 
@@ -40,6 +41,18 @@ end
 
 function ScriptPlayerFacade:setPlayer(player)
   self._player = player
+end
+
+-- Wire the avatar transition owner once the composition owns one; transition
+-- queue/apply consumers reach it through this facade only.
+---@param avatarState table
+function ScriptPlayerFacade:setAvatarState(avatarState)
+  self._avatarState = avatarState
+end
+
+---@return table
+function ScriptPlayerFacade:avatarState()
+  return assert(self._avatarState, "player facade has no avatar transition owner")
 end
 
 -- Wire the real player profile (gender and name) when the game owns one;
@@ -150,6 +163,7 @@ end
 ---@field menu FieldMenuHost modal field menu host
 ---@field startMenuReopen table|nil optional { request: fun() } service for the opcode-61 Start Menu reopen (absent -> SCRIPT_SERVICE_MISSING on use)
 ---@field effects table|nil semantic field-effect controller (absent -> SCRIPT_SERVICE_MISSING on reveal)
+---@field playerAvatar table|nil avatar transition owner wired into the player facade
 
 ---@class FieldScripts
 ---@field registry table
@@ -221,6 +235,11 @@ function FieldScripts.new(opts)
   -- fabricating values.
   if opts.profile ~= nil then
     player:setProfile(opts.profile)
+  end
+  -- The avatar transition owner is runtime-owned; the facade only carries it
+  -- for transition queue/apply consumers.
+  if opts.playerAvatar ~= nil then
+    player:setAvatarState(opts.playerAvatar)
   end
   local actors = ScriptActorWorld.new(opts.actors --[[@as ScriptActorManager]], player)
   local dialogueHost = ScriptDialogueHost.new({

@@ -11,6 +11,7 @@ local FieldMenuRenderer = require("libs.hgss.src.ui.FieldMenuRenderer")
 local FieldSignpostRenderer = require("libs.hgss.src.ui.FieldSignpostRenderer")
 local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
 local FieldEntranceIndicatorRenderer = require("libs.hgss.src.presentation.FieldEntranceIndicatorRenderer")
+local FieldPlayerSurfRenderer = require("libs.hgss.src.presentation.FieldPlayerSurfRenderer")
 local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
 local FieldTerrainEffectRenderer = require("libs.hgss.src.presentation.FieldTerrainEffectRenderer")
 local GpuAssetPool = require("libs.hgss.src.presentation.GpuAssetPool")
@@ -53,6 +54,7 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _actorDrawStorage FieldActorDrawStorage
 ---@field _actorAssetLookup fun(spriteId: integer): table
 ---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, movement-emote, and terrain-effect draw arrays
+---@field fieldPlayerSurfRenderer table? persistent player-relative surf attachment presenter
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field _entryFade StandardFade? one-shot covered-entry reveal, nil when inactive or complete
@@ -158,6 +160,17 @@ function FieldState.new(game, options)
     self.fieldEntranceIndicatorPool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEntranceIndicatorRenderer =
       FieldEntranceIndicatorRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
+    -- The persistent player surf attachment shares the field-effect pool; the
+    -- renderer owns no pool lifetime and draws only while surf is active. A
+    -- ready cache always carries the compiled attachment, so a missing one
+    -- fails the boot loudly instead of drawing an invisibly missing surf.
+    local surfEffects = runtime.fieldEntranceIndicatorAsset and runtime.fieldEntranceIndicatorAsset.effects
+    local surfAttachment =
+      assert(surfEffects and surfEffects.surf_attachment, "field-effect cache is missing surf_attachment")
+    self.fieldPlayerSurfRenderer = FieldPlayerSurfRenderer.new({
+      model = surfAttachment.model,
+      presentation = surfAttachment.presentation,
+    }, self.fieldEntranceIndicatorPool)
     self.fieldEmotePool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEmoteRenderer = FieldActorEmoteRenderer.new(runtime.fieldEmoteModels, self.fieldEmotePool)
     if runtime.fieldEffectAssets and runtime.fieldEffectAssets.effects then
@@ -313,6 +326,34 @@ function FieldState:_actorDraws(alpha)
   return FieldActorDraw.itemsInto(records, assetLookup, storage)
 end
 
+-- The surf attachment follows the player's interpolated render position, so
+-- it is drawn only when the avatar owner reports an active surf, using the
+-- same fixed-tick phase the session steps and the live attachment offset.
+---@param alpha number
+---@return table[]
+function FieldState:_surfDrawItems(alpha)
+  local renderer = self.fieldPlayerSurfRenderer
+  if renderer == nil then
+    return NO_DRAWS
+  end
+  local runtime = assert(self.runtime, "field runtime is unavailable")
+  local avatar = runtime.playerAvatar
+  if avatar == nil then
+    return NO_DRAWS
+  end
+  local presentation = avatar:presentationState()
+  if not presentation.surf.active then
+    return NO_DRAWS
+  end
+  local anchor = runtime.player:renderPosition(alpha)
+  return renderer:drawItems({
+    active = true,
+    position = anchor,
+    facing = runtime.player.facing,
+    attachmentOffsetY = presentation.surf.attachmentOffsetY,
+  })
+end
+
 -- Refresh the persistent ordered scene parts: the session-owned physical
 -- window when outdoor cells are active, otherwise the full logical scene,
 -- then actors and transient effects. Logical scene geometry is retained for
@@ -351,6 +392,9 @@ function FieldState:_worldParts(alpha)
     end
   end
   worldParts[6] = worldActorItems
+  for _, item in ipairs(self:_surfDrawItems(alpha)) do
+    worldActorItems[#worldActorItems + 1] = item
+  end
   -- _actorDraws (above) refreshed self._actorRecords with this frame's
   -- presentation-neutral records, which is the only place activeEmoteKind
   -- survives; FieldActorDraw's rendered items do not carry it.
@@ -960,6 +1004,10 @@ function FieldState:dispose()
   if self.fieldEntranceIndicatorRenderer then
     self.fieldEntranceIndicatorRenderer:dispose()
     self.fieldEntranceIndicatorRenderer = nil
+  end
+  if self.fieldPlayerSurfRenderer then
+    self.fieldPlayerSurfRenderer:dispose()
+    self.fieldPlayerSurfRenderer = nil
   end
   if self.fieldTerrainEffectRenderer then
     self.fieldTerrainEffectRenderer:dispose()

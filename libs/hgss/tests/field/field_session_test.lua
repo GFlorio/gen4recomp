@@ -3744,4 +3744,91 @@ function T.warp_gestures_remain_idle_while_vertical_offset_progresses_through_co
   runWarp("warp_in", warpInOffsets)
 end
 
+function T.supplied_avatar_state_advances_once_per_fixed_tick_in_every_branch()
+  local function avatarFake()
+    local fake = { updates = 0 }
+    function fake:updateFixed()
+      self.updates = self.updates + 1
+    end
+    return fake
+  end
+  local function sessionWithAvatar(overrides)
+    local avatar = avatarFake()
+    local options = baseOptions({ playerAvatar = avatar })
+    for key, value in pairs(overrides or {}) do
+      options[key] = value
+    end
+    -- baseOptions replaces the whole table entry, so re-attach the avatar
+    -- after overrides are applied.
+    options.playerAvatar = avatar
+    return FieldSession.new(options), avatar
+  end
+
+  local ordinary, ordinaryAvatar = sessionWithAvatar()
+  ordinary:updateFixed({})
+  Assert.equal(ordinaryAvatar.updates, 1, "an ordinary tick advances the avatar presentation once")
+  ordinary:updateFixed({})
+  Assert.equal(ordinaryAvatar.updates, 2, "the next tick advances it exactly once more")
+
+  local dialogue, dialogueAvatar = sessionWithAvatar({
+    dialogue = {
+      isModal = function()
+        return true
+      end,
+      step = function() end,
+    },
+  })
+  dialogue:updateFixed({})
+  Assert.equal(dialogueAvatar.updates, 1, "a dialogue-owned tick still advances the surf phase")
+
+  local application, applicationAvatar = sessionWithAvatar({
+    applicationHost = applicationHostFake({ active = true }),
+  })
+  application:updateFixed({})
+  Assert.equal(applicationAvatar.updates, 1, "an application-owned tick still advances the surf phase")
+
+  local transition, transitionAvatar = sessionWithAvatar({
+    player = {
+      fieldX = 4,
+      fieldZ = 13,
+      worldX = 0,
+      worldY = 0,
+      worldZ = 0,
+      surfaceId = 0,
+      facing = "south",
+      motion = "walking",
+      updateFixed = function()
+        return false
+      end,
+      collapseRenderInterpolation = function() end,
+      collisionCandidates = function(self)
+        return { { fieldX = self.fieldX, fieldZ = self.fieldZ, surfaceId = self.surfaceId } }
+      end,
+      clearGesturePresentation = function() end,
+      presentationState = function(self)
+        local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+        return {
+          locomotionActive = locomotionActive,
+          gesturePose = nil,
+          gestureTick = nil,
+          gestureOffsetY = 0,
+        }
+      end,
+    },
+    transition = {
+      phase = "fade_in",
+      locked = true,
+      completed = nil,
+      updateFixed = function()
+        return false
+      end,
+      start = function()
+        error("avatar fixture never starts a warp", 2)
+      end,
+    },
+  })
+  transition:updateFixed({})
+  Assert.equal(transitionAvatar.updates, 1, "a transition-owned tick still advances the surf phase")
+end
+
 return { tests = T }

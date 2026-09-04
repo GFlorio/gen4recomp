@@ -63,7 +63,15 @@ local function boot(withCover)
     return setmetatable({
       cacheFs = cache,
       uiManifest = FieldUiFixture.manifest(),
-      fieldEntranceIndicatorAsset = { model = { batches = {}, materials = {} } },
+      fieldEntranceIndicatorAsset = {
+        model = { batches = {}, materials = {} },
+        effects = {
+          surf_attachment = {
+            model = { batches = {}, materials = {} },
+            presentation = { yawDegrees = { north = 180, south = 0, west = 270, east = 90 } },
+          },
+        },
+      },
       fieldEmoteModels = {
         exclamation = {
           schema = "g4-field-emote-v1",

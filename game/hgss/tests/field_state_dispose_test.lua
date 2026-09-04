@@ -104,7 +104,6 @@ local function disposableState()
     signpost = resources.signpost,
     messageProvider = resources.messageProvider,
     actors = resources.actors,
-    avatarAsset = {},
     actorAssets = resources.actorAssets,
     mapLoader = resources.mapLoader,
     saveStore = resources.saveStore,
@@ -144,7 +143,7 @@ function T.dispose_releases_each_resource_without_saving()
   Assert.equal(resources.trainerCardRenderer.calls, 1, "disposal releases the trainer card renderer once")
   Assert.equal(resources.messageProvider.calls, 1)
   Assert.equal(resources.actors.calls, 1)
-  Assert.equal(resources.actorAssets.releaseCalls, 1)
+  Assert.equal(resources.actorAssets.releaseCalls, 0, "no fixed simulation-side avatar reference remains to release")
   Assert.equal(resources.actorAssets.calls, 1)
   Assert.equal(resources.renderer.calls, 1)
   Assert.equal(resources.mapLoader.calls, 1)

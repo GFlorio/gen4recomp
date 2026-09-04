@@ -31,6 +31,7 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
+local FieldPlayerAvatarState = require("libs.hgss.src.field.FieldPlayerAvatarState")
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
 local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
 local GameSave = require("libs.hgss.src.save.GameSave")
@@ -180,6 +181,8 @@ end
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 ---@field savePublished boolean whether the reserved record has been published
 ---@field playerData table the validated profile/options authority (PlayerData shape)
+---@field avatar table the gender-selected compiled avatar capability
+---@field playerAvatar FieldPlayerAvatarState? the one avatar transition owner
 ---@field session FieldSession
 ---@field actors FieldActorManager
 ---@field dialogue FieldDialogueController?
@@ -258,10 +261,17 @@ local function validateAvatarConfig(avatars)
   for _, avatar in ipairs(avatars) do
     assert(type(avatar) == "table", "field actor avatar metadata must be a table")
     assert(type(avatar.id) == "string" and avatar.id ~= "", "field actor avatar id must be a non-empty string")
+    assert(type(avatar.states) == "table", "field actor avatar states must be a visual-state map")
     assert(
-      type(avatar.spriteId) == "number" and avatar.spriteId >= 0 and avatar.spriteId % 1 == 0,
-      "field actor avatar spriteId must be a non-negative integer"
+      type(avatar.states.walking) == "number" and avatar.states.walking >= 0 and avatar.states.walking % 1 == 0,
+      "field actor avatar walking state must be a compiled spriteId"
     )
+    for state, spriteId in pairs(avatar.states) do
+      assert(
+        type(state) == "string" and type(spriteId) == "number" and spriteId >= 0 and spriteId % 1 == 0,
+        "field actor avatar states must map visual states to compiled spriteIds"
+      )
+    end
     assert(PlayerData.GENDERS[avatar.gender] == true, "field actor avatar gender is unsupported")
     assert(genders[avatar.gender] == nil, "field actor index contains duplicate playable avatar genders")
     genders[avatar.gender] = true
@@ -736,15 +746,24 @@ function FieldRuntime:_load()
       policy = { variableSprites = self.actorConfig.variableSprites },
     })
 
-    -- The player's graphic is one more compiled actor visual: it is acquired from
-    -- the same reference-counted provider, and FieldPlayer keeps every bit of
-    -- movement authority. The avatar is derived from the validated player
-    -- profile and the generated avatar capabilities.
+    -- The player's graphic is one more compiled actor visual: FieldPlayer
+    -- keeps every bit of movement authority while the avatar transition owner
+    -- selects which compiled visual presents it. Dynamic residency stays with
+    -- FieldState; the simulation side holds no fixed avatar asset.
     self.avatar = avatarForGender(self.actorConfig.avatars, self.playerData.profile.gender)
-    self.avatarAsset = self.actorAssets:acquire(self.avatar.spriteId)
+    local initialAvatarState = "walking"
+    if loadedGame and loadedGame.avatar then
+      initialAvatarState = loadedGame.avatar.state
+    end
+    self.playerAvatar = FieldPlayerAvatarState.new({
+      capability = self.avatar,
+      surfPresentation = self.fieldEffectAssets.effects.surf_attachment.presentation,
+      initialState = initialAvatarState,
+    })
     self.playerVisual = FieldPlayerVisual.new({
       player = self.player,
-      spriteId = self.avatar.spriteId,
+      spriteId = self.playerAvatar:currentSpriteId(),
+      playerAvatar = self.playerAvatar,
     })
 
     -- Warp resolution is owned by WarpSystem through FieldTransition's
@@ -974,6 +993,7 @@ function FieldRuntime:_load()
       eventState = self.eventState,
       actors = self.actors,
       player = self.player,
+      playerAvatar = self.playerAvatar,
       profile = self.playerData.profile,
       dialogue = self.dialogue,
       messageProvider = self.messageProvider,
@@ -1112,6 +1132,7 @@ function FieldRuntime:_load()
       enterMapActors = enterMapActors,
       autoAcknowledgePresentation = not self.presentation,
       terrainEffects = self.fieldTerrainEffectController,
+      playerAvatar = self.playerAvatar,
     })
 
     if loadedGame and loadedGame.weatherId ~= nil then
@@ -1403,6 +1424,27 @@ function FieldRuntime:_composeAudio(cacheFs, restoredAudio)
   return audioService
 end
 
+-- Materialize pending avatar transitions: apply them in source order through
+-- the transition owner, swap the player visual when the graphic changed, and
+-- play the ordered sound intents through the field audio service. The owner
+-- holds all durable/visual/pending state; the runtime keeps no copy.
+---@return { spriteId: integer, spriteChanged: boolean, sounds: string[] }
+function FieldRuntime:applyAvatarTransitions()
+  local avatar = assert(self.playerAvatar, "field runtime has no avatar transition owner")
+  local result = avatar:applyTransitions()
+  if result.spriteChanged then
+    assert(self.playerVisual, "field runtime has no player visual"):setAvatar(result.spriteId)
+  end
+  if #result.sounds > 0 then
+    local audio = self.audio or (self.scriptHosts and self.scriptHosts.audio)
+    assert(audio and type(audio.play) == "function", "field avatar transition audio host required")
+    for _, symbol in ipairs(result.sounds) do
+      audio:play(symbol)
+    end
+  end
+  return result
+end
+
 -- Capture the current field session for the explicit-save owner. This boundary
 -- only builds and validates a snapshot; publication belongs to storage.
 ---@return table? snapshot
@@ -1411,6 +1453,9 @@ end
 function FieldRuntime:_captureGameSave(allowMenu)
   if not canCapture(self.session, allowMenu == true) then
     return nil, "Save deferred: movement, transition, or modal state is active"
+  end
+  if self.playerAvatar and not self.playerAvatar:isStableForSave() then
+    return nil, "Save deferred: avatar transition state is not stable"
   end
 
   local session = self.session
@@ -1441,6 +1486,9 @@ function FieldRuntime:_captureGameSave(allowMenu)
     auxiliaryUi = self.auxiliaryFieldUi:capture(),
     audio = FieldAudioSave.capture(self.audio),
   }
+  if self.playerAvatar then
+    snapshot.avatar = self.playerAvatar:capture()
+  end
 
   local valid, validationErr = self.saveValidation:validate(snapshot)
   if not valid then
@@ -1593,7 +1641,8 @@ function FieldRuntime:_prepareSwap(resolution, facing)
   camera:setZoom(self.zoom:effectiveZoom())
   local playerVisual = FieldPlayerVisual.new({
     player = player,
-    spriteId = self.avatar.spriteId,
+    spriteId = assert(self.playerAvatar, "field runtime has no avatar transition owner"):currentSpriteId(),
+    playerAvatar = self.playerAvatar,
   })
   local physical = (resolution.physical and resolution.physical.coverage) or nil
   local residency = assert(self.residency):prepareTransition(runtimeMap, physical)
@@ -1751,10 +1800,7 @@ function FieldRuntime:_releaseAll()
   if self.actors then
     self.actors:dispose()
   end
-  if self.avatarAsset and self.actorAssets then
-    self.actorAssets:release(self.avatarAsset.spriteId)
-  end
-  self.avatarAsset, self.playerVisual = nil, nil
+  self.playerVisual = nil
   if self.actorAssets then
     self.actorAssets:dispose()
   end
@@ -1778,6 +1824,7 @@ function FieldRuntime:_releaseAll()
   self.viewport, self.input, self.menuHost = nil, nil, nil
   self.auxiliaryFieldUi, self.contextChoiceProvider, self.interactionResolver = nil, nil, nil
   self.eventState, self.avatar, self.actorConfig, self.playerData = nil, nil, nil, nil
+  self.playerAvatar = nil
   self.windowStyles, self.uiManifest, self.weatherCatalog = nil, nil, nil
 end
 

@@ -1075,4 +1075,85 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
   Assert.equal(failedSession.mapEntryStage, "await_presentation")
 end
 
+function T.avatar_sprite_change_acquires_before_releasing_without_churn()
+  local assets = presentationAssets({ [1001] = presentationEntry(1001), [1008] = presentationEntry(1008) })
+  local state, _ = presentationState(assets, {})
+  state.runtime.playerVisual.spriteId = 1001
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[1001], 1)
+
+  local order = {}
+  local sequencedAcquire = assets.acquire
+  local sequencedRelease = assets.release
+  assets.acquire = function(self, spriteId)
+    order[#order + 1] = "acquire:" .. spriteId
+    return sequencedAcquire(self, spriteId)
+  end
+  assets.release = function(self, spriteId)
+    order[#order + 1] = "release:" .. spriteId
+    return sequencedRelease(self, spriteId)
+  end
+
+  state.runtime.playerVisual.spriteId = 1008
+  state:update(0.016)
+  Assert.deepEqual(
+    order,
+    { "acquire:1008", "release:1001" },
+    "the replacement sprite must be resident before the old one is released"
+  )
+
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[1008], 1, "an unchanged avatar sprite must not churn resources")
+  Assert.equal(assets.releases[1001], 1)
+
+  state.runtime.playerVisual.spriteId = 1001
+  state:update(0.016)
+  Assert.equal(assets.acquisitions[1001], 2, "returning to the earlier visual re-acquires it")
+  state:dispose()
+end
+
+function T.presentation_sync_never_touches_simulation_side_avatar_references()
+  local assets = presentationAssets({ [1001] = presentationEntry(1001), [1010] = presentationEntry(1010) })
+  local state, _ = presentationState(assets, {})
+  local simulationCalls = 0
+  ---@diagnostic disable-next-line: missing-fields -- focused recording double, never a real provider
+  state.runtime.actorAssets = {
+    acquire = function()
+      simulationCalls = simulationCalls + 1
+    end,
+    release = function()
+      simulationCalls = simulationCalls + 1
+    end,
+  }
+  state.runtime.playerVisual.spriteId = 1001
+  state:update(0.016)
+  state.runtime.playerVisual.spriteId = 1010
+  state:update(0.016)
+  Assert.equal(simulationCalls, 0, "dynamic residency must not acquire or release simulation-side references")
+  state.runtime.actorAssets = nil
+  state:dispose()
+end
+
+function T.surf_draw_items_reuse_the_shared_empty_draws_when_surf_is_inactive()
+  local state = setmetatable({
+    runtime = {
+      playerAvatar = {
+        presentationState = function()
+          return { surf = { active = false, attachmentOffsetY = 0 } }
+        end,
+      },
+      player = {},
+    },
+    fieldPlayerSurfRenderer = {
+      drawItems = function()
+        error("an inactive surf must not reach the surf renderer")
+      end,
+    },
+  }, FieldState)
+  local first = state:_surfDrawItems(0.5)
+  local second = state:_surfDrawItems(0.5)
+  Assert.isTrue(first == second, "an inactive surf must reuse one shared empty draw list")
+  Assert.deepEqual(first, {})
+end
+
 return { tests = T }

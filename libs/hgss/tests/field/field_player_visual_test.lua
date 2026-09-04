@@ -559,4 +559,58 @@ function T.scripted_walk_family_still_advances_through_presentation_snapshot()
   Assert.equal(presentation.pose, "idle")
 end
 
+function T.avatar_offset_combines_with_gesture_offset_exactly_once()
+  local AvatarState = require("libs.hgss.src.field.FieldPlayerAvatarState")
+  local states = {
+    walking = 1001,
+    cycling = 1002,
+    surfing = 1003,
+    watering = 1004,
+    fishing = 1005,
+    poketch = 1006,
+    saving = 1007,
+    heal = 1008,
+    ladder = 1009,
+    rocket = 1010,
+    rocket_heal = 1011,
+    pokeathlon = 1012,
+    apricorn_shake = 1013,
+    rocket_saving = 1014,
+  }
+  local surfPresentation = {
+    initialPlayerOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+    oscillator = { initialY = 1 / 16, minY = 1 / 16, maxY = 4 / 16, stepY = (1 / 4) / 16 },
+    playerBaseOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+    attachmentBaseOffset = { x = 0, y = -1 / 16, z = 0 },
+    yawDegrees = { north = 180, south = 0, west = 270, east = 90 },
+  }
+  local avatar = AvatarState.new({
+    capability = { id = "hero", gender = 0, states = states },
+    surfPresentation = surfPresentation,
+  })
+  avatar:queueTransition("surfing")
+  local applied = avatar:applyTransitions()
+  Assert.equal(applied.spriteId, 1003)
+  avatar:updateFixed()
+
+  local subject = player()
+  local logicalBefore = { x = subject.worldX, y = subject.worldY, z = subject.worldZ }
+  local presentation = FieldPlayerVisual.new({
+    player = subject,
+    spriteId = applied.spriteId,
+    playerAvatar = avatar,
+  })
+  local record = presentation:drawRecord(1)
+  Assert.near(record.world.x, 2, 1e-9)
+  Assert.near(record.world.y, 0.5 + 0.328125, 1e-9, "the surf bob is added to the draw Y exactly once")
+  Assert.near(record.world.z, 3 + 0.25, 1e-9)
+  Assert.equal(subject.worldX, logicalBefore.x, "the avatar offset never touches logical coordinates")
+  Assert.equal(subject.worldY, logicalBefore.y)
+  Assert.equal(subject.worldZ, logicalBefore.z)
+
+  subject._gestureOffsetY = 5
+  local withGesture = presentation:drawRecord(1)
+  Assert.near(withGesture.world.y, 0.5 + 0.328125 + 5, 1e-9, "avatar and gesture offsets compose additively")
+end
+
 return { tests = T }

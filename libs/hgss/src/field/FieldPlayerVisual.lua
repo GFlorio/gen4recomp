@@ -27,10 +27,12 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 ---@class FieldPlayerVisual.Options
 ---@field player FieldPlayer|FieldPlayerVisual.Source
 ---@field spriteId integer?
+---@field playerAvatar FieldPlayerAvatarState? surf-phase owner supplying the presentation offset
 
 ---@class FieldPlayerVisual
 ---@field actorId string
 ---@field player FieldPlayerVisual.Source
+---@field playerAvatar FieldPlayerAvatarState?
 ---@field spriteId integer?
 ---@field pose string
 ---@field poseTick integer
@@ -51,6 +53,7 @@ function FieldPlayerVisual.new(opts)
   local self = setmetatable({
     actorId = FieldPlayerVisual.ACTOR_ID,
     player = opts.player,
+    playerAvatar = opts.playerAvatar,
     spriteId = nil,
     pose = "idle",
     poseTick = 0,
@@ -116,17 +119,24 @@ function FieldPlayerVisual:status()
   return { pose = self.pose, poseTick = self.poseTick }
 end
 
--- `alpha` is the render interpolation factor of the current fixed step.
+-- `alpha` is the render interpolation factor of the current fixed step. The
+-- avatar offset (surf bob) is presentation-only: it is added to the draw
+-- record exactly once alongside the gesture offset and never touches the
+-- player's logical coordinates.
 function FieldPlayerVisual:drawRecord(alpha)
   local point = self.player:renderPosition(alpha)
   local snapshot = self.player:presentationState()
   local record = self._drawRecord
   local gestureOffsetY = snapshot.gestureOffsetY or 0
+  local avatarOffset = { x = 0, y = 0, z = 0 }
+  if self.playerAvatar then
+    avatarOffset = self.playerAvatar:presentationState().playerOffset
+  end
   record.actorId = self.actorId
   record.spriteId = self.spriteId
-  record.world.x = point.x
-  record.world.y = point.y + gestureOffsetY
-  record.world.z = point.z
+  record.world.x = point.x + avatarOffset.x
+  record.world.y = point.y + avatarOffset.y + gestureOffsetY
+  record.world.z = point.z + avatarOffset.z
   record.facing = self.player.facing
   record.pose = self.pose
   record.poseTick = self.poseTick

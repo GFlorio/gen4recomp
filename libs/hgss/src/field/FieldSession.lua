@@ -50,6 +50,7 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field terrainEffects FieldTerrainEffectController?
+---@field playerAvatar FieldPlayerAvatarState? surf-phase owner stepped once per fixed tick
 ---@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
 ---@field navigationBoundary table?
 ---@field initController table|nil
@@ -80,6 +81,7 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field terrainEffects FieldTerrainEffectController?
+---@field playerAvatar FieldPlayerAvatarState? surf-phase owner stepped once per fixed tick
 ---@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
 ---@field initController table|nil
 ---@field enterMapActors fun()?
@@ -226,6 +228,7 @@ function FieldSession.new(options)
     applicationHost = options.applicationHost,
     fieldEntranceIndicator = options.fieldEntranceIndicator,
     terrainEffects = options.terrainEffects,
+    playerAvatar = options.playerAvatar,
     audio = options.audio,
     initController = options.initController,
     enterMapActors = options.enterMapActors,
@@ -517,6 +520,12 @@ function FieldSession:updateFixed(inputSnapshot)
   -- and changed-zone audio are owned by FieldAudioController:enterMap and
   -- FieldAudioController:enterZone respectively.
   inputSnapshot = inputSnapshot or self.input:snapshot()
+  -- The avatar presentation phase advances once per fixed tick before any
+  -- modal branch can return, so the surf bob runs on the field cadence even
+  -- while ordinary world simulation is frozen.
+  if self.playerAvatar then
+    self.playerAvatar:updateFixed()
+  end
   local carriedBoundaryDirection = self._boundaryMovementDirection
   self._boundaryMovementDirection = nil
   if self.terrainEffects then

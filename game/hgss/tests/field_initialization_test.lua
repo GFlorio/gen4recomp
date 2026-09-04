@@ -67,7 +67,7 @@ local function withFreshGender(gender, expectedId, expectedSpriteId)
     })
     Assert.equal(game.runtime.playerData.profile.gender, gender)
     Assert.equal(game.runtime.avatar.id, expectedId)
-    Assert.equal(game.runtime.avatar.spriteId, expectedSpriteId)
+    Assert.equal(game.runtime.avatar.states.walking, expectedSpriteId)
   end, debug.traceback)
   if game then
     local closeOk, closeErr = pcall(function()

@@ -45,6 +45,34 @@ local function safeComponent(value)
   return type(value) == "string" and value ~= "" and value:match("^[%w%-_]+$") ~= nil
 end
 
+-- Only durable avatar modes persist. A missing record canonicalizes to
+-- walking (every save produced before avatar state existed boots walking);
+-- any present malformed record is rejected.
+local DURABLE_AVATAR_STATES = {
+  walking = true,
+  cycling = true,
+  surfing = true,
+  rocket = true,
+}
+
+local function validateAvatar(record)
+  if record.avatar == nil then
+    return { state = "walking" }
+  end
+  local avatar = record.avatar
+  if type(avatar) ~= "table" then
+    Errors.raise(GameSaveErrors.GAME_SAVE_FIELD_INVALID, "game save avatar must be a table", {})
+  end
+  local fieldCount = 0
+  for _ in pairs(avatar) do
+    fieldCount = fieldCount + 1
+  end
+  if fieldCount ~= 1 or type(avatar.state) ~= "string" or DURABLE_AVATAR_STATES[avatar.state] ~= true then
+    Errors.raise(GameSaveErrors.GAME_SAVE_FIELD_INVALID, "game save avatar state is invalid", { avatar = avatar })
+  end
+  return { state = avatar.state }
+end
+
 local function validateSaveIdRaised(saveId)
   if not safeComponent(saveId) then
     Errors.raise(
@@ -179,6 +207,7 @@ local function validate(record, opts)
   local canonicalScripts = validateBucket(record, "scripts", opts, "scriptsValidate")
   local canonicalAuxiliaryUi = validateBucket(record, "auxiliaryUi", opts, "auxiliaryUiValidate")
   local canonicalAudio = validateBucket(record, "audio", opts, "audioValidate")
+  local canonicalAvatar = validateAvatar(record)
   local canonical = {}
   for key, value in pairs(record) do
     canonical[key] = value
@@ -188,6 +217,7 @@ local function validate(record, opts)
   canonical.scripts = canonicalScripts
   canonical.auxiliaryUi = canonicalAuxiliaryUi
   canonical.audio = canonicalAudio
+  canonical.avatar = canonicalAvatar
   return canonical
 end
 

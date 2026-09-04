@@ -200,4 +200,55 @@ function T.complete_validation_rejects_malformed_field_object_actor_state()
   Assert.isTrue(Errors.is(err))
 end
 
+function T.complete_validation_canonicalizes_a_missing_avatar_to_walking()
+  local service = GameSaveValidation.new({
+    contextLoader = function()
+      return context()
+    end,
+  })
+  local candidate = record("save-00000009", "heartgold", validPlayerData)
+  Assert.isNil(candidate.avatar)
+  local valid = assert(service:validate(candidate))
+  Assert.deepEqual(valid.avatar, { state = "walking" }, "a legacy record without avatar state loads as walking")
+  Assert.equal(valid.schema, "g4-game-save-v1", "canonicalization must not bump the schema")
+end
+
+function T.complete_validation_round_trips_every_durable_avatar_state()
+  local service = GameSaveValidation.new({
+    contextLoader = function()
+      return context()
+    end,
+  })
+  for _, durable in ipairs({ "walking", "cycling", "surfing", "rocket" }) do
+    local candidate = record("save-00000010", "heartgold", validPlayerData)
+    candidate.avatar = { state = durable }
+    local valid = assert(service:validate(candidate))
+    Assert.deepEqual(valid.avatar, { state = durable })
+  end
+end
+
+function T.complete_validation_rejects_non_durable_and_malformed_avatar_records()
+  local service = GameSaveValidation.new({
+    contextLoader = function()
+      return context()
+    end,
+  })
+  local cases = {
+    { avatar = { state = "heal" }, label = "temporary visual state" },
+    { avatar = { state = "saving" }, label = "temporary saving state" },
+    { avatar = { state = "nope" }, label = "unknown state" },
+    { avatar = {}, label = "missing state" },
+    { avatar = { state = 7 }, label = "non-string state" },
+    { avatar = { state = "walking", phase = 3 }, label = "unknown extra field" },
+    { avatar = "walking", label = "non-table record" },
+  }
+  for _, case in ipairs(cases) do
+    local candidate = record("save-00000011", "heartgold", validPlayerData)
+    candidate.avatar = case.avatar
+    local invalid, err = service:validate(candidate)
+    Assert.isNil(invalid, case.label .. " must not validate")
+    Assert.isTrue(Errors.is(err), case.label .. " must raise a structured error")
+  end
+end
+
 return { tests = T }

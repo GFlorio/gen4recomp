@@ -36,6 +36,49 @@ local function presentationCache()
   return cache
 end
 
+-- The stubbed presentation runtime every FieldState boot reads: the cache
+-- and manifest the renderers draw through, the entrance bundle carrying the
+-- compiled surf attachment, and the actor/player edges the draw sync uses.
+local function stubPresentationRuntime(cache)
+  return setmetatable({
+    cacheFs = cache or presentationCache(),
+    uiManifest = FieldUiFixture.manifest(),
+    fieldEntranceIndicatorAsset = {
+      model = { batches = {}, materials = {} },
+      effects = {
+        surf_attachment = {
+          model = { batches = {}, materials = {} },
+          presentation = { yawDegrees = { north = 180, south = 0, west = 270, east = 90 } },
+        },
+      },
+    },
+    fieldEmoteModels = {
+      exclamation = {
+        schema = "g4-field-emote-v1",
+        anchorOffset = { x = 0, y = 2, z = 0.0625 },
+        model = { batches = {}, materials = {} },
+      },
+    },
+    windowStyles = {
+      resolve = function() end,
+    },
+    menuHost = {
+      setScreenTopology = function() end,
+      setPresentationMetrics = function() end,
+    },
+    actors = {
+      visualRevision = function()
+        return 0
+      end,
+      collectSpriteIds = function() end,
+    },
+    playerVisual = { spriteId = 0 },
+    startMenuPlacement = nil,
+    resizePresentation = function() end,
+    dispose = function() end,
+  }, FieldRuntime)
+end
+
 -- Boot FieldState for real (the presentation resources are acquired against
 -- the host) with FieldRuntime.new stubbed to capture the options table.
 ---@param options FieldStateOptions
@@ -48,35 +91,7 @@ local function bootWithCapturedRuntimeOptions(options, cache)
   local originalNew = FieldRuntime.new
   FieldRuntime.new = function(game, runtimeOptions)
     captured = { game = game, options = runtimeOptions }
-    return setmetatable({
-      cacheFs = cache or presentationCache(),
-      uiManifest = FieldUiFixture.manifest(),
-      fieldEntranceIndicatorAsset = { model = { batches = {}, materials = {} } },
-      fieldEmoteModels = {
-        exclamation = {
-          schema = "g4-field-emote-v1",
-          anchorOffset = { x = 0, y = 2, z = 0.0625 },
-          model = { batches = {}, materials = {} },
-        },
-      },
-      windowStyles = {
-        resolve = function() end,
-      },
-      menuHost = {
-        setScreenTopology = function() end,
-        setPresentationMetrics = function() end,
-      },
-      actors = {
-        visualRevision = function()
-          return 0
-        end,
-        collectSpriteIds = function() end,
-      },
-      playerVisual = { spriteId = 0 },
-      startMenuPlacement = nil,
-      resizePresentation = function() end,
-      dispose = function() end,
-    }, FieldRuntime)
+    return stubPresentationRuntime(cache)
   end
   local game = { saveId = "save-00000001", versionId = "heartgold" }
   local ok, state = pcall(FieldState.new, game, options)
@@ -186,6 +201,25 @@ function T.state_construction_fails_typed_when_a_ui_asset_is_missing()
   Assert.isTrue(
     Errors.is(signpostErr) and signpostErr.code == "FIELD_UI_SIGNPOST_TILES_MISSING",
     "a missing signpost strip is a typed construction failure: " .. tostring(signpostErr)
+  )
+end
+
+-- A ready cache without the compiled surf attachment is a loud boot
+-- failure: the state never draws a world with an invisibly missing surf.
+function T.state_construction_fails_when_the_surf_attachment_is_missing()
+  local originalNew = FieldRuntime.new
+  FieldRuntime.new = function(_, _)
+    local runtime = stubPresentationRuntime(presentationCache())
+    runtime.fieldEntranceIndicatorAsset.effects = nil
+    return runtime
+  end
+  local game = { saveId = "save-00000001", versionId = "heartgold" }
+  local ok, err = pcall(FieldState.new, game, fieldStateOptions())
+  FieldRuntime.new = originalNew
+  Assert.isFalse(ok, "a missing surf attachment must fail the boot")
+  Assert.isTrue(
+    tostring(err):find("field-effect cache is missing surf_attachment", 1, true) ~= nil,
+    "a missing surf attachment must fail loudly: " .. tostring(err)
   )
 end
 

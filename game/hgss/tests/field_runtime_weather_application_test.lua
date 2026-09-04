@@ -122,6 +122,11 @@ local function runtimeWithClock(catalog, calls, currentMap)
       end,
     },
     avatar = { spriteId = 1 },
+    playerAvatar = {
+      currentSpriteId = function()
+        return 1
+      end,
+    },
     actors = {
       getAt = function()
         return nil

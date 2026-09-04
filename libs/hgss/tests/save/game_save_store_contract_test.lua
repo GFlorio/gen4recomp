@@ -202,6 +202,7 @@ function T.first_publication_validates_payload_before_catalog_visibility_and_can
 
   retryStore:publishFirst(retryValue)
   Assert.notNil(findEntry(assert(retryStore:list()), retryId))
+  retryValue.avatar = { state = "walking" }
   Assert.deepEqual(assert(retryStore:load(retryId)), retryValue)
 end
 
@@ -243,6 +244,9 @@ function T.update_and_delete_failures_preserve_a_valid_checkpoint_and_order()
   callFailure(function()
     store:save(replacement)
   end)
+  -- Loading canonicalizes the legacy record: validation backfills the
+  -- reserved avatar field to walking.
+  first.avatar = { state = "walking" }
   Assert.deepEqual(assert(store:load(firstId)), first)
   local afterFailedUpdate = assert(store:list())
   Assert.equal(afterFailedUpdate[1].saveId, before[1].saveId)

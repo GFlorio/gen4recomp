@@ -331,4 +331,81 @@ function T.dispose_releases_runtime_without_capturing_or_persisting()
   Assert.isNil(runtime.session)
 end
 
+function T.captureGameSave_writes_the_stable_durable_avatar_state()
+  local runtime = captureRuntime({
+    playerAvatar = {
+      isStableForSave = function()
+        return true
+      end,
+      capture = function()
+        return { state = "cycling" }
+      end,
+    },
+    -- The script bucket capture is production behavior; the scheduler fake
+    -- conforms to its required interface so the avatar assertions below
+    -- observe the real capture path.
+    scripts = {
+      worldState = {
+        capture = function(_, objects)
+          return { flags = { [960] = true }, variables = {}, objects = objects, rng = { state = 1, calls = 2 } }
+        end,
+      },
+      scheduler = {
+        liveInstances = function()
+          return {}
+        end,
+        environments = function()
+          return {}
+        end,
+        tasks = function()
+          return {}
+        end,
+        counters = function()
+          return { nextEnvironmentId = 0, nextInstanceId = 0, nextTaskId = 0 }
+        end,
+        taskRegistryFingerprint = function()
+          return "tasks"
+        end,
+      },
+      registryFingerprint = function()
+        return "registry-fingerprint"
+      end,
+    },
+  })
+  local snapshot, reason = runtime:captureGameSave()
+  Assert.notNil(snapshot, "a stable avatar must not defer capture: " .. tostring(reason))
+  Assert.deepEqual(snapshot.avatar, { state = "cycling" })
+end
+
+function T.captureGameSave_defers_while_avatar_state_is_unstable()
+  local pending = captureRuntime({
+    playerAvatar = {
+      isStableForSave = function()
+        return false
+      end,
+      capture = function()
+        error("unstable avatar state must never be serialized")
+      end,
+    },
+  })
+  local snapshot, reason = pending:captureGameSave()
+  Assert.isNil(snapshot)
+  Assert.isTrue(type(reason) == "string" and reason ~= "", "an unstable avatar must defer with a reason")
+
+  local temporary = captureRuntime({
+    playerAvatar = {
+      isStableForSave = function()
+        return false
+      end,
+      capture = function()
+        error("a temporary visual must never be serialized")
+      end,
+    },
+  })
+  temporary.session.player.motion = "idle"
+  local tempSnapshot, tempReason = temporary:captureGameSave()
+  Assert.isNil(tempSnapshot)
+  Assert.isTrue(type(tempReason) == "string" and tempReason ~= "")
+end
+
 return { tests = T }
