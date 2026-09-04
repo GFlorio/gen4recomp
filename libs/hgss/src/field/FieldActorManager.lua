@@ -25,6 +25,10 @@ local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 -- pret/pokeheartgold src/field_system.c FieldSystem_CameraTarget).
 local CAMERA_TARGET_OBJECT_ID = 241
 local PARTNER_OBJECT_ID = 253
+-- The walking partner actor id. Map objects use map-scoped identities, but
+-- the dynamic partner keeps one stable id across maps so scripts and the
+-- interaction resolver never chase a renamed actor after a transition.
+local PARTNER_ACTOR_ID = "field:partner"
 local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 
 ---@class FieldActorAssets
@@ -127,6 +131,7 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field getActor fun(self: FieldActorManager, actorId: string): FieldActorManager.Actor?
 ---@field getPosition fun(self: FieldActorManager, actorId: string): FieldActorManager.ActorPosition?
 ---@field getFacing fun(self: FieldActorManager, actorId: string): FieldDirection?
+---@field setFacing fun(self: FieldActorManager, actorId: string, direction: FieldDirection)
 ---@field show fun(self: FieldActorManager, actorId: string)
 ---@field hide fun(self: FieldActorManager, actorId: string)
 ---@field setMovementType fun(self: FieldActorManager, actorId: string, movementType: string)
@@ -137,6 +142,9 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field numericId fun(self: FieldActorManager, actorId: string): integer?
 ---@field cameraTargetId fun(self: FieldActorManager): string?
 ---@field partnerId fun(self: FieldActorManager): string?
+---@field installPartner fun(self: FieldActorManager, spec: FieldActorManager.PartnerSpec): string?
+---@field updatePartner fun(self: FieldActorManager, spec: FieldActorManager.PartnerSpec): string?
+---@field clearPartner fun(self: FieldActorManager): string?
 ---@field _resolveScriptedDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, direction: FieldDirection?, distance: string?): table
 ---@field _resolveTrajectoryDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, deltaX: integer, deltaZ: integer, surfaceBandDelta: integer): table
 ---@field setPosition fun(self: FieldActorManager, actorId: string, position: FieldActorManager.Position, options: { scripted?: boolean }?)
@@ -1166,6 +1174,11 @@ function FieldActorManager:captureObjects()
     local entry = assert(self.maps[mapId])
     local orderedActors = actorsByManagerSlot(entry)
     for ordinal, actor in ipairs(orderedActors) do
+      -- The dynamic partner is derived follower presentation, never
+      -- persisted state: it reconstructs from the party after continue.
+      if actor.objectEventId == PARTNER_OBJECT_ID then
+        goto continue
+      end
       local sourceEvent = actor.sourceEvent
       if sourceEvent and actor.objectEventId ~= nil then
         local controller = self.autonomy:capture(actor.actorId)
@@ -1215,6 +1228,7 @@ function FieldActorManager:captureObjects()
         end
         actors[actor.actorId] = record
       end
+      ::continue::
     end
   end
   return {
@@ -1724,7 +1738,24 @@ function FieldActorManager:getAt(mapId, candidate)
   if not entry then
     return nil
   end
-  return occupancyWinner(entry, occupancyKey(entry.runtimeMap, mapId, candidate))
+  local occupant = occupancyWinner(entry, occupancyKey(entry.runtimeMap, mapId, candidate))
+  if occupant then
+    return occupant
+  end
+  -- The non-solid partner never joins the occupancy index, so it needs an
+  -- explicit coordinate match to stay discoverable by facing interaction and
+  -- script partner lookups without ever blocking movement.
+  local partner = entry.actors[PARTNER_ACTOR_ID]
+  if partner ~= nil and partner.fieldX == candidate.fieldX and partner.fieldZ == candidate.fieldZ then
+    if candidate.cellKey ~= nil and candidate.sourceSurfaceId ~= nil then
+      if partner.cellKey == candidate.cellKey and partner.sourceSurfaceId == candidate.sourceSurfaceId then
+        return partner
+      end
+    elseif candidate.surfaceId ~= nil and partner.surfaceId == candidate.surfaceId then
+      return partner
+    end
+  end
+  return nil
 end
 
 -- Motion collision sees committed occupants and autonomous destinations. The
@@ -1813,6 +1844,246 @@ function FieldActorManager:probeAt(runtimeMap, eventState, candidate)
     end
   end
   return occupant
+end
+
+-- Raw facing codes match the pinned field direction table (0 north, 1
+-- south, 2 west, 3 east).
+local PARTNER_FACING_RAW = { north = 0, south = 1, west = 2, east = 3 }
+local PARTNER_FACINGS = { north = true, south = true, west = true, east = true }
+
+---@class FieldActorManager.PartnerSpec
+---@field numericId integer must be the source partner object id 253
+---@field visualId integer compiled field-actor visual id
+---@field mapId integer must be the current actor map
+---@field fieldX integer
+---@field fieldZ integer
+---@field facing FieldDirection
+---@field worldY number? terrain surface hint for stacked maps
+---@field solid boolean? must be absent or false; the partner never blocks
+
+---@param spec FieldActorManager.PartnerSpec
+---@param self FieldActorManager
+local function checkPartnerSpec(self, spec)
+  assert(type(spec) == "table", "partner spec required")
+  if spec.numericId ~= PARTNER_OBJECT_ID then
+    Errors.raise(
+      FieldErrors.ACTOR_PARTNER_ID_INVALID,
+      "partner numeric id must be " .. PARTNER_OBJECT_ID,
+      { numericId = spec.numericId }
+    )
+  end
+  if spec.solid == true then
+    Errors.raise(FieldErrors.ACTOR_PARTNER_SOLID_INVALID, "the partner actor is never solid", {})
+  end
+  if not PARTNER_FACINGS[spec.facing] then
+    Errors.raise(
+      FieldErrors.ACTOR_PARTNER_FACING_INVALID,
+      "unsupported partner facing " .. tostring(spec.facing),
+      { facing = spec.facing }
+    )
+  end
+  assert(
+    type(spec.fieldX) == "number" and spec.fieldX % 1 == 0 and type(spec.fieldZ) == "number" and spec.fieldZ % 1 == 0,
+    "partner integer field coordinates required"
+  )
+  if spec.mapId ~= self.currentMapId then
+    Errors.raise(
+      FieldErrors.ACTOR_PARTNER_MAP_MISMATCH,
+      "partner installation requires the current actor map",
+      { mapId = spec.mapId, currentMapId = self.currentMapId }
+    )
+  end
+  if not self.assets:knows(spec.visualId) then
+    Errors.raise(
+      FieldErrors.ACTOR_PARTNER_VISUAL_MISSING,
+      "spriteId " .. tostring(spec.visualId) .. " for " .. PARTNER_ACTOR_ID .. " is not in the compiled actor set",
+      { actorId = PARTNER_ACTOR_ID, spriteId = spec.visualId }
+    )
+  end
+end
+
+-- The synthetic source event behind the dynamic partner. It carries the
+-- source partner object id and the inert interaction script (raw script id 0),
+-- so facing the partner resolves to the runtime no-op interaction instead of
+-- a composition fault, while collision stays disabled through the actor's
+-- own non-solid flag.
+---@param spec FieldActorManager.PartnerSpec
+---@return FieldActorEvent
+local function partnerEvent(spec)
+  return {
+    index = -1,
+    objectEventId = PARTNER_OBJECT_ID,
+    spriteId = spec.visualId,
+    movementType = "follow_player",
+    type = 0,
+    eventFlag = 0,
+    scriptId = 0,
+    facingDirection = spec.facing,
+    facingDirectionRaw = PARTNER_FACING_RAW[spec.facing],
+    xRange = 0,
+    yRange = 0,
+    x = spec.fieldX,
+    z = spec.fieldZ,
+    y = 0,
+    solid = false,
+  }
+end
+
+-- Resolve the partner tile surface without mutating the entry. A tile the
+-- terrain cannot place (outside residency, no walkable surface, ambiguous
+-- stack) is a placement state the controller waits out, so it answers nil;
+-- any other failure propagates.
+---@param entry FieldActorManager.Entry
+---@param spec FieldActorManager.PartnerSpec
+---@return table? surface
+local function resolvePartnerSurface(entry, spec)
+  local runtimeMap = entry.runtimeMap
+  if not isResident(runtimeMap, spec.fieldX, spec.fieldZ) then
+    return nil
+  end
+  local ok, surface = pcall(function()
+    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, spec.fieldX, spec.fieldZ)
+    return SurfaceResolver.new(runtimeMap.terrain):resolve({
+      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
+      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
+      currentY = spec.worldY,
+    })
+  end)
+  if ok then
+    return surface
+  end
+  if not Errors.is(surface) then
+    error(surface)
+  end
+  return nil
+end
+
+-- Acquire the new visual and construct the replacement actor without
+-- publishing it: any failure releases the acquisition and leaves the entry
+-- (including a live old partner) untouched.
+---@param self FieldActorManager
+---@param entry FieldActorManager.Entry
+---@param spec FieldActorManager.PartnerSpec
+---@param surface table
+---@return FieldActorManager.Actor
+local function constructPartner(self, entry, spec, surface)
+  local asset = self:_acquireVisual(spec.visualId, PARTNER_ACTOR_ID)
+  local actor = nil ---@type FieldActorManager.Actor?
+  local ok, err = pcall(function()
+    local runtimeMap = entry.runtimeMap
+    local world = FieldCoordinates.fieldToWorld(runtimeMap, spec.fieldX, spec.fieldZ, surface.worldY)
+    local plate = assert(runtimeMap.terrain:plate(surface.surfaceId), "partner projected surface is missing")
+    local plateCellKey, plateSourceSurfaceId = sourceIdentityFromPlate(plate)
+    local visual = assert(asset.visual, "field actor visual is required")
+    local idlePresentation = assert(visual.idlePresentation, "field actor idle presentation is required")
+    actor = FieldObjectActor.new({
+      mapId = runtimeMap.mapId,
+      sourceEvent = partnerEvent(spec),
+      spriteId = spec.visualId,
+      solid = false,
+      fieldX = spec.fieldX,
+      fieldZ = spec.fieldZ,
+      cellKey = plateCellKey or cellKeyFor(spec.fieldX, spec.fieldZ),
+      sourceSurfaceId = plateSourceSurfaceId,
+      surfaceId = surface.surfaceId,
+      worldX = world.x,
+      worldY = world.y,
+      worldZ = world.z,
+      resident = true,
+      visual = visual,
+      idlePresentation = idlePresentation,
+    }) --[[@as FieldActorManager.Actor]]
+    actor.actorId = PARTNER_ACTOR_ID
+  end)
+  if not ok then
+    self.assets:release(spec.visualId)
+    error(err)
+  end
+  return actor --[[@as FieldActorManager.Actor]]
+end
+
+-- Publish a constructed partner: take a manager slot, index it under the
+-- source partner object id, attach its (never self-moving) special autonomy
+-- profile so presence queries stay coherent, and bump the visual revision on
+-- a live map.
+---@param self FieldActorManager
+---@param entry FieldActorManager.Entry
+---@param actor FieldActorManager.Actor
+local function publishPartner(self, entry, actor)
+  assignManagerSlot(entry, actor)
+  entry.actors[PARTNER_ACTOR_ID] = actor
+  entry.byIndex[PARTNER_OBJECT_ID] = PARTNER_ACTOR_ID
+  entry.order[#entry.order + 1] = actor
+  self.autonomy:attach(PARTNER_ACTOR_ID, actor.movementType, actor.sourceEvent)
+  if entry.published then
+    self._visualRevision = self._visualRevision + 1
+  end
+end
+
+-- Install the dynamic partner on the current map. A tile the terrain cannot
+-- place answers nil (the controller waits for a committed step); anything
+-- else either publishes exactly one partner or raises.
+---@param spec FieldActorManager.PartnerSpec
+---@return string? actorId
+---@param self FieldActorManager
+function FieldActorManager:installPartner(spec)
+  checkPartnerSpec(self, spec)
+  local entry = assert(self.maps[spec.mapId], "partner current map entry is missing")
+  if entry.actors[PARTNER_ACTOR_ID] ~= nil then
+    Errors.raise(
+      FieldErrors.ACTOR_PARTNER_ALREADY_INSTALLED,
+      "a partner actor is already installed on map " .. tostring(spec.mapId),
+      { mapId = spec.mapId }
+    )
+  end
+  local surface = resolvePartnerSurface(entry, spec)
+  if surface == nil then
+    return nil
+  end
+  publishPartner(self, entry, constructPartner(self, entry, spec, surface))
+  return PARTNER_ACTOR_ID
+end
+
+-- Replace the live partner visual in place. The replacement is acquired and
+-- validated before the old actor is destroyed; a failed replacement keeps
+-- the old valid actor, and an unplaceable destination keeps it too.
+---@param spec FieldActorManager.PartnerSpec
+---@return string? actorId
+---@param self FieldActorManager
+function FieldActorManager:updatePartner(spec)
+  checkPartnerSpec(self, spec)
+  local entry = assert(self.maps[spec.mapId], "partner current map entry is missing")
+  local old = entry.actors[PARTNER_ACTOR_ID]
+  if old == nil then
+    Errors.raise(
+      FieldErrors.ACTOR_PARTNER_NOT_INSTALLED,
+      "no partner actor is installed on map " .. tostring(spec.mapId),
+      { mapId = spec.mapId }
+    )
+  end
+  assert(old ~= nil, "partner presence carries the installed actor")
+  local surface = resolvePartnerSurface(entry, spec)
+  if surface == nil then
+    return nil
+  end
+  local actor = constructPartner(self, entry, spec, surface)
+  self:_destroy(entry, old)
+  publishPartner(self, entry, actor)
+  return PARTNER_ACTOR_ID
+end
+
+-- Remove the partner actor and release its visual exactly once. Absence is a
+-- no-op so transition and disposal paths can clear unconditionally.
+---@return string? removedActorId
+---@param self FieldActorManager
+function FieldActorManager:clearPartner()
+  local actor = self:getById(PARTNER_ACTOR_ID)
+  if actor == nil then
+    return nil
+  end
+  local entry = assert(self.maps[actor.mapId], "partner map entry is missing")
+  self:_destroy(entry, actor)
+  return PARTNER_ACTOR_ID
 end
 
 ---@param mapId integer

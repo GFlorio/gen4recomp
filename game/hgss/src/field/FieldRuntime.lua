@@ -34,6 +34,7 @@ local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldPlayerAvatarState = require("libs.hgss.src.field.FieldPlayerAvatarState")
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
 local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
+local FollowingMonController = require("libs.hgss.src.field.FollowingMonController")
 local GameSave = require("libs.hgss.src.save.GameSave")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local FieldScripts = require("game.hgss.src.field.FieldScripts")
@@ -190,6 +191,7 @@ end
 ---@field monCatalog table the immutable domain mon catalog behind the live party
 ---@field monLanguage string the semantic language key the mon catalog was built for
 ---@field monService HgssMonService the live party/creation/script mon service
+---@field followingMon FollowingMonController|nil the one derived follower controller (nil after teardown)
 ---@field session FieldSession
 ---@field actors FieldActorManager
 ---@field dialogue FieldDialogueController?
@@ -1020,6 +1022,18 @@ function FieldRuntime:_load()
         return { year = now.year, month = now.month, day = now.day }
       end,
     })
+    -- The one following-mon controller: derived follower presentation over
+    -- the live party, driven once per fixed tick after the session update.
+    -- The player accessor tracks warp rebinds, so the controller never holds
+    -- a stale player across map swaps.
+    self.followingMon = FollowingMonController.new({
+      service = self.monService,
+      catalog = self.monCatalog,
+      actors = self.actors,
+      playerOf = function()
+        return self.player
+      end,
+    })
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
       overrideFs = self.overrideFs,
@@ -1061,6 +1075,7 @@ function FieldRuntime:_load()
       mons = self.monService,
       starterProvider = self.starterProvider,
       starterChoice = self.starterChoice,
+      followingMon = self.followingMon,
     })
     -- A loaded game carries strict world and script buckets, so restore is
     -- unconditional after GameSave validation.
@@ -1225,6 +1240,12 @@ function FieldRuntime:update(dt)
     self.session.accumulator = self.session.accumulator - FIXED_DT
     self.session:updateFixed()
     fieldExecuted = fieldExecuted + 1
+    -- The follower reconciles once per fixed tick, after player and
+    -- transition commits inside the session update and before the next
+    -- tick's actor finalization and draw reads.
+    if self.followingMon then
+      self.followingMon:update()
+    end
     if self.applicationHost:error() and not self.errorText then
       self.errorText = tostring(self.applicationHost:error())
     end
@@ -1780,6 +1801,12 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
   local physical = (prepared and prepared.physical) or resolution.physical
   local residency = assert(prepared and prepared.residency, "prepared residency transaction required")
+  -- The follower clears before the old map leaves residency; the manager
+  -- retires the old entry afterwards and the controller reinstalls once the
+  -- new actor map publishes.
+  if self.followingMon then
+    self.followingMon:handleMapExit()
+  end
   assert(self.residency):commitTransition(residency)
   local previousCoverage
   if physical then
@@ -1891,6 +1918,10 @@ function FieldRuntime:_releaseAll()
     self.residency:dispose()
   end
   self.residency = nil
+  if self.followingMon then
+    self.followingMon:dispose()
+  end
+  self.followingMon = nil
   if self.actors then
     self.actors:dispose()
   end
