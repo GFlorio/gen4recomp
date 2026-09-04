@@ -8,6 +8,7 @@ local FieldEffects = require("romdump.src.config.FieldEffects")
 local FieldEffectPatternAnimation = require("romdump.src.digest.FieldEffectPatternAnimation")
 local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
+local ModelAsset = require("libs.assets.src.ModelAsset")
 local RomSuite = require("tests.rom.support.RomSuite")
 
 local SOURCES = {
@@ -33,13 +34,9 @@ local function cacheFor(bundle)
       if path == FieldEffectAssetCache.indexPath() then
         return bundle.index
       end
-      for _, source in ipairs(SOURCES) do
-        if path == FieldEffectAssetCache.definitionPath(source.kind) then
-          return bundle.effects[source.kind]
-        end
-      end
-      if path == FieldEffectAssetCache.definitionPath("warp_entrance") then
-        return bundle.effects.warp_entrance
+      local kind = path:match("/([^/]+)%.lua$")
+      if kind ~= nil and bundle.effects[kind] ~= nil then
+        return bundle.effects[kind]
       end
       error("unexpected field-effect cache path " .. path)
     end,
@@ -128,10 +125,59 @@ local function assertSource(compiled, source, animationNarc)
   end
 end
 
+local function assertSurfAttachment(compiled, romFs)
+  local selection =
+    assert(FieldEffects.effects.surf_attachment, "field-effect source selection must include the surf attachment")
+  Assert.equal(selection.modelMembers[1], 86, "surf attachment must select source static-model member 86")
+
+  local staticNarc = assert(romFs:openNarc(FieldEffects.archive.alias))
+  local raw = assert(staticNarc:readMember(86), "source surf model member must be readable")
+  Assert.isTrue(#raw > 0, "source surf model member must not be empty")
+
+  local definition = assert(compiled.effects.surf_attachment, "compiled bundle must include the surf attachment")
+  Assert.equal(definition.model.kind, "static", "surf attachment must compile as a static model")
+  ModelAsset.validate(definition.model)
+  Assert.isNil(definition.lifecycle, "surf lifecycle belongs to avatar state, not terrain response")
+  Assert.isNil(definition.source, "generated surf definition must not carry source provenance")
+  Assert.isNil(definition.archive)
+  Assert.isNil(definition.memberId)
+  Assert.isNil(definition.modelMembers)
+  Assert.isNil(definition.callback)
+
+  local presentation = assert(definition.presentation, "surf attachment must carry normalized presentation")
+  Assert.equal(presentation.initialPlayerOffset.x, 0)
+  Assert.equal(presentation.initialPlayerOffset.y, 4 / 16)
+  Assert.equal(presentation.initialPlayerOffset.z, 4 / 16)
+  Assert.equal(presentation.oscillator.initialY, 1 / 16)
+  Assert.equal(presentation.oscillator.minY, 1 / 16)
+  Assert.equal(presentation.oscillator.maxY, 4 / 16)
+  Assert.equal(presentation.oscillator.stepY, (1 / 4) / 16)
+  Assert.equal(presentation.playerBaseOffset.x, 0)
+  Assert.equal(presentation.playerBaseOffset.y, 4 / 16)
+  Assert.equal(presentation.playerBaseOffset.z, 4 / 16)
+  Assert.equal(presentation.attachmentBaseOffset.x, 0)
+  Assert.equal(presentation.attachmentBaseOffset.y, -1 / 16)
+  Assert.equal(presentation.attachmentBaseOffset.z, 0)
+  Assert.equal(presentation.yawDegrees.north, 180)
+  Assert.equal(presentation.yawDegrees.south, 0)
+  Assert.equal(presentation.yawDegrees.west, 270)
+  Assert.equal(presentation.yawDegrees.east, 90)
+  local yawCount = 0
+  for _ in pairs(presentation.yawDegrees) do
+    yawCount = yawCount + 1
+  end
+  Assert.equal(yawCount, 4, "surf yaw map must cover exactly the four facings")
+
+  local entry = assert(compiled.index.effects.surf_attachment, "field-effect index must list the surf attachment")
+  Assert.equal(entry.kind, "model")
+  Assert.equal(entry.definition, "surf_attachment")
+  Assert.equal(entry.path, FieldEffectAssetCache.definitionPath("surf_attachment"))
+end
+
 local suite = RomSuite.fromFacts({
-  ["compiles both source grass definitions without selector inference"] = function(romFs)
-    Assert.equal(Contract.fieldEffects.cacheFormat, "field-effect-cache-v7")
-    Assert.equal(FieldEffectAssetCache.FORMAT, "field-effect-cache-v7")
+  ["compiles source field-effect definitions with normalized presentation"] = function(romFs)
+    Assert.equal(Contract.fieldEffects.cacheFormat, "field-effect-cache-v8")
+    Assert.equal(FieldEffectAssetCache.FORMAT, "field-effect-cache-v8")
 
     local animationNarc = assert(romFs:openNarc(FieldEffects.animationArchive.alias))
     local compiled = FieldEntranceIndicatorCompiler.compile(romFs)
@@ -139,6 +185,7 @@ local suite = RomSuite.fromFacts({
       assertSource(compiled, source, animationNarc)
     end
     assertTrainerReveal(compiled, animationNarc)
+    assertSurfAttachment(compiled, romFs)
 
     Assert.isTrue(
       FieldEffectAssetCache.isReady(cacheFor(compiled), compiled.marker),

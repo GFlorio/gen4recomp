@@ -1,6 +1,21 @@
 -- HGSS field-effect source selections. These are producer-only facts from
 -- the curated field_static_models archive; generated assets carry semantic
 -- definitions and cache references instead of source archive details.
+--
+-- Surf attachment presentation (pret/pokeheartgold ov01_021FE7AC,
+-- ov01_021FE868, ov01_021FE8C8): the surf resource loader attaches the field
+-- model selected below, starts player presentation at {0, 0x4000, 0x4000},
+-- and bounces an oscillator height between 0x1000 and 0x4000 in 0x400 steps.
+-- Player presentation Y is the oscillator plus 0x4000, player Z stays 0x4000,
+-- and the attachment Y is the oscillator minus 0x1000 relative to logical
+-- player Y. Source geometry uses 16 model units per world tile.
+
+local MODEL_UNITS_PER_TILE = 16
+local SURF_OSCILLATOR_MIN = 0x1000 / (0x1000 * MODEL_UNITS_PER_TILE)
+local SURF_OSCILLATOR_MAX = 0x4000 / (0x1000 * MODEL_UNITS_PER_TILE)
+local SURF_OSCILLATOR_STEP = 0x400 / (0x1000 * MODEL_UNITS_PER_TILE)
+local SURF_PLAYER_BASE = 0x4000 / (0x1000 * MODEL_UNITS_PER_TILE)
+local SURF_ATTACHMENT_BASE = -0x1000 / (0x1000 * MODEL_UNITS_PER_TILE)
 
 return {
   schema = 1,
@@ -47,6 +62,22 @@ return {
         frameCount = 7,
       },
       placementOffset = { x = 0, y = 0, z = 0.5 },
+    },
+    surf_attachment = {
+      modelMembers = { 86 },
+      animationMembers = {},
+      presentation = {
+        initialPlayerOffset = { x = 0, y = SURF_PLAYER_BASE, z = SURF_PLAYER_BASE },
+        oscillator = {
+          initialY = SURF_OSCILLATOR_MIN,
+          minY = SURF_OSCILLATOR_MIN,
+          maxY = SURF_OSCILLATOR_MAX,
+          stepY = SURF_OSCILLATOR_STEP,
+        },
+        playerBaseOffset = { x = 0, y = SURF_PLAYER_BASE, z = SURF_PLAYER_BASE },
+        attachmentBaseOffset = { x = 0, y = SURF_ATTACHMENT_BASE, z = 0 },
+        yawDegrees = { north = 180, south = 0, west = 270, east = 90 },
+      },
     },
   },
 }

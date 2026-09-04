@@ -50,6 +50,17 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
         lifecycle = { mode = "once", frameCount = 7 },
         placementOffset = { x = 0, y = 0, z = 0.5 },
       },
+      surf_attachment = {
+        modelMembers = { 86 },
+        animationMembers = {},
+        presentation = {
+          initialPlayerOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+          oscillator = { initialY = 1 / 16, minY = 1 / 16, maxY = 4 / 16, stepY = (1 / 4) / 16 },
+          playerBaseOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+          attachmentBaseOffset = { x = 0, y = -1 / 16, z = 0 },
+          yawDegrees = { north = 180, south = 0, west = 270, east = 90 },
+        },
+      },
     },
   }
   package.loaded["libs.nds.src.nitro.g3d.Nsbmd"] = {
@@ -183,11 +194,12 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
 
   Assert.isTrue(ok, tostring(result))
-  Assert.equal(#modelMembers, 4)
+  Assert.equal(#modelMembers, 5)
   Assert.equal(modelMembers[1], 85)
   Assert.equal(modelMembers[2], 126)
   Assert.equal(modelMembers[3], 122)
   Assert.equal(modelMembers[4], 124)
+  Assert.equal(modelMembers[5], 86)
   Assert.equal(#animationMembers, 3)
   Assert.equal(animationMembers[1], 140)
   Assert.equal(animationMembers[2], 146)
@@ -212,6 +224,30 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   Assert.equal(result.effects.trainer_reveal.placementOffset.x, 0)
   Assert.equal(result.effects.trainer_reveal.placementOffset.y, 0)
   Assert.equal(result.effects.trainer_reveal.placementOffset.z, 0.5)
+  local surf = result.effects.surf_attachment
+  Assert.notNil(surf)
+  Assert.equal(surf.model.kind, "static")
+  Assert.isNil(surf.lifecycle)
+  Assert.isNil(surf.source)
+  Assert.equal(surf.presentation.initialPlayerOffset.x, 0)
+  Assert.equal(surf.presentation.initialPlayerOffset.y, 4 / 16)
+  Assert.equal(surf.presentation.initialPlayerOffset.z, 4 / 16)
+  Assert.equal(surf.presentation.oscillator.initialY, 1 / 16)
+  Assert.equal(surf.presentation.oscillator.minY, 1 / 16)
+  Assert.equal(surf.presentation.oscillator.maxY, 4 / 16)
+  Assert.equal(surf.presentation.oscillator.stepY, (1 / 4) / 16)
+  Assert.equal(surf.presentation.playerBaseOffset.x, 0)
+  Assert.equal(surf.presentation.playerBaseOffset.y, 4 / 16)
+  Assert.equal(surf.presentation.playerBaseOffset.z, 4 / 16)
+  Assert.equal(surf.presentation.attachmentBaseOffset.x, 0)
+  Assert.equal(surf.presentation.attachmentBaseOffset.y, -1 / 16)
+  Assert.equal(surf.presentation.attachmentBaseOffset.z, 0)
+  Assert.equal(surf.presentation.yawDegrees.north, 180)
+  Assert.equal(surf.presentation.yawDegrees.south, 0)
+  Assert.equal(surf.presentation.yawDegrees.west, 270)
+  Assert.equal(surf.presentation.yawDegrees.east, 90)
+  Assert.equal(result.index.effects.surf_attachment.kind, "model")
+  Assert.equal(result.index.effects.surf_attachment.definition, "surf_attachment")
 
   invalidSelector = true
   local invalidOk, invalidErr = pcall(compiler.compile, romFs)

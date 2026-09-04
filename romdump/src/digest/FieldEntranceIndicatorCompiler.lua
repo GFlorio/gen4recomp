@@ -330,6 +330,14 @@ function Compiler.compile(romFs, hashLua)
     "field-effect-trainer",
     FieldEffects.effects.trainer_reveal
   )
+  local surfSelection = assert(FieldEffects.effects.surf_attachment, "surf attachment source selection is required")
+  local surfModel, surfMeshes, surfTextures, surfSha = compileModel(
+    narc,
+    surfSelection.modelMembers[1],
+    "field-effect:surf-attachment",
+    "surf-attachment-effect",
+    "field-effect"
+  )
   for sha1, mesh in pairs(tallMeshes) do
     meshes[sha1] = mesh
   end
@@ -348,6 +356,13 @@ function Compiler.compile(romFs, hashLua)
   for sha1, texture in pairs(trainerRevealTextures) do
     textures[sha1] = texture
   end
+  for sha1, mesh in pairs(surfMeshes) do
+    meshes[sha1] = mesh
+  end
+  for sha1, texture in pairs(surfTextures) do
+    textures[sha1] = texture
+  end
+  local surfPresentation = assert(surfSelection.presentation, "surf attachment presentation is required")
   local effects = {
     warp_entrance = {
       model = model,
@@ -377,6 +392,38 @@ function Compiler.compile(romFs, hashLua)
       },
       placementOffset = FieldEffects.effects.trainer_reveal.placementOffset,
     },
+    surf_attachment = {
+      model = surfModel,
+      presentation = {
+        initialPlayerOffset = {
+          x = surfPresentation.initialPlayerOffset.x,
+          y = surfPresentation.initialPlayerOffset.y,
+          z = surfPresentation.initialPlayerOffset.z,
+        },
+        oscillator = {
+          initialY = surfPresentation.oscillator.initialY,
+          minY = surfPresentation.oscillator.minY,
+          maxY = surfPresentation.oscillator.maxY,
+          stepY = surfPresentation.oscillator.stepY,
+        },
+        playerBaseOffset = {
+          x = surfPresentation.playerBaseOffset.x,
+          y = surfPresentation.playerBaseOffset.y,
+          z = surfPresentation.playerBaseOffset.z,
+        },
+        attachmentBaseOffset = {
+          x = surfPresentation.attachmentBaseOffset.x,
+          y = surfPresentation.attachmentBaseOffset.y,
+          z = surfPresentation.attachmentBaseOffset.z,
+        },
+        yawDegrees = {
+          north = surfPresentation.yawDegrees.north,
+          south = surfPresentation.yawDegrees.south,
+          west = surfPresentation.yawDegrees.west,
+          east = surfPresentation.yawDegrees.east,
+        },
+      },
+    },
   }
   local index = {
     schema = Contract.fieldEffects.indexSchema,
@@ -401,10 +448,15 @@ function Compiler.compile(romFs, hashLua)
         definition = "trainer_reveal",
         path = FieldEffectAssetCache.definitionPath("trainer_reveal"),
       },
+      surf_attachment = {
+        kind = "model",
+        definition = "surf_attachment",
+        path = FieldEffectAssetCache.definitionPath("surf_attachment"),
+      },
     },
   }
   local depHash = hashLua({
-    memberSha1 = { warpSha, tallSha, veryTallSha, trainerRevealSha },
+    memberSha1 = { warpSha, tallSha, veryTallSha, trainerRevealSha, surfSha },
     sourceHashes = sourceHashesByKind,
     index = index,
     effects = effects,

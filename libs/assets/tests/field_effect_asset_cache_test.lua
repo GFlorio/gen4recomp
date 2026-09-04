@@ -6,7 +6,7 @@ local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local ModelAsset = require("libs.assets.src.ModelAsset")
 
 local T = { tests = {} }
-local EXPECTED_MARKER = "field-effect-cache-v7:rom:dep"
+local EXPECTED_MARKER = "field-effect-cache-v8:rom:dep"
 
 local function validModel()
   return {
@@ -131,12 +131,12 @@ end
 local function cache(model, present, marker, omitLifecycle, omitPlacement, extra)
   extra = extra or {}
   local index = {
-    schema = "g4-field-effect-index-v1",
+    schema = "g4-field-effect-index-v2",
     effects = {},
   }
-  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass", "trainer_reveal" }) do
+  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass", "trainer_reveal", "surf_attachment" }) do
     index.effects[kind] = {
-      kind = kind == "warp_entrance" and "model" or "animated_model",
+      kind = (kind == "warp_entrance" or kind == "surf_attachment") and "model" or "animated_model",
       definition = kind,
       path = FieldEffectAssetCache.definitionPath(kind),
     }
@@ -157,6 +157,21 @@ local function cache(model, present, marker, omitLifecycle, omitPlacement, extra
       local kind = path:match("/([^/]+)%.lua$")
       if kind == "warp_entrance" then
         return { model = model, lifetime = 1, kind = "model" }
+      end
+      if kind == "surf_attachment" then
+        local surfModel = validModel()
+        surfModel.key = "field-effect:surf-attachment"
+        return {
+          model = surfModel,
+          kind = "model",
+          presentation = {
+            initialPlayerOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+            oscillator = { initialY = 1 / 16, minY = 1 / 16, maxY = 4 / 16, stepY = (1 / 4) / 16 },
+            playerBaseOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+            attachmentBaseOffset = { x = 0, y = -1 / 16, z = 0 },
+            yawDegrees = { north = 180, south = 0, west = 270, east = 90 },
+          },
+        }
       end
       if kind == "trainer_reveal" then
         if extra.unknownLifecycleMode then
@@ -348,6 +363,178 @@ T.tests["rejects trainer reveal with missing or malformed placement"] = function
     EXPECTED_MARKER
   )
   Assert.isFalse(malformed, "trainer reveal with non-finite placement must not be ready")
+end
+
+local SURF_MARKER = "field-effect-cache-v8:rom:dep"
+local SURF_INDEX_SCHEMA = "g4-field-effect-index-v2"
+
+local function validSurfModel()
+  local model = validModel()
+  model.key = "field-effect:surf-attachment"
+  return model
+end
+
+local function validSurfPresentation()
+  return {
+    initialPlayerOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+    oscillator = { initialY = 1 / 16, minY = 1 / 16, maxY = 4 / 16, stepY = (1 / 4) / 16 },
+    playerBaseOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+    attachmentBaseOffset = { x = 0, y = -1 / 16, z = 0 },
+    yawDegrees = { north = 180, south = 0, west = 270, east = 90 },
+  }
+end
+
+local function validSurfDefinition()
+  return { model = validSurfModel(), kind = "model", presentation = validSurfPresentation() }
+end
+
+local function surfCache(surfDefinition, mutateIndex)
+  local present = {
+    ["mesh-a"] = true,
+    ["texture-a"] = true,
+    ["texture-variant"] = true,
+    ["grass.mesh"] = true,
+  }
+  local index = {
+    schema = SURF_INDEX_SCHEMA,
+    effects = {
+      warp_entrance = {
+        kind = "model",
+        definition = "warp_entrance",
+        path = FieldEffectAssetCache.definitionPath("warp_entrance"),
+      },
+      tall_grass = {
+        kind = "animated_model",
+        definition = "tall_grass",
+        path = FieldEffectAssetCache.definitionPath("tall_grass"),
+      },
+      very_tall_grass = {
+        kind = "animated_model",
+        definition = "very_tall_grass",
+        path = FieldEffectAssetCache.definitionPath("very_tall_grass"),
+      },
+      trainer_reveal = {
+        kind = "animated_model",
+        definition = "trainer_reveal",
+        path = FieldEffectAssetCache.definitionPath("trainer_reveal"),
+      },
+      surf_attachment = {
+        kind = "model",
+        definition = "surf_attachment",
+        path = FieldEffectAssetCache.definitionPath("surf_attachment"),
+      },
+    },
+  }
+  if mutateIndex ~= nil then
+    mutateIndex(index)
+  end
+  return {
+    read = function(_, path)
+      return path == FieldEffectAssetCache.markerPath() and SURF_MARKER or nil
+    end,
+    loadLua = function(_, path)
+      if path == FieldEffectAssetCache.indexPath() then
+        return index
+      end
+      local kind = path:match("/([^/]+)%.lua$")
+      if kind == "warp_entrance" then
+        return { model = validModel(), lifetime = 1, kind = "model" }
+      end
+      if kind == "surf_attachment" then
+        return surfDefinition
+      end
+      if kind == "trainer_reveal" then
+        return {
+          model = validDynamicModel(),
+          kind = "animated_model",
+          lifecycle = { mode = "once", frameCount = 4 },
+          placementOffset = { x = 0, y = 0, z = 0.5 },
+        }
+      end
+      if kind == "tall_grass" or kind == "very_tall_grass" then
+        return {
+          model = validDynamicModel(),
+          kind = "animated_model",
+          lifecycle = { mode = "hold_until_owner_moves", holdFrame = 3 },
+          placementOffset = { x = 0.25, y = 0, z = -0.5 },
+        }
+      end
+      error("unexpected field-effect cache path " .. path)
+    end,
+    exists = function(_, path)
+      return present[path] == true
+    end,
+  }
+end
+
+T.tests["requires the surf attachment with normalized presentation"] = function()
+  local ready, err = FieldEffectAssetCache.isReady(surfCache(validSurfDefinition()), SURF_MARKER)
+  Assert.isTrue(ready, tostring(err))
+end
+
+T.tests["rejects a field-effect bundle without the surf attachment"] = function()
+  local missingEntry = FieldEffectAssetCache.isReady(
+    surfCache(validSurfDefinition(), function(index)
+      index.effects.surf_attachment = nil
+    end),
+    SURF_MARKER
+  )
+  Assert.isFalse(missingEntry, "a bundle without the surf index entry must not be ready")
+  local missingDefinition = FieldEffectAssetCache.isReady(surfCache(nil), SURF_MARKER)
+  Assert.isFalse(missingDefinition, "a bundle without the surf definition must not be ready")
+end
+
+T.tests["rejects a surf attachment without a static model"] = function()
+  local definition = validSurfDefinition()
+  definition.model.kind = "nitro-dynamic"
+  local ready = FieldEffectAssetCache.isReady(surfCache(definition), SURF_MARKER)
+  Assert.isFalse(ready, "surf attachment must be a static model")
+end
+
+T.tests["rejects malformed surf oscillator bounds and steps"] = function()
+  local function readyWithOscillator(oscillator)
+    local definition = validSurfDefinition()
+    definition.presentation.oscillator = oscillator
+    return FieldEffectAssetCache.isReady(surfCache(definition), SURF_MARKER)
+  end
+  Assert.isFalse(
+    readyWithOscillator({ initialY = 1 / 16, minY = 1 / 16, maxY = 4 / 16, stepY = 0 }),
+    "a zero oscillator step must not be ready"
+  )
+  Assert.isFalse(
+    readyWithOscillator({ initialY = 1 / 16, minY = 1 / 16, maxY = 4 / 16, stepY = -0.015625 }),
+    "a negative oscillator step must not be ready"
+  )
+  Assert.isFalse(
+    readyWithOscillator({ initialY = 1 / 16, minY = 4 / 16, maxY = 1 / 16, stepY = (1 / 4) / 16 }),
+    "inverted oscillator bounds must not be ready"
+  )
+  Assert.isFalse(
+    readyWithOscillator({ initialY = 0 / 0, minY = 1 / 16, maxY = 4 / 16, stepY = (1 / 4) / 16 }),
+    "a non-finite oscillator bound must not be ready"
+  )
+end
+
+T.tests["rejects a surf attachment with incomplete facing yaw"] = function()
+  local definition = validSurfDefinition()
+  definition.presentation.yawDegrees.east = nil
+  local ready = FieldEffectAssetCache.isReady(surfCache(definition), SURF_MARKER)
+  Assert.isFalse(ready, "surf attachment must yaw for all four facings")
+end
+
+T.tests["rejects non-finite surf offsets"] = function()
+  local notANumber = validSurfDefinition()
+  notANumber.presentation.initialPlayerOffset.y = 0 / 0
+  Assert.isFalse(
+    FieldEffectAssetCache.isReady(surfCache(notANumber), SURF_MARKER),
+    "surf attachment with a NaN offset must not be ready"
+  )
+  local infinite = validSurfDefinition()
+  infinite.presentation.attachmentBaseOffset.y = math.huge
+  Assert.isFalse(
+    FieldEffectAssetCache.isReady(surfCache(infinite), SURF_MARKER),
+    "surf attachment with an infinite offset must not be ready"
+  )
 end
 
 return T

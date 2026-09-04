@@ -92,4 +92,63 @@ T.tests["aborts before publication when the canonical model is invalid"] = funct
   Assert.isFalse(cache:exists(FieldEffectAssetCache.indexPath(), "file"))
 end
 
+T.tests["publishes the surf attachment definition and its referenced paths atomically"] = function()
+  local oldEncode = MeshWriter.encode
+  ---@diagnostic disable-next-line: duplicate-set-field
+  MeshWriter.encode = function()
+    return "encoded-mesh"
+  end
+  local cache = CacheFs.forVersion("heartgold", FakeCache.new())
+  local surf = model()
+  surf.key = "field-effect:surf-attachment"
+  local surfDefinition = {
+    model = surf,
+    presentation = {
+      initialPlayerOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+      oscillator = { initialY = 1 / 16, minY = 1 / 16, maxY = 4 / 16, stepY = (1 / 4) / 16 },
+      playerBaseOffset = { x = 0, y = 4 / 16, z = 4 / 16 },
+      attachmentBaseOffset = { x = 0, y = -1 / 16, z = 0 },
+      yawDegrees = { north = 180, south = 0, west = 270, east = 90 },
+    },
+  }
+  local bundle = {
+    marker = "field-effect-cache-v8:rom:dep",
+    index = {
+      schema = "g4-field-effect-index-v2",
+      effects = {
+        warp_entrance = { path = FieldEffectAssetCache.definitionPath("warp_entrance"), definition = "warp_entrance" },
+        tall_grass = { path = FieldEffectAssetCache.definitionPath("tall_grass"), definition = "tall_grass" },
+        very_tall_grass = {
+          path = FieldEffectAssetCache.definitionPath("very_tall_grass"),
+          definition = "very_tall_grass",
+        },
+        trainer_reveal = {
+          path = FieldEffectAssetCache.definitionPath("trainer_reveal"),
+          definition = "trainer_reveal",
+        },
+        surf_attachment = {
+          path = FieldEffectAssetCache.definitionPath("surf_attachment"),
+          definition = "surf_attachment",
+        },
+      },
+    },
+    effects = {
+      warp_entrance = { model = model(), lifetime = 1 },
+      tall_grass = { model = model(), lifetime = 1 },
+      very_tall_grass = { model = model(), lifetime = 1 },
+      trainer_reveal = { model = model(), lifetime = 1 },
+      surf_attachment = surfDefinition,
+    },
+    meshes = { ["mesh-key"] = {} },
+    textures = { ["texture-key"] = { width = 1, height = 1, pixels = "rgba" } },
+  }
+  local ok, err = pcall(Writer.write, cache, bundle)
+  MeshWriter.encode = oldEncode
+  Assert.isTrue(ok, tostring(err))
+  local stored = assert(cache:loadLua(FieldEffectAssetCache.definitionPath("surf_attachment")))
+  Assert.equal(stored.model.key, "field-effect:surf-attachment")
+  Assert.equal(stored.presentation.yawDegrees.east, 90)
+  Assert.equal(cache:read(FieldEffectAssetCache.markerPath()), bundle.marker)
+end
+
 return T

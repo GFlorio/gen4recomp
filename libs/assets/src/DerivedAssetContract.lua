@@ -160,10 +160,10 @@ DerivedAssetContract.newGameInit = {
 }
 
 DerivedAssetContract.fieldEffects = {
-  -- v7 adds the one-shot trainer reveal effect alongside the existing grass
-  -- hold definitions.
-  cacheFormat = "field-effect-cache-v7",
-  indexSchema = "g4-field-effect-index-v1",
+  -- v8 adds the persistent player surf attachment alongside the existing
+  -- grass hold and one-shot trainer reveal definitions.
+  cacheFormat = "field-effect-cache-v8",
+  indexSchema = "g4-field-effect-index-v2",
 }
 
 DerivedAssetContract.fieldEmotes = {

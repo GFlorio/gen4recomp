@@ -5,6 +5,7 @@
 local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
 local FieldEntranceIndicator = require("libs.hgss.src.field.FieldEntranceIndicator")
 local ModelAsset = require("libs.assets.src.ModelAsset")
+local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local M = {}
 
@@ -13,9 +14,9 @@ function M.load(cacheFs)
     cacheFs:loadLua(FieldEffectAssetCache.indexPath()),
     "field-effect cache is cold -- run `scripts/buildcache.sh` first"
   )
-  assert(index.schema == "g4-field-effect-index-v1", "field-effect index schema is unsupported")
+  assert(index.schema == Contract.fieldEffects.indexSchema, "field-effect index schema is unsupported")
   local effects = {}
-  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass", "trainer_reveal" }) do
+  for _, kind in ipairs({ "warp_entrance", "tall_grass", "very_tall_grass", "trainer_reveal", "surf_attachment" }) do
     local entry = assert(index.effects[kind], "field-effect index is missing " .. kind)
     local definition = assert(cacheFs:loadLua(entry.path), "field-effect definition is missing: " .. kind)
     ModelAsset.validate(definition.model)
