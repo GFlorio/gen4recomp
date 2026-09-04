@@ -548,4 +548,101 @@ function T.repairs_regardless_of_material_identity()
   Assert.equal(countAt(after, 0, 1, 2), 2, "the shared breakpoint is expressed on both sides")
 end
 
+-- Duplicate-owner convergence: one batch carries three exact geometric copies
+-- of triangle A-B-C plus a supplier triangle P-D-E whose boundary corner P
+-- lies strictly inside edge A-B. Analysis collapses the three copies to one
+-- geometric span, while repair refines only one physical owner per pass, so
+-- closure legitimately needs three mutation passes plus the final empty pass.
+-- A single batch means the old `#batches + 1` allowance was two passes: this
+-- fixture structurally exceeds it and must still converge.
+local function duplicateOwnersFixture()
+  local vertices = {
+    V(0, 1, 0),
+    V(0, 1, 4),
+    V(4, 1, 2),
+    V(0, 1, 2),
+    V(-4, 1, 2),
+    V(-4, 1, 6),
+  }
+  local indices = { 0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 5 }
+  return { B(vertices, indices) }
+end
+
+local function spansEdge(batch, ax, ay, az, bx, by, bz)
+  local count = 0
+  for i = 1, #batch.indices, 3 do
+    local hasA = false
+    local hasB = false
+    for k = 0, 2 do
+      local v = batch.vertices[batch.indices[i + k] + 1]
+      if v.x == ax and v.y == ay and v.z == az then
+        hasA = true
+      end
+      if v.x == bx and v.y == by and v.z == bz then
+        hasB = true
+      end
+    end
+    if hasA and hasB then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+function T.converges_every_duplicate_physical_owner_beyond_the_old_batch_bound()
+  local input = duplicateOwnersFixture()
+  Assert.equal(#input, 1, "the regression fixture is a single batch, so the old two-pass allowance applies")
+  Assert.isTrue(#junctions(input) >= 1, "the geometric T-junction is diagnosed before repair")
+
+  local beforeTotal = 0
+  for _, area in ipairs(triangleAreas(input[1])) do
+    beforeTotal = beforeTotal + area
+  end
+
+  local after = conform(deepcopy(input))
+  Assert.equal(#junctions(after), 0, "no repairable T-junction remains at P")
+  Assert.equal(#after, 1, "the single batch stays a single batch")
+  Assert.equal(
+    math.floor(#after[1].indices / 3),
+    7,
+    "each of the three duplicate owners splits in two; the supplier is untouched"
+  )
+  Assert.equal(#after[1].vertices, 9, "each duplicate split inserts one breakpoint vertex")
+  Assert.equal(countAt(after, 0, 1, 2), 4, "every physical duplicate owner expresses P, plus the supplier corner")
+  Assert.equal(spansEdge(after[1], 0, 1, 0, 0, 1, 4), 0, "no physical triangle still spans the full A-B edge")
+  local areas = triangleAreas(after[1])
+  local total = 0
+  for _, area in ipairs(areas) do
+    Assert.isTrue(math.abs(area) > 1e-12, "retriangulation emits no zero-area triangle")
+    Assert.isTrue(area * beforeTotal > 0, "every refined triangle keeps the original winding")
+    total = total + area
+  end
+  Assert.isTrue(math.abs(total - beforeTotal) < 1e-9, "retriangulation covers exactly the original area")
+
+  local again = conformer().conform(deepcopy(after), context()) or after
+  Assert.deepEqual(again, after, "repair is idempotent on the duplicate-owner result")
+  Assert.deepEqual(conform(deepcopy(input)), after, "the same duplicate input conforms byte-identically across runs")
+  Assert.equal(
+    Hashing.sha1hex(MeshWriter.encode(conform(deepcopy(input))[1])),
+    Hashing.sha1hex(MeshWriter.encode(after[1])),
+    "repeated runs hash identically"
+  )
+end
+
+-- Transactional failure: a categorical conflict on a later pass must leave
+-- the caller's batches exactly as they were. This exercises the same
+-- entry-snapshot restore that every conformance failure path (including the
+-- did-not-converge producer error) shares.
+function T.failed_conformance_restores_pristine_input()
+  local input = attributeFixture(0, 1)
+  local snapshot = deepcopy(input)
+  local ok, err = pcall(conformer().conform, input, context())
+  Assert.isFalse(ok, "the color-source conflict must fail")
+  Assert.isTrue(Errors.is(err), "the failure is a structured producer error")
+  ---@cast err table
+  Assert.isTrue(type(err.code) == "string" and #err.code > 0, "the failure carries a stable error code")
+  Assert.isTrue(type(err.context) == "table", "the failure carries source context")
+  Assert.deepEqual(input, snapshot, "a failed conformance restores every batch to its pristine state")
+end
+
 return { tests = T }

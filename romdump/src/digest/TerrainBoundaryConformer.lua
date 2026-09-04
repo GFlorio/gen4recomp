@@ -354,7 +354,8 @@ end
 -- subsegment's owner is always the unique triangle holding both endpoints.
 ---@param batch table
 ---@param items TerrainSplitItem[]
-local function applyItems(batch, items)
+---@param makeErrorContext fun(batch: table): table|nil error-context factory for the owning batch
+local function applyItems(batch, items, makeErrorContext)
   if #items == 0 then
     return
   end
@@ -376,7 +377,18 @@ local function applyItems(batch, items)
           break
         end
       end
-      assert(owner ~= nil, "a boundary subsegment always has exactly one owning triangle")
+      if owner == nil then
+        local errorContext = nil
+        if makeErrorContext ~= nil then
+          errorContext = makeErrorContext(batch)
+        end
+        Errors.raise(
+          "MAP_COMPILE_TERRAIN_BOUNDARY_DID_NOT_CONVERGE",
+          "terrain boundary repair found no owning triangle for a planned split",
+          errorContext
+        )
+        assert(owner ~= nil, "unreachable: missing owner already raised")
+      end
       local tri = tris[owner]
       local first, second
       if (tri[1] == start or tri[1] == item.ib0) and (tri[2] == start or tri[2] == item.ib0) then
@@ -439,8 +451,101 @@ local function restoreBatches(batches, pristine)
   end
 end
 
+local function countTopology(batches)
+  local tris = 0
+  local verts = 0
+  for _, batch in ipairs(batches) do
+    tris = tris + math.floor(#batch.indices / 3)
+    verts = verts + #batch.vertices
+  end
+  return tris, verts
+end
+
+-- Physical input size for the convergence budget: total physical triangle
+-- records across the eligible batches plus the finite set of distinct
+-- geometric vertex positions those batches express at entry.
+---@param batches table[]
+---@return integer triCount
+---@return integer distinctPositions
+local function physicalTopology(batches)
+  local triCount = 0
+  local positions = {}
+  for _, batch in ipairs(batches) do
+    triCount = triCount + math.floor(#batch.indices / 3)
+    for _, v in ipairs(batch.vertices) do
+      positions[positionKey(v.x, v.y, v.z)] = true
+    end
+  end
+  local distinct = 0
+  for _ in pairs(positions) do
+    distinct = distinct + 1
+  end
+  return triCount, distinct
+end
+
+-- Context for the did-not-converge producer error: stable map/model/role
+-- source fields plus the progress accounting and the remaining work.
+---@param context table|nil
+---@param info table
+---@return table
+local function convergenceErrorContext(context, info)
+  local out = {}
+  if type(context) == "table" then
+    for _, key in ipairs({ "mapId", "mapSymbol", "role", "modelArchive", "modelMemberId", "modelName" }) do
+      local value = context[key]
+      if value ~= nil then
+        out[key] = value
+      end
+    end
+  end
+  for k, v in pairs(info) do
+    out[k] = v
+  end
+  return out
+end
+
 local function conformPasses(batches, context)
-  local budget = #batches + 1
+  -- Convergence accounting from the physical input topology.
+  --
+  -- Geometric analysis versus physical ownership: analyzeBatch collapses
+  -- exact duplicate geometric triangles (identical position triples) so a
+  -- shared span counts once, while every physical triangle record stays in
+  -- the compiled batch. applyItems refines only the currently matched
+  -- physical owner of an edge: the representative that analysis saw. After
+  -- that owner is split at the breakpoint it no longer spans the point, but
+  -- an unsplit exact duplicate may still span it and become the
+  -- representative on the next pass. One pass therefore refines at most one
+  -- duplicate owner per geometric span, and D duplicate owners of one span
+  -- legitimately need D passes. A bound derived from the batch count cannot
+  -- cover that domain.
+  --
+  -- Progress invariant: a pass with no events has converged. A pass with
+  -- events must perform at least one real topology refinement: each planned
+  -- break inserts one breakpoint vertex (copied exactly from an already
+  -- expressed boundary position) and replaces one spanning triangle with two
+  -- strict sub-triangles, so physical triangle and vertex counts strictly
+  -- grow and no already-expressed breakpoint is ever removed. Events with no
+  -- topology change mean the producer has stalled and fail immediately.
+  --
+  -- Finite budget proof: splits never create a new geometric position; every
+  -- inserted vertex copies an already expressed boundary position, so the
+  -- global distinct-position set of size G measured at entry never grows.
+  -- Fix one initial physical triangle and follow its descendant lineage.
+  -- Each split of that lineage inserts a position from the entry set that
+  -- the lineage did not previously express (an already expressed breakpoint
+  -- cannot lie strictly inside a non-degenerate descendant edge), and no
+  -- split removes an expressed breakpoint. Distinct lineage splits are
+  -- therefore bounded by G, each lineage yields at most G + 1 triangles, and
+  -- over T initial physical triangles the whole model admits at most T * G
+  -- legitimate refinements. Every working pass performs at least one, so the
+  -- pass count is bounded by the same budget plus the final empty pass. The
+  -- guard below enforces exactly that; it is deliberately conservative (real
+  -- terrain converges in a handful of passes) so reaching it means a
+  -- producer bug, not a large but valid model.
+  local initialTris, distinctPositions = physicalTopology(batches)
+  local maxRefinements = initialTris * distinctPositions
+  local batchCount = #batches
+  local refinements = 0
   local pass = 0
   while true do
     local analyses = {}
@@ -452,7 +557,7 @@ local function conformPasses(batches, context)
       return batches
     end
     pass = pass + 1
-    assert(pass <= budget, "terrain boundary repair did not converge")
+    local beforeTris, beforeVerts = countTopology(batches)
     -- Group events per (batch, edge), deduplicating identical positions so
     -- one span with n internal breakpoints becomes n+1 boundary segments.
     local plans = {}
@@ -483,6 +588,7 @@ local function conformPasses(batches, context)
     -- Resolve every inserted record before mutating anything, so a
     -- categorical conflict fails before partial repair.
     local itemsByBatch = {}
+    local plannedRefinements = 0
     for i = 1, #batches do
       local list = plans[i]
       if list ~= nil then
@@ -515,29 +621,108 @@ local function conformPasses(batches, context)
           for _, br in ipairs(entry.breaks) do
             breaks[#breaks + 1] = { t = br.t, record = interpolateRecord(va, vb, br.t, br.x, br.y, br.z) }
           end
+          plannedRefinements = plannedRefinements + #breaks
           items[#items + 1] = { ia0 = entry.edge.ia - 1, ib0 = entry.edge.ib - 1, breaks = breaks }
         end
         itemsByBatch[i] = items
       end
     end
+    local first = events[1]
+    local firstBatch = first ~= nil and batches[first.batchIndex] or nil
+    local function describeRemaining()
+      local info = {
+        batchCount = batchCount,
+        passes = pass,
+        refinements = refinements,
+        maxRefinements = maxRefinements,
+        remainingEvents = #events,
+      }
+      if first ~= nil then
+        info.batchIndex = first.batchIndex
+        info.candidateBatch = first.candidateBatch
+        if firstBatch ~= nil then
+          info.materialIndex = firstBatch.materialIndex
+        end
+        info.position = { x = first.x, y = first.y, z = first.z }
+      end
+      return convergenceErrorContext(context, info)
+    end
+    if plannedRefinements == 0 then
+      Errors.raise(
+        "MAP_COMPILE_TERRAIN_BOUNDARY_DID_NOT_CONVERGE",
+        "terrain boundary repair stalled: "
+          .. tostring(#events)
+          .. " repair event(s) produced no planned refinement on pass "
+          .. tostring(pass),
+        describeRemaining()
+      )
+    end
+    if refinements + plannedRefinements > maxRefinements then
+      Errors.raise(
+        "MAP_COMPILE_TERRAIN_BOUNDARY_DID_NOT_CONVERGE",
+        "terrain boundary repair exceeded its physical refinement budget ("
+          .. tostring(refinements + plannedRefinements)
+          .. " > "
+          .. tostring(maxRefinements)
+          .. ")",
+        describeRemaining()
+      )
+    end
     for i = 1, #batches do
       local items = itemsByBatch[i]
       if items ~= nil then
-        applyItems(batches[i], items)
+        local batchIndex = i
+        applyItems(batches[i], items, function(batch)
+          local info = {
+            batchCount = batchCount,
+            batchIndex = batchIndex,
+            passes = pass,
+            refinements = refinements,
+            maxRefinements = maxRefinements,
+            remainingEvents = #events,
+          }
+          if batch ~= nil then
+            info.materialIndex = batch.materialIndex
+          end
+          return convergenceErrorContext(context, info)
+        end)
       end
+    end
+    refinements = refinements + plannedRefinements
+    local afterTris, afterVerts = countTopology(batches)
+    if afterTris <= beforeTris or afterVerts <= beforeVerts then
+      Errors.raise(
+        "MAP_COMPILE_TERRAIN_BOUNDARY_DID_NOT_CONVERGE",
+        "terrain boundary repair produced no topology change on pass " .. tostring(pass),
+        describeRemaining()
+      )
+    end
+    if pass > maxRefinements then
+      Errors.raise(
+        "MAP_COMPILE_TERRAIN_BOUNDARY_DID_NOT_CONVERGE",
+        "terrain boundary repair exceeded its physical pass budget on pass " .. tostring(pass),
+        describeRemaining()
+      )
     end
   end
 end
 
--- Repairs every collected T-junction, iterating to closure: splitting one
--- span inserts a breakpoint owned by its batch, so each pass re-derives
--- boundary analysis from the current topology until no unmatched
--- T-junction remains. Refinement is monotone at
--- exact shared coordinates -- splits only add vertices, never move or
--- remove them, and a span split at a position is never spanned again -- so
--- the loop always terminates; the pass budget below only guards bugs.
--- Later passes cannot fail in ways the first pass did not already rule
--- out: splits never raise an edge count (a count-1 span becomes two
+-- Repairs every collected T-junction, iterating to closure: each pass
+-- re-derives geometric boundary analysis from the current physical
+-- topology until no unmatched T-junction remains. Analysis collapses exact
+-- duplicate geometric triangles so a shared span counts once, while the
+-- batches retain every physical triangle owner; refinement splits only the
+-- currently matched physical owner of a span at the breakpoint. The split
+-- owner no longer spans that point, but an unsplit duplicate may still do
+-- so and become visible on a later pass, so later passes are legitimate and
+-- expected. Refinement is monotone at exact shared coordinates -- splits
+-- only add breakpoint vertices copied from already expressed positions,
+-- never move or remove them -- and each split consumes one unit of the
+-- finite T * G physical refinement budget (T initial physical triangles, G
+-- entry distinct positions), so every finite repairable topology reaches
+-- closure and only a stalled or over-budget producer fails. Later passes
+-- cannot fail in ways the first pass did not already rule out for valid
+-- topology: splits never raise an edge count (a count-1 span becomes two
 -- count-1 subsegments plus one count-2 interior edge) and never invalidate
 -- an index, while a categorical check on a subsegment reduces to the check
 -- on its original span. The entry snapshot still restores every batch when
