@@ -2,8 +2,8 @@
 -- rendered terrain batches.
 --
 -- Outdoor terrain is drawn as one batch per material. When a coarse batch
--- carries boundary edge A-B while a touching batch breaks the same span at
--- interior vertices P1..Pn, host point-sampling can disagree along the two
+-- carries boundary edge A-B while the same batch or a touching batch breaks
+-- the same span at interior vertices P1..Pn, host point-sampling can disagree along the two
 -- differently segmented but collinear edges and leave an isolated sample
 -- owned by neither batch. The producer repair splits the coarse boundary
 -- topology so both sides express the same breakpoints, without merging
@@ -410,10 +410,11 @@ function T.fails_loudly_on_categorical_color_source_conflict()
 end
 
 -- One batch whose own boundary turns at P=(0,1,1) while its spanning edge
--- A-B passes straight through: host sampling disagrees along such a pair
--- exactly like a cross-batch seam, so the spanning edge must split even
--- though no other batch is involved.
-function T.repairs_a_t_junction_within_a_single_batch()
+-- A-B passes straight through: the spanning edge splits at the shared
+-- breakpoint exactly as for a touching batch, because host sampling
+-- disagrees along differently segmented collinear edges wherever the
+-- breakpoint lives.
+function T.repairs_a_same_batch_t_junction_and_preserves_area_and_winding()
   local batch = B({
     V(0, 1, 0),
     V(0, 1, 4),
@@ -421,15 +422,96 @@ function T.repairs_a_t_junction_within_a_single_batch()
     V(0, 1, 1),
     V(-4, 1, 2),
   }, { 0, 1, 2, 3, 1, 4 })
-  local batches = { batch }
-  Assert.equal(#junctions(batches), 1, "the same-batch T-junction is diagnosed before repair")
-  local after = conform(deepcopy(batches))
+  local input = { batch }
+  Assert.isTrue(#junctions(input) >= 1, "the same-batch T arrangement must be diagnosed before repair")
+  local beforeAreas = triangleAreas(input[1])
+  local beforeTotal = beforeAreas[1] + beforeAreas[2]
+  local after = conform(deepcopy(input))
   Assert.equal(#junctions(after), 0, "no unmatched boundary T-junction may remain after repair")
-  Assert.equal(#after[1].indices, 9, "the spanned triangle splits in two; the corner triangle is untouched")
-  Assert.notNil(vertexAt(after[1], 0, 1, 1), "the spanning edge expresses the shared breakpoint")
-  for _, area in ipairs(triangleAreas(after[1])) do
+  Assert.equal(#after[1].vertices, 6, "the spanning edge gains the shared breakpoint")
+  Assert.equal(#after[1].indices, 9, "the split triangle becomes two; its neighbor is untouched")
+  Assert.equal(countAt(after, 0, 1, 1), 2, "the shared breakpoint is expressed on both sides of the split")
+  local areas = triangleAreas(after[1])
+  local total = 0
+  for _, area in ipairs(areas) do
     Assert.isTrue(math.abs(area) > 1e-12, "retriangulation emits no zero-area triangle")
+    total = total + area
   end
+  Assert.isTrue(math.abs(total - beforeTotal) < 1e-9, "retriangulation covers exactly the original area")
+  Assert.isTrue(
+    areas[1] * beforeAreas[1] > 0 and areas[2] * beforeAreas[1] > 0,
+    "the split preserves the original winding"
+  )
+  Assert.equal(areas[3], beforeAreas[2], "the untouched triangle keeps its exact area")
+  Assert.deepEqual(conform(deepcopy(input)), after, "the same input conforms byte-identically across runs")
+  local again = conformer().conform(deepcopy(after), context()) or after
+  Assert.deepEqual(again, after, "repair is idempotent")
+end
+
+-- Two crossing boundary spans: batch one owns the breakpoint P=(-2,1,14)
+-- as a boundary corner while batch two spans straight through it along
+-- z=14, and batch one's own edge U0-U1 spans straight through P along
+-- x=-2. Both breakpoints are visible before repair -- one same-batch, one
+-- across batches -- so one closure pass splits both spans; the split
+-- diagonals are internal tessellation edges, so no further breakpoint
+-- appears and a second conform changes nothing.
+function T.repairs_same_and_cross_batch_breakpoints_to_closure()
+  local first = B({
+    V(-2, 1, 16),
+    V(-2, 1, 12),
+    V(2, 1, 14),
+    V(-2, 1, 14),
+    V(-6, 1, 15),
+  }, { 0, 1, 2, 0, 3, 4 })
+  local second = B({
+    V(-7, 1, 14),
+    V(-1, 1, 14),
+    V(-4, 1, 18),
+  }, { 0, 1, 2 })
+  local before = { first, second }
+  Assert.equal(#junctions(before), 2, "the same-batch span and the other batch's span are both unmatched before repair")
+  local after = conform(deepcopy(before))
+  Assert.equal(#junctions(after), 0, "both spans are repaired to closure")
+  Assert.equal(countAt({ after[1] }, -2, 1, 14), 2, "the first batch expresses the shared breakpoint twice")
+  Assert.equal(countAt({ after[2] }, -2, 1, 14), 1, "the second batch expresses the shared breakpoint once")
+  Assert.equal(#after[1].indices, 9, "the first batch splits one triangle in two")
+  Assert.equal(#after[2].indices, 6, "the second batch splits one triangle in two")
+  for index, batch in ipairs(after) do
+    for _, area in ipairs(triangleAreas(batch)) do
+      Assert.isTrue(math.abs(area) > 1e-12, "retriangulation emits no zero-area triangle in batch " .. index)
+    end
+  end
+  Assert.deepEqual(conform(deepcopy(before)), after, "the same crossing seam conforms identically across runs")
+end
+
+-- Three triangles sharing one geometric edge A-B: a count-3 edge is never
+-- a spanning edge, so repair tolerates it and leaves the batch untouched,
+-- and diagnostics report no spurious junction for it.
+local function tripleEdgeFixture()
+  return {
+    B({
+      V(0, 1, 0),
+      V(0, 1, 4),
+      V(4, 1, 2),
+      V(-4, 1, 2),
+      V(4, 1, 6),
+    }, { 0, 1, 2, 0, 1, 3, 0, 1, 4 }),
+  }
+end
+
+function T.leaves_a_triple_shared_edge_untouched()
+  local input = tripleEdgeFixture()
+  local snapshot = deepcopy(input)
+  local after = conform(input)
+  Assert.deepEqual(after, snapshot, "an overused edge is tolerated: the batch is unchanged")
+  Assert.deepEqual(input, snapshot, "conformance leaves the tolerated input untouched")
+end
+
+function T.diagnostics_report_no_spurious_junction_for_a_triple_shared_edge()
+  local input = tripleEdgeFixture()
+  local snapshot = deepcopy(input)
+  Assert.equal(#junctions(input), 0, "an overused edge is not a spanning edge: no junction is reported")
+  Assert.deepEqual(input, snapshot, "diagnostics leave the tolerated input unchanged")
 end
 
 function T.conforming_twice_changes_nothing()

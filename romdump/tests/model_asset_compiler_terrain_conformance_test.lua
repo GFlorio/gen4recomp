@@ -220,4 +220,109 @@ function T.mesh_hashes_follow_post_conformance_bytes()
   Assert.isFalse(hasVertexAt(rawCoarse, 0, 1, 2), "the pre-repair bytes lacked it, so hashes track post-repair output")
 end
 
+-- Invisible and wireframe batches cannot take part in filled-surface
+-- boundary repair: they neither contribute breakpoints nor receive splits,
+-- and they never trigger interpolation conflicts. Polygon state rides the
+-- compiled batch's resolved POLYGON_ATTR word: bits 6/7 clear means the
+-- batch renders neither surface (culled), and a zero polygon alpha means
+-- the host draws wireframe instead of a filled surface.
+local NORMAL_RAW = 0x001F00C1
+local CULL_ALL_RAW = 0x001F0001
+local WIREFRAME_RAW = 0x000000C1
+
+local function compileCustom(model, pack, role, batches)
+  local saved = MeshCompiler.compile
+  ---@diagnostic disable-next-line: duplicate-set-field -- test-only mesh-step substitution, restored below
+  MeshCompiler.compile = function()
+    return batches
+  end
+  local meshes, textures = {}, {}
+  local ok, result = pcall(ModelAssetCompiler.compileModel, model, pack, meshes, textures, {
+    mapId = 61,
+    role = role,
+    textureArchive = "map_textures",
+    textureMemberId = 3,
+    modelArchive = "land_data",
+    modelMemberId = 244,
+    modelName = "map0",
+  })
+  MeshCompiler.compile = saved
+  if not ok then
+    error(result, 0)
+  end
+  return meshes
+end
+
+local function tryCompileCustom(model, pack, role, batches)
+  local saved = MeshCompiler.compile
+  ---@diagnostic disable-next-line: duplicate-set-field -- test-only mesh-step substitution, restored below
+  MeshCompiler.compile = function()
+    return batches
+  end
+  local meshes, textures = {}, {}
+  local ok, result = pcall(ModelAssetCompiler.compileModel, model, pack, meshes, textures, {
+    mapId = 61,
+    role = role,
+    textureArchive = "map_textures",
+    textureMemberId = 3,
+    modelArchive = "land_data",
+    modelMemberId = 244,
+    modelName = "map0",
+  })
+  MeshCompiler.compile = saved
+  return ok, result, meshes
+end
+
+function T.culled_candidate_cannot_split_a_visible_neighbor()
+  local model, pack = fixtures()
+  local batches = cannedBatches()
+  batches[1].polygonAttrRaw = NORMAL_RAW
+  batches[2].polygonAttrRaw = CULL_ALL_RAW
+  local meshes = compileCustom(model, pack, "map", batches)
+  local coarse = coarseStored(meshes)
+  Assert.isFalse(hasVertexAt(coarse, 0, 1, 2), "a culled candidate contributes no breakpoint")
+  Assert.equal(#coarse.vertices, 4, "the visible neighbor gains no vertices from a culled batch")
+  Assert.equal(#coarse.indices, 6, "the visible neighbor gains no indices from a culled batch")
+end
+
+function T.wireframe_candidate_cannot_split_a_filled_neighbor()
+  local model, pack = fixtures()
+  local batches = cannedBatches()
+  batches[1].polygonAttrRaw = NORMAL_RAW
+  batches[2].polygonAttrRaw = WIREFRAME_RAW
+  local meshes = compileCustom(model, pack, "map", batches)
+  local coarse = coarseStored(meshes)
+  Assert.isFalse(hasVertexAt(coarse, 0, 1, 2), "a wireframe candidate contributes no breakpoint")
+  Assert.equal(#coarse.vertices, 4, "the filled neighbor gains no vertices from a wireframe batch")
+  Assert.equal(#coarse.indices, 6, "the filled neighbor gains no indices from a wireframe batch")
+end
+
+function T.wireframe_side_is_not_retriangulated()
+  local model, pack = fixtures()
+  local batches = cannedBatches()
+  batches[1].polygonAttrRaw = WIREFRAME_RAW
+  batches[2].polygonAttrRaw = NORMAL_RAW
+  local meshes = compileCustom(model, pack, "map", batches)
+  local coarse = coarseStored(meshes)
+  Assert.isFalse(hasVertexAt(coarse, 0, 1, 2), "an ineligible side receives no breakpoint")
+  Assert.equal(#coarse.vertices, 4, "the wireframe batch keeps its vertices byte-for-byte")
+  Assert.equal(#coarse.indices, 6, "the wireframe batch keeps its indices byte-for-byte")
+end
+
+function T.culled_candidate_does_not_trigger_an_interpolation_conflict()
+  local model, pack = fixtures()
+  local batches = cannedBatches()
+  batches[1].polygonAttrRaw = NORMAL_RAW
+  batches[2].polygonAttrRaw = CULL_ALL_RAW
+  batches[1].vertices[2].colorSource = 0
+  batches[1].vertices[3].colorSource = 1
+  local ok, result, meshes = tryCompileCustom(model, pack, "map", batches)
+  Assert.isTrue(ok, "an ineligible breakpoint never reaches conflict analysis: " .. tostring(not ok and result or ""))
+  ---@cast meshes table
+  local coarse = coarseStored(meshes)
+  Assert.isFalse(hasVertexAt(coarse, 0, 1, 2), "the visible neighbor is unchanged")
+  Assert.equal(#coarse.vertices, 4, "no vertex churn from an ineligible candidate")
+  Assert.equal(#coarse.indices, 6, "no index churn from an ineligible candidate")
+end
+
 return { tests = T }

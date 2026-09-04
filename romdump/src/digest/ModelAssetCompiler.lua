@@ -12,6 +12,7 @@ local TerrainBoundaryConformer = require("romdump.src.digest.TerrainBoundaryConf
 local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
+local Errors = require("libs.errors.src.Errors")
 local MeshWriter = require("libs.assets.src.MeshWriter")
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
@@ -20,6 +21,54 @@ local PolygonState = require("libs.assets.src.PolygonState")
 local TextureMatrixState = require("romdump.src.digest.TextureMatrixState")
 
 local ModelAssetCompiler = {}
+
+-- A compiled batch takes part in terrain boundary conformance only when it
+-- is drawn as a filled surface: culled batches render nothing and
+-- polygon-alpha-zero batches render as host wireframe, so neither can own
+-- the filled-surface sampling disagreement repair addresses.
+local function isConformable(poly)
+  return poly.cullMode ~= "all" and poly.polygonAlpha ~= 0
+end
+
+-- Conform the eligible filled-surface batches of one terrain model in place,
+-- leaving ineligible batches byte-identical. The conformer works on the same
+-- batch tables in original order, so production batch positions and material
+-- identity never shift; only a compacted error batch index is remapped to
+-- its original position before the failure propagates.
+local function conformEligible(compiled, polyByBatch, context)
+  local eligible = {}
+  local originalIndex = {}
+  for i, batch in ipairs(compiled) do
+    if isConformable(polyByBatch[i]) then
+      eligible[#eligible + 1] = batch
+      originalIndex[#eligible] = i
+    end
+  end
+  if #eligible == 0 then
+    return
+  end
+  local ok, err = pcall(TerrainBoundaryConformer.conform, eligible, {
+    mapId = context.mapId,
+    mapSymbol = context.mapSymbol,
+    role = context.role,
+    modelArchive = context.modelArchive,
+    modelMemberId = context.modelMemberId,
+    modelName = context.modelName,
+  })
+  if not ok then
+    if Errors.is(err) then
+      ---@cast err Errors.Error
+      local failed = err.context.batchIndex
+      if type(failed) == "number" then
+        local original = originalIndex[failed]
+        if original ~= nil then
+          err.context.batchIndex = original
+        end
+      end
+    end
+    error(err, 0)
+  end
+end
 
 -- Convert MaterialCompiler records (texture = sha1 key) into scene material
 -- records (texture = cache-relative PNG path). Polygon state (alpha class,
@@ -124,21 +173,20 @@ local function compileModel(model, texturePack, meshes, textures, context)
 
   -- Terrain roles share one compiled batch set whose material boundaries
   -- must agree on segmentation before serialization; other roles bypass
-  -- cross-batch repair.
+  -- boundary repair. Polygon state is decoded once per batch here and
+  -- reused for conformance eligibility, alpha classification, and
+  -- serialization below.
   local compiled = MeshCompiler.compile(model)
+  local polyByBatch = {}
+  for i, batch in ipairs(compiled) do
+    polyByBatch[i] = DsPolygonAttr.decode(batch.polygonAttrRaw)
+  end
   if isTerrain then
-    TerrainBoundaryConformer.conform(compiled, {
-      mapId = context.mapId,
-      mapSymbol = context.mapSymbol,
-      role = context.role,
-      modelArchive = context.modelArchive,
-      modelMemberId = context.modelMemberId,
-      modelName = context.modelName,
-    })
+    conformEligible(compiled, polyByBatch, context)
   end
 
   local batches = {}
-  for _, batch in ipairs(compiled) do
+  for index, batch in ipairs(compiled) do
     local info = matInfoById[batch.materialIndex]
     if info and info.texWidth then
       for _, vtx in ipairs(batch.vertices) do
@@ -147,7 +195,7 @@ local function compileModel(model, texturePack, meshes, textures, context)
       end
     end
 
-    local poly = DsPolygonAttr.decode(batch.polygonAttrRaw)
+    local poly = polyByBatch[index]
     if poly.cullMode ~= "all" then
       local fmt = info and info.textureFormat or 0
       local alphaClass =

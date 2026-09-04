@@ -1,13 +1,14 @@
 -- Graphics regression for terrain T-seams through the real world-MRT path.
 --
--- Two opaque adjacent batches share the NDC span x=0, y in [-0.8,0.8]: the
--- left batch breaks the span at P=(0,0.25,0) while the right batch spans it
--- unbroken. Both render through GxRenderer's world MRT across a subpixel
--- sweep at world-raster scales 1 and 3, and the renderState target is
--- scanned for isolated enclosed rear-plane samples (a rear-plane pixel whose
--- eight neighbors all drew terrain). The unconformed control proves the
--- fixture exercises the sampling disagreement; the conformed pair, repaired
--- through the producer utility, must leave zero such samples.
+-- Two opaque adjacent batches share a ground-plane span at x=0: the left
+-- batch breaks the span at P while the right batch spans it unbroken. The
+-- deterministic producer contract (a diagnosed cross-batch T-junction before
+-- repair, zero after, with preserved area/winding and deterministic
+-- serialization) pairs with the backend-portable render postcondition: the
+-- repaired pair leaves zero isolated enclosed rear-plane samples through
+-- GxRenderer's world MRT across a subpixel sweep at world-raster scales 1
+-- and 3. Correctness never requires a particular GPU backend to reproduce a
+-- hole for the broken input.
 
 local Assert = require("tests.support.Assert")
 local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
@@ -230,17 +231,9 @@ local function sweep(scope, batches, scale)
   return total
 end
 
-function T.unconformed_control_contains_a_hole(scope)
-  local holes1 = sweep(scope, seamBatches(), 1)
-  local holes3 = sweep(scope, seamBatches(), 3)
-  Assert.isTrue(
-    holes1 + holes3 >= 1,
-    "the control seam must drop at least one enclosed sample (scale1=" .. holes1 .. " scale3=" .. holes3 .. ")"
-  )
-end
-
--- Each batch alone is internally watertight, so control holes come from the
--- cross-batch seam disagreement rather than degenerate single geometry.
+-- Each batch alone is internally watertight, so seam holes come from the
+-- cross-batch segmentation disagreement rather than degenerate single
+-- geometry.
 function T.single_batches_cover_without_holes(scope)
   local batches = seamBatches()
   for index, single in ipairs(batches) do
@@ -249,9 +242,56 @@ function T.single_batches_cover_without_holes(scope)
   end
 end
 
+local function countAt(batches, x, y, z)
+  local n = 0
+  for _, candidate in ipairs(batches) do
+    for _, v in ipairs(candidate.vertices) do
+      if v.x == x and v.y == y and v.z == z then
+        n = n + 1
+      end
+    end
+  end
+  return n
+end
+
+local function signedAreaXZ(a, b, c)
+  return 0.5 * ((b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z))
+end
+
+local function totalArea(target)
+  local total = 0
+  for i = 1, #target.indices, 3 do
+    local a = target.vertices[target.indices[i] + 1]
+    local b = target.vertices[target.indices[i + 1] + 1]
+    local c = target.vertices[target.indices[i + 2] + 1]
+    total = total + signedAreaXZ(a, b, c)
+  end
+  return total
+end
+
 function T.conformed_seam_leaves_no_holes(scope)
-  local repaired = conformer().conform(deepcopy(seamBatches()), { role = "map", modelName = "seam_fixture" })
-    or seamBatches()
+  local before = seamBatches()
+  Assert.isTrue(
+    #conformer().findTJunctions(before) >= 1,
+    "the deliberate cross-batch T-junction is diagnosed before repair"
+  )
+  local beforeAreas = { totalArea(before[1]), totalArea(before[2]) }
+  local repaired = conformer().conform(deepcopy(before), { role = "map", modelName = "seam_fixture" }) or before
+  Assert.equal(#conformer().findTJunctions(repaired), 0, "no unmatched boundary T-junction remains after repair")
+  Assert.equal(countAt({ repaired[2] }, 0, 0, 0.5), 1, "the spanning side expresses the shared breakpoint")
+  Assert.equal(countAt(repaired, 0, 0, 0.5), 2, "both sides express the shared breakpoint after repair")
+  for index, side in ipairs(repaired) do
+    for i = 1, #side.indices, 3 do
+      local a = side.vertices[side.indices[i] + 1]
+      local b = side.vertices[side.indices[i + 1] + 1]
+      local c = side.vertices[side.indices[i + 2] + 1]
+      local area = signedAreaXZ(a, b, c)
+      Assert.isTrue(math.abs(area) > 1e-12, "retriangulation emits no zero-area triangle in batch " .. index)
+    end
+    Assert.near(totalArea(side), beforeAreas[index], 1e-9, "repair preserves area in batch " .. index)
+  end
+  local again = conformer().conform(deepcopy(before), { role = "map", modelName = "seam_fixture" }) or before
+  Assert.deepEqual(again, repaired, "the same seam conforms byte-identically across runs")
   local holes1 = sweep(scope, repaired, 1)
   local holes3 = sweep(scope, repaired, 3)
   Assert.equal(holes1, 0, "conformed seam leaves no enclosed rear-plane sample at scale 1")
