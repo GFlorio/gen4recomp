@@ -12,7 +12,7 @@ local Compiler = require("libs.script.src.Compiler")
 
 ---@class Composition
 ---@field private _registry Registry
----@field private _compile fun(script: table, opts: table): table
+---@field private _compile fun(script: table<string, unknown>, opts: table<string, unknown>): table<string, unknown>
 ---@field private _cache table<string, { version: integer, result: any }>
 local Composition = {}
 Composition.__index = Composition
@@ -20,7 +20,7 @@ Composition.__index = Composition
 local VANILLA_OWNER = { kind = "vanilla", id = "base", api = 1 }
 
 ---@param registry Registry
----@param opts table|nil
+---@param opts table<string, unknown>|nil
 ---@return Composition
 function Composition.new(registry, opts)
   opts = opts or {}
@@ -34,7 +34,7 @@ end
 -- Build the executable chain for one id. Returns nil when the id has no
 -- base definition at all.
 ---@param id string
----@return table|nil chain
+---@return table<string, unknown>|nil chain
 function Composition:_resolve(id)
   local baseResource = self._registry:base(id)
   if baseResource == nil then
@@ -72,7 +72,7 @@ end
 -- is unknown. Raises on load-time composition faults (uncompilable base).
 -- Cached until the registry mutates.
 ---@param id string
----@return table|nil
+---@return table<string, unknown>|nil
 function Composition:effective(id)
   local cached = self._cache[id]
   local version = self._registry:version()

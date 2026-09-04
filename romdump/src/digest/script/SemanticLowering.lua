@@ -20,9 +20,9 @@ local SemanticLowering = {}
 local CONDITION_OPERATORS = { [0] = "lt", [1] = "eq", [2] = "gt", [3] = "le", [4] = "ge", [5] = "ne" }
 
 -- An explicit unsupported node for one instruction.
----@param ins table
+---@param ins table<string, unknown>
 ---@param reason string
----@return table
+---@return table<string, unknown>
 local function unsupportedStep(ins, reason)
   local arguments = {}
   for index, operand in ipairs(ins.operands) do
@@ -39,10 +39,10 @@ local function unsupportedStep(ins, reason)
 end
 
 -- One step with provenance.
----@param step table
+---@param step table<string, unknown>
 ---@param offsets integer[]
 ---@param opcodes integer[]
----@return table
+---@return table<string, unknown>
 local function withProvenance(step, offsets, opcodes)
   step.provenance = { offsets = offsets, opcodes = opcodes }
   return step
@@ -69,9 +69,9 @@ local HANDLERS = buildHandlers()
 -- Fold a compare/flag instruction with a following GoToIf/CallIf into one
 -- conditional item, or nil when the pattern does not apply (the compare
 -- result is consumed by the immediately following branch).
----@param ins table
----@param branch table
----@return table|nil item
+---@param ins table<string, unknown>
+---@param branch table<string, unknown>
+---@return table<string, unknown>|nil item
 local function foldConditional(ins, branch)
   local conditionCode = Operands.operandValue(branch.operands[1])
   local operator = CONDITION_OPERATORS[conditionCode]
@@ -114,10 +114,10 @@ end
 -- The NPCMsg + WaitButton + CloseMsg triplet folds into `say` with the hgss
 -- timing profile. Returns the say item plus the
 -- number of instructions consumed (3), or nil.
----@param messageStep table
----@param waitIns table
----@param closeIns table
----@return table|nil say
+---@param messageStep table<string, unknown>
+---@param waitIns table<string, unknown>
+---@param closeIns table<string, unknown>
+---@return table<string, unknown>|nil say
 local function foldSay(messageStep, waitIns, closeIns)
   if waitIns.opcode ~= 50 then
     return nil
@@ -137,8 +137,8 @@ end
 
 -- An unconsumed NPCMsg/GenderMsgBox becomes the primitive `message` op with
 -- the native print wait (opcodes 45 and 132).
----@param step table
----@return table
+---@param step table<string, unknown>
+---@return table<string, unknown>
 local function toMessageStep(step)
   local message = step.message
   return {
@@ -153,10 +153,10 @@ end
 -- `opts.stdCatalog` (SourceCatalog) resolves CallStd targets; without it
 -- targets stay mechanical `common.std_<id>`. The returned table carries the
 -- `omissions` (Nop/Dummy erasures) for the verifier.
----@param script table
----@param memberIr table
----@param opts table
----@return table lowered
+---@param script table<string, unknown>
+---@param memberIr table<string, unknown>
+---@param opts table<string, unknown>
+---@return table<string, unknown> lowered
 function SemanticLowering.lowerScript(script, memberIr, opts)
   local items = {}
   local unsupported = {}

@@ -96,13 +96,13 @@ function ScriptRng:chance(numerator, denominator)
 end
 
 -- Serialized state for the save schema.
----@return table
+---@return table<string, unknown>
 function ScriptRng:serialize()
   return { state = self._state, calls = self._calls }
 end
 
 ---@param record any
----@return table|nil, Errors.Error?
+---@return table<string, unknown>|nil, Errors.Error?
 function ScriptRng.validate(record)
   if type(record) ~= "table" then
     return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "serialized rng state must be a table", {})
@@ -127,7 +127,7 @@ end
 
 -- Create an RNG instance. `seed` may be a number or a string (derived).
 ---@param seed integer|string|nil
----@return table rng
+---@return table<string, unknown> rng
 function ScriptRng.new(seed)
   local state
   if type(seed) == "string" then
@@ -148,8 +148,8 @@ function ScriptRng.new(seed)
 end
 
 -- Rebuild an RNG from serialized state.
----@param record table
----@return table rng
+---@param record table<string, unknown>
+---@return table<string, unknown> rng
 function ScriptRng.restore(record)
   local valid, err = ScriptRng.validate(record)
   if not valid then

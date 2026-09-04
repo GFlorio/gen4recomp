@@ -40,8 +40,8 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field dialogue FieldDialogueController
 ---@field input FieldInput
 ---@field interactions FieldSession.Interactions
----@field eventResolver table
----@field eventState { getVar: fun(self: table, id: integer): integer }
+---@field eventResolver table<string, unknown>
+---@field eventState { getVar: fun(self: table<string, unknown>, id: integer): integer }
 ---@field scriptScheduler Scheduler
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
@@ -51,9 +51,9 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field terrainEffects FieldTerrainEffectController?
 ---@field playerAvatar FieldPlayerAvatarState? surf-phase owner stepped once per fixed tick
----@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
----@field navigationBoundary table?
----@field initController table|nil
+---@field audio { updateField: fun(self: table<string, unknown>), play: fun(self: table<string, unknown>, idOrSymbol: string) }?
+---@field navigationBoundary table<string, unknown>?
+---@field initController table<string, unknown>|nil
 ---@field enterMapActors fun()?
 ---@field autoAcknowledgePresentation boolean?
 
@@ -71,8 +71,8 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field dialogue FieldDialogueController
 ---@field input FieldInput
 ---@field interactions FieldSession.Interactions
----@field eventResolver table
----@field eventState { getVar: fun(self: table, id: integer): integer }
+---@field eventResolver table<string, unknown>
+---@field eventState { getVar: fun(self: table<string, unknown>, id: integer): integer }
 ---@field scriptScheduler Scheduler
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
@@ -82,15 +82,15 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field fieldEntranceIndicator FieldEntranceIndicator
 ---@field terrainEffects FieldTerrainEffectController?
 ---@field playerAvatar FieldPlayerAvatarState? surf-phase owner stepped once per fixed tick
----@field audio { updateField: fun(self: table), play: fun(self: table, idOrSymbol: string) }?
----@field initController table|nil
+---@field audio { updateField: fun(self: table<string, unknown>), play: fun(self: table<string, unknown>, idOrSymbol: string) }?
+---@field initController table<string, unknown>|nil
 ---@field enterMapActors fun()?
 ---@field mapEntryStage string?
 ---@field childResumePending boolean
 ---@field autoAcknowledgePresentation boolean
 ---@field tick integer
 ---@field accumulator number
----@field navigationBoundary table?
+---@field navigationBoundary table<string, unknown>?
 ---@field _boundaryMovementDirection FieldDirection?
 ---@field _mapEntryMode "full"|"connection"|nil
 ---@field _connectionArrivalPending boolean
@@ -127,7 +127,7 @@ local function collapseCameraInterpolation(camera)
   end
 end
 
----@param scheduler table
+---@param scheduler table<string, unknown>
 ---@return string?
 local function foregroundEnvironmentId(scheduler)
   if scheduler.foregroundEnvironmentId then
@@ -136,7 +136,7 @@ local function foregroundEnvironmentId(scheduler)
   return nil
 end
 
----@param scheduler table
+---@param scheduler table<string, unknown>
 ---@return boolean
 local function playerInputOwned(scheduler)
   if scheduler.playerInputOwned then
@@ -145,13 +145,15 @@ local function playerInputOwned(scheduler)
   return scheduler:playerMovementLocked()
 end
 
----@param options FieldSessionOptions
+---@param options unknown
 ---@return FieldSession
 -- Every collaborator the session steps on a tick is required here: the
 -- production runtime supplies them unconditionally, so a session missing any
 -- of them -- or missing an operation a tick path calls unconditionally -- is
 -- a composition fault rather than a partial-tick configuration.
 function FieldSession.new(options)
+  assert(type(options) == "table", "field session options required")
+  ---@cast options FieldSessionOptions
   assert(options and options.versionId and options.currentMap, "field session identity required")
   assert(
     options.currentMap and type(options.currentMap.updateAnimated) == "function",
@@ -984,7 +986,10 @@ function FieldSession:updateFixed(inputSnapshot)
   self:_advanceTick()
 end
 
-function FieldSession:update(dt)
+---@param dt number
+---@param _ table<string, unknown>? legacy snapshot, intentionally ignored
+---@return integer
+function FieldSession:update(dt, _)
   assert(type(dt) == "number" and dt >= 0, "non-negative update dt required")
   self.accumulator = self.accumulator + dt
   local executed = 0

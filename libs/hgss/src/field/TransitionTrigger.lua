@@ -42,7 +42,7 @@ local DIRECTION_DELTAS = {
 
 ---@class TransitionTrigger -- the public trigger record: kind plus the attached warp
 ---@field kind "door"|"stairs"|"directional"|"generic"
----@field warp table?
+---@field warp table<string, unknown>?
 ---@field destinationFacing string?
 ---@field transition TransitionTrigger.Transition?
 local TransitionTrigger = {}
@@ -239,7 +239,7 @@ end
 
 -- The metatile behavior byte at a field tile, or nil outside permission
 -- coverage (out-of-coverage tiles can never trigger).
----@param runtimeMap table
+---@param runtimeMap table<string, unknown>
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@return integer?
@@ -296,7 +296,7 @@ end
 -- HGSS FieldSystem_CheckMapTransition: evaluated while the player is idle and
 -- presses/holds a direction. Returns a TransitionTrigger (warp attached) or
 -- nil when no warp-trigger applies at the player's tile.
----@param runtimeMap table
+---@param runtimeMap table<string, unknown>
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@param direction string
@@ -352,7 +352,7 @@ end
 
 -- HGSS FieldSystem_CheckTransition: evaluated when a step completes onto the
 -- tile. Returns a TransitionTrigger (warp attached) or nil.
----@param runtimeMap table
+---@param runtimeMap table<string, unknown>
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@param facing string

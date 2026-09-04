@@ -97,7 +97,7 @@ end
 -- Rejects a record carrying any key outside the allowed set: instruction
 -- shapes are exact, so a raw opcode, a source offset, a mode marker, or any
 -- other source-leak field is malformed asset data, never tolerated.
----@param record table
+---@param record table<string, unknown>
 ---@param allowed table<string, boolean>
 ---@param field string
 local function assertOnlyKeys(record, allowed, field)

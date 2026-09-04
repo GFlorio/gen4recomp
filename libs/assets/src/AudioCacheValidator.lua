@@ -45,8 +45,8 @@ local LOGICAL_PLAYER_COUNT = 32
 
 -- Runs a leaf validator that raises on malformed assets, reporting failure as
 -- a problem instead of propagating.
----@param validate fun(value: table): boolean
----@param ... table
+---@param validate fun(value: table<string, unknown>): boolean
+---@param ... table<string, unknown>
 ---@return boolean
 local function passes(validate, ...)
   local ok = pcall(validate, ...)
@@ -73,7 +73,7 @@ end
 
 -- Every index entry of `section` is a self-identifying table under its own
 -- nonnegative integer id.
----@param section table
+---@param section table<integer, AudioCacheValidator.IndexEntry>
 ---@param name string
 ---@return string? problem
 local function sectionProblem(section, name)
@@ -89,7 +89,7 @@ end
 -- The symbol map and the indexed symbols must describe each other in both
 -- directions: every map entry resolves into `section` and agrees on its
 -- symbol, and every indexed symbol (when present) has a map entry back.
----@param section table
+---@param section table<integer, AudioCacheValidator.IndexEntry>
 ---@param symbolMap table<string, integer>
 ---@param name string
 ---@return string? problem

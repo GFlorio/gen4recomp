@@ -48,8 +48,8 @@ local function decode(bytes, context)
 end
 
 ---@param bytes string
----@param context table|nil
----@return table|nil, table|nil
+---@param context table<string, unknown>|nil
+---@return table<string, unknown>|nil, table<string, unknown>|nil
 function FieldEffectPatternAnimation.decode(bytes, context)
   local ok, result = pcall(decode, bytes, context)
   if ok then

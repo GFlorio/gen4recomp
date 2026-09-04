@@ -31,10 +31,11 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field knows fun(self: FieldActorAssets, spriteId: integer): boolean
 ---@field acquire fun(self: FieldActorAssets, spriteId: integer): FieldActorAsset
 ---@field release fun(self: FieldActorAssets, spriteId: integer)
+---@field dispose fun(self: FieldActorAssets)?
 
 ---@class FieldActorAsset
 ---@field spriteId integer
----@field visual table
+---@field visual table<string, unknown>
 ---@field references integer
 -- The provider owns the acquired visual; the manager only holds its reference
 -- through the provider's acquire/release pair.
@@ -70,7 +71,7 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@class FieldActorStepContext
 ---@field autonomousLocked boolean?
 ---@field actorLocked (fun(actorId: string): boolean)?
----@field player table?
+---@field player table<string, unknown>?
 ---@field playerCandidates FieldOccupancyCandidate[]?
 
 ---@class FieldActorSurfaceSample
@@ -114,7 +115,7 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field _instantiate fun(self: FieldActorManager, entry: FieldActorManager.Entry, event: FieldActorEvent, eventState: FieldEventState?): FieldActorManager.Actor
 ---@field _destroy fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor)
 ---@field leaveMap fun(self: FieldActorManager, mapId: integer)
----@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, restoredObjects: table?)
+---@field enterMap fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, restoredObjects: table<string, unknown>?)
 ---@field dispose fun(self: FieldActorManager)
 ---@field visualRevision fun(self: FieldActorManager): integer
 ---@field collectSpriteIds fun(self: FieldActorManager, out: table<integer, boolean>)
@@ -137,25 +138,25 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field numericId fun(self: FieldActorManager, actorId: string): integer?
 ---@field cameraTargetId fun(self: FieldActorManager): string?
 ---@field partnerId fun(self: FieldActorManager): string?
----@field _resolveScriptedDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, direction: FieldDirection?, distance: string?): table
----@field _resolveTrajectoryDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, deltaX: integer, deltaZ: integer, surfaceBandDelta: integer): table
+---@field _resolveScriptedDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, direction: FieldDirection?, distance: string?): table<string, unknown>
+---@field _resolveTrajectoryDestination fun(self: FieldActorManager, actor: FieldActorManager.Actor, deltaX: integer, deltaZ: integer, surfaceBandDelta: integer): table<string, unknown>
 ---@field setPosition fun(self: FieldActorManager, actorId: string, position: FieldActorManager.Position, options: { scripted?: boolean }?)
 ---@field getAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field probeAt fun(self: FieldActorManager, runtimeMap: RuntimeFieldMap, eventState: FieldEventState, candidate: FieldOccupancyCandidate): FieldActorManager.ProbeResult?
 ---@field actorsOf fun(self: FieldActorManager, mapId: integer): FieldActorManager.Actor[]
 ---@field actorIdForMapIndex fun(self: FieldActorManager, index: integer): string?
----@field beginScriptedAction fun(self: FieldActorManager, actorId: string, action: table)
+---@field beginScriptedAction fun(self: FieldActorManager, actorId: string, action: table<string, unknown>)
 ---@field advanceScriptedAction fun(self: FieldActorManager, actorId: string, progressTicks: integer, durationTicks: integer)
 ---@field commitScriptedAction fun(self: FieldActorManager, actorId: string)
 ---@field cancelScriptedMovement fun(self: FieldActorManager, actorId: string)
 ---@field isScriptedMoving fun(self: FieldActorManager, actorId: string): boolean
----@field _advanceAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, action: table)
----@field _beginAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, direction: FieldDirection, context: table): boolean
+---@field _advanceAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, action: table<string, unknown>)
+---@field _beginAutonomousAction fun(self: FieldActorManager, entry: FieldActorManager.Entry, actor: FieldActorManager.Actor, direction: FieldDirection, context: table<string, unknown>): boolean
 ---@field getCollisionAt fun(self: FieldActorManager, mapId: integer, candidate: FieldOccupancyCandidate): FieldActorManager.Actor?
 ---@field isPausable fun(self: FieldActorManager, actorId: string): boolean
 ---@field allPausable fun(self: FieldActorManager): boolean
----@field _restoreEntry fun(self: FieldActorManager, entry: FieldActorManager.Entry, snapshot: table?)
----@field captureObjects fun(self: FieldActorManager): table
+---@field _restoreEntry fun(self: FieldActorManager, entry: FieldActorManager.Entry, snapshot: table<string, unknown>?)
+---@field captureObjects fun(self: FieldActorManager): table<string, unknown>
 ---@field new fun(opts: FieldActorManagerOptions): FieldActorManager
 ---@class FieldActorManager.Actor: FieldObjectActor
 ---@field movementType string
@@ -168,7 +169,7 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 ---@field order FieldActorManager.Actor[]
 ---@field occupancy table<string, FieldActorManager.Actor[]>
 ---@field reservations table<string, { actorId: string, candidate: FieldOccupancyCandidate }>
----@field autonomousActions table<string, table>
+---@field autonomousActions table<string, table<string, unknown>>
 ---@field autonomousPresentationCarry table<string, boolean>
 ---@field byFlag table<integer, FieldActorEvent[]>
 ---@field byIndex table<integer, string>
@@ -237,7 +238,7 @@ local SURFACE_ERROR_CODES = {
 ---@class FieldActorManagerOptions
 ---@field assets FieldActorAssets
 ---@field policy { variableSprites: FieldActorManager.VariableSprites }
----@field autonomyRng table?
+---@field autonomyRng table<string, unknown>?
 ---@field autonomySeed string?
 
 -- opts.assets: a FieldActorAssetProvider-shaped acquire/release/knows owner.
@@ -273,7 +274,7 @@ function FieldActorManager.new(opts)
   return manager
 end
 
----@param plate table
+---@param plate table<string, unknown>
 ---@return string?, integer?
 local function sourceIdentityFromPlate(plate)
   if plate.cellKey == nil and plate.sourceSurfaceId == nil then
@@ -1110,7 +1111,7 @@ end
 -- and commit phases cannot duplicate a map's actors.
 ---@param runtimeMap RuntimeFieldMap
 ---@param eventState FieldEventState
----@param restoredObjects table?
+---@param restoredObjects table<string, unknown>?
 ---@param self FieldActorManager
 function FieldActorManager:enterMap(runtimeMap, eventState, restoredObjects)
   assert(runtimeMap and runtimeMap.fieldData, "enterMap requires a runtime map")
@@ -1154,7 +1155,7 @@ function FieldActorManager:enterMap(runtimeMap, eventState, restoredObjects)
   end
 end
 
----@return table
+---@return table<string, unknown>
 function FieldActorManager:captureObjects()
   local actors = {}
   local mapIds = {}
@@ -1320,8 +1321,8 @@ end
 ---@param entry FieldActorManager.Entry
 ---@param actor FieldActorManager.Actor
 ---@param direction FieldDirection
----@param context table
----@return table|nil
+---@param context table<string, unknown>
+---@return table<string, unknown>|nil
 local function resolveAutonomousDestination(self, entry, actor, direction, context)
   local delta = assert(AUTONOMOUS_DELTAS[direction], "unknown autonomous direction " .. tostring(direction))
   local fieldX, fieldZ = actor.fieldX + delta.x, actor.fieldZ + delta.z
@@ -1676,8 +1677,8 @@ function FieldActorManager:drawRecords()
       -- worldX/worldY/worldZ (read by terrain, collision, and save) never
       -- carry it.
       local offset = actor.presentationOffset
-      ---@diagnostic disable-next-line: invisible
-      local gestureOffsetY = actor._gestureOffsetY or 0
+      local presentation = actor:presentationState()
+      local gestureOffsetY = presentation.gestureOffsetY
       record.actorId = actor.actorId
       record.spriteId = actor.spriteId
       record.world.x = actor.worldX + (offset and offset.x or 0)
@@ -1686,10 +1687,8 @@ function FieldActorManager:drawRecords()
       record.facing = actor.facing
       record.pose = actor.pose
       record.poseTick = actor.poseTick
-      ---@diagnostic disable-next-line: invisible
-      record.gesturePose = actor._gesturePose
-      ---@diagnostic disable-next-line: invisible
-      record.gestureTick = actor._gestureTick
+      record.gesturePose = presentation.gesturePose
+      record.gestureTick = presentation.gestureTick
       record.activeEmoteKind = actor.activeEmoteKind
       record.visible = actor.visible
       records[count] = record
@@ -2070,7 +2069,7 @@ end
 ---@param direction FieldDirection?
 ---@param distance string?
 ---@param self FieldActorManager
----@return table destination
+---@return table<string, unknown> destination
 function FieldActorManager:_resolveScriptedDestination(actor, direction, distance)
   local entry = assert(self.maps[actor.mapId], "actor map entry missing")
   local deltaMap = {
@@ -2147,7 +2146,7 @@ end
 ---@param deltaZ integer
 ---@param surfaceBandDelta integer
 ---@param self FieldActorManager
----@return table destination
+---@return table<string, unknown> destination
 function FieldActorManager:_resolveTrajectoryDestination(actor, deltaX, deltaZ, surfaceBandDelta)
   assert(type(deltaX) == "number" and deltaX % 1 == 0, "trajectory deltaX must be an integer")
   assert(type(deltaZ) == "number" and deltaZ % 1 == 0, "trajectory deltaZ must be an integer")
@@ -2199,7 +2198,7 @@ function FieldActorManager:_resolveTrajectoryDestination(actor, deltaX, deltaZ, 
 end
 
 ---@param actorId string
----@param action table
+---@param action table<string, unknown>
 ---@param self FieldActorManager
 function FieldActorManager:beginScriptedAction(actorId, action)
   local actor = requireActor(self, actorId)

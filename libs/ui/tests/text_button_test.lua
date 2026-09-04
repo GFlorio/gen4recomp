@@ -1,7 +1,5 @@
 local Assert = require("tests.support.Assert")
 
----@diagnostic disable: missing-return-value
-
 local T = {}
 
 local function textButtonModule()

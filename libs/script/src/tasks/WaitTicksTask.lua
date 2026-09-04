@@ -18,9 +18,9 @@ local WaitTicksTask = {}
 WaitTicksTask.type = "wait_ticks"
 WaitTicksTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function WaitTicksTask.create(spec, ctx)
   local ticks = spec.ticks or (spec.node and spec.node.ticks)
   if type(ticks) ~= "number" or ticks < 1 or ticks ~= math.floor(ticks) then
@@ -38,9 +38,9 @@ end
 -- zero. A countdown variable is the authoritative counter, exactly like
 -- the source RunPauseTimer (a later write to the variable is observed and
 -- decremented).
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function WaitTicksTask.poll(state, ctx)
   if state.countdownVariable ~= nil then
     local remaining = ctx.services.world:getVar(state.countdownVariable) - 1
@@ -58,7 +58,7 @@ function WaitTicksTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function WaitTicksTask.validate(state)
   -- The internal form holds remainingTicks >= 0 (zero is the completed

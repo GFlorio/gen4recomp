@@ -10,13 +10,13 @@ local MainMenuRenderer = require("game.hgss.src.menu.MainMenuRenderer")
 
 ---@class MainMenuSaveStore
 ---@field list fun(self: MainMenuSaveStore): table[]
----@field load fun(self: MainMenuSaveStore, saveId: string): table|nil, Errors.Error?
+---@field load fun(self: MainMenuSaveStore, saveId: string): table<string, unknown>|nil, Errors.Error?
 ---@field delete fun(self: MainMenuSaveStore, saveId: string): boolean
 
 ---@class MainMenuState
 ---@field saveStore MainMenuSaveStore application-owned global save catalog and payload store
 ---@field readyVersions table<string, boolean> versions available for Continue
----@field onResult fun(result: table)|nil semantic result sink owned by HGSS application routing
+---@field onResult fun(result: table<string, unknown>)|nil semantic result sink owned by HGSS application routing
 ---@field width number current viewport width
 ---@field height number current viewport height
 ---@field renderer MainMenuRenderer menu renderer owned by this state
@@ -124,7 +124,7 @@ local function readySet(versions)
   return result
 end
 
----@param options table
+---@param options table<string, unknown>
 ---@return MainMenuState
 function MainMenuState.new(options)
   assert(type(options) == "table" and options.saveStore, "Main Menu needs the global save store")

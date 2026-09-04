@@ -151,7 +151,6 @@ T["invalid_presentations_fail_before_partial_drawing"] = function(scope)
   Assert.isFalse(okNaN, "NaN exact scale must be rejected before drawing")
 
   local okMissing = pcall(function()
-    ---@diagnostic disable-next-line: missing-fields
     FieldDialogueTheme.layout({ x = 0, y = 0, width = 640 }, 1)
   end)
   Assert.isFalse(okMissing, "incomplete bounds must be rejected before drawing")

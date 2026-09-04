@@ -16,11 +16,11 @@ local AudioBank = {}
 
 ---@class AudioBank
 ---@field SCHEMA string
----@field sampleKeys fun(bank: table): string[]?
----@field validate fun(bank: table): true
+---@field sampleKeys fun(bank: table<string, unknown>): string[]?
+---@field validate fun(bank: table<string, unknown>): true
 ---@class AudioBank.Instrument
 ---@field kind string
----@field voice table?
+---@field voice table<string, unknown>?
 ---@field ranges table[]?
 ---@field lowKey integer?
 ---@field highKey integer?
@@ -29,13 +29,13 @@ local AudioBank = {}
 ---@class AudioBank.Range
 ---@field lowKey integer
 ---@field highKey integer
----@field voice table
+---@field voice table<string, unknown>
 
 ---@class AudioBank.Voice
 ---@field kind string?
----@field generator table
+---@field generator table<string, unknown>
 ---@field originalKey integer
----@field envelope table
+---@field envelope table<string, unknown>
 ---@field pan integer
 
 local Validate = require("libs.assets.src.Validate")
@@ -45,7 +45,7 @@ local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioBank.SCHEMA = Contract.audio.bankSchema
 
----@param context table
+---@param context table<string, unknown>
 local function fail(context)
   Errors.raise(AudioErrors.AUDIO_BANK_INVALID, "malformed audio bank asset", context)
 end
@@ -72,7 +72,7 @@ end
 -- drum-set bounds with full key coverage); leaf field validity is the
 -- validator's own strict check.
 ---@param instruments table<integer, AudioBank.Instrument>
----@param visit fun(instrument: AudioBank.Instrument, voice: table): boolean
+---@param visit fun(instrument: AudioBank.Instrument, voice: table<string, unknown>): boolean
 ---@return boolean
 local function walkVoices(instruments, visit)
   if type(instruments) ~= "table" or next(instruments) == nil then
@@ -139,7 +139,7 @@ end
 -- instrument shape is malformed. The walk trusts voice fields (the caller
 -- validates first): it only fails on instrument-map shapes, so validation and
 -- reference resolution cannot drift apart.
----@param bank table
+---@param bank table<string, unknown>
 ---@return string[]|nil
 function AudioBank.sampleKeys(bank)
   if type(bank) ~= "table" then
@@ -164,7 +164,7 @@ function AudioBank.sampleKeys(bank)
   return keys
 end
 
----@param voice table
+---@param voice table<string, unknown>
 local function validateVoice(voice)
   if type(voice) ~= "table" then
     fail({ field = "voice" })
@@ -219,7 +219,7 @@ local function validateVoice(voice)
   end
 end
 
----@param bank table
+---@param bank table<string, unknown>
 ---@return true
 function AudioBank.validate(bank)
   if type(bank) ~= "table" then

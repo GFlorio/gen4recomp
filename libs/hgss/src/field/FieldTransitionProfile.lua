@@ -97,14 +97,14 @@ function FieldTransitionProfile.selectEnvironment(sourceEnvironment, destination
 end
 
 ---@param profile integer
----@return table
+---@return table<string, unknown>
 function FieldTransitionProfile.fixed(profile)
   assert(FieldTransitionProfile.isValid(profile), "transition profile must be an integer from 0 through 8")
   return { mode = FieldTransitionProfile.MODE_FIXED, profile = profile }
 end
 
 ---@param mode "panel"|"environment"
----@return table
+---@return table<string, unknown>
 function FieldTransitionProfile.mode(mode)
   assert(mode == FieldTransitionProfile.MODE_PANEL or mode == FieldTransitionProfile.MODE_ENVIRONMENT)
   return { mode = mode }

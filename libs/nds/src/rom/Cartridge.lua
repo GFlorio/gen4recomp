@@ -9,11 +9,11 @@ local NitroFs = require("libs.nds.src.rom.NitroFs")
 local OverlayTable = require("libs.nds.src.rom.OverlayTable")
 
 ---@class Cartridge
----@field private _source table
----@field private _header table
----@field private _fat table<integer, table>
+---@field private _source table<string, unknown>
+---@field private _header table<string, unknown>
+---@field private _fat table<integer, table<string, unknown>>
 ---@field private _fatCount integer
----@field private _nitro table
+---@field private _nitro table<string, unknown>
 ---@field private _arm9Overlays table[]
 ---@field private _arm7Overlays table[]
 local Cartridge = {}
@@ -101,8 +101,8 @@ local function parseFat(source, fatOffset, fatSize, romSize)
   return fat, count
 end
 
----@param source table with size() and read(offset, length) methods
----@return table header
+---@param source table<string, unknown> with size() and read(offset, length) methods
+---@return table<string, unknown> header
 function Cartridge.readHeader(source)
   assert(source and type(source.size) == "function" and type(source.read) == "function", "Cartridge source is invalid")
   local romSize = source:size()
@@ -112,8 +112,8 @@ function Cartridge.readHeader(source)
   return parseHeader(BinaryReader.new(readOrRaise(source, 0, MIN_HEADER, "header"), "header"))
 end
 
----@param source table with size() and read(offset, length) methods
----@param header table? pre-read generic cartridge header
+---@param source table<string, unknown> with size() and read(offset, length) methods
+---@param header table<string, unknown>? pre-read generic cartridge header
 ---@return Cartridge
 function Cartridge.parse(source, header)
   assert(source and type(source.size) == "function" and type(source.read) == "function", "Cartridge source is invalid")

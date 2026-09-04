@@ -24,7 +24,7 @@ local FieldMapDataCompiler = {}
 -- runtime binding and interaction audits do not need to interpret ROM data.
 local NO_SCRIPT_ID = 0xFFFF
 
----@param decoded table decoded zone-event member
+---@param decoded table<string, unknown> decoded zone-event member
 local function normalizeUnboundScripts(decoded)
   for _, events in ipairs({ decoded.backgroundEvents, decoded.objectEvents, decoded.coordinateEvents }) do
     for _, event in ipairs(events) do
@@ -35,10 +35,10 @@ local function normalizeUnboundScripts(decoded)
   end
 end
 
----@param event table
----@param map table
+---@param event table<string, unknown>
+---@param map table<string, unknown>
 ---@param index integer
----@return table
+---@return table<string, unknown>
 local function semanticObjectEvent(event, map, index)
   local ok, movementType = pcall(HgssObjectMovement.semanticType, event.movement)
   if not ok then
@@ -61,7 +61,7 @@ local function semanticObjectEvent(event, map, index)
 end
 
 ---@param objectEvents table[]
----@param map table
+---@param map table<string, unknown>
 ---@return table[]
 local function semanticObjectEvents(objectEvents, map)
   local objects = {}
@@ -87,7 +87,7 @@ local TRANSITION_ENVIRONMENT_BY_MAP_TYPE = {
   POKEMON_CENTER = "building",
 }
 
----@param map table
+---@param map table<string, unknown>
 ---@return string
 local function transitionEnvironment(map)
   local environment = TRANSITION_ENVIRONMENT_BY_MAP_TYPE[map.mapType]
@@ -116,7 +116,7 @@ end
 -- FieldSystem_SoundplateIsActive): a map-scoped rule applies only on its named
 -- map, an unscoped rule on every map that carries the sound. A plate whose
 -- reference carries no rule is never disabled.
----@param ref table
+---@param ref table<string, unknown>
 ---@param mapSymbol string
 ---@return integer|nil
 local function disabledWhenFlag(ref, mapSymbol)
@@ -130,7 +130,7 @@ end
 -- The ordered source flag-music rules that apply to this map (the frozen
 -- sys_flags.c table, in source order), as {flagId, sequence} records.
 ---@param mapSymbol string
----@return table
+---@return table<string, unknown>
 local function flagOverridesFor(mapSymbol)
   local overrides = {}
   for _, rule in ipairs(fieldAudio.flagMusicOverrides) do
@@ -144,7 +144,7 @@ end
 -- The source traversal override, copied per record so the generated asset
 -- never aliases the frozen producer table: an in-process consumer of one
 -- bundle must not be able to mutate the shared reference for later compiles.
----@return table
+---@return table<string, unknown>
 local function traversalOverridesFor()
   local overrides = {}
   for _, rule in ipairs(fieldAudio.traversalOverrides) do
@@ -168,10 +168,10 @@ local VOLUME_INDEX_TARGETS = 3
 -- duck / ambient targets derived from the volume index (levels above two emit
 -- no volume moves, matching the source's guarded GF_SndHandleMoveVolume), and
 -- the disable flag the reference's own rule scopes to this map.
----@param record table
----@param ref table
+---@param record table<string, unknown>
+---@param ref table<string, unknown>
 ---@param mapSymbol string
----@return table
+---@return table<string, unknown>
 local function semanticSoundplate(record, ref, mapSymbol)
   local plate = {
     x = record.x,
@@ -228,7 +228,7 @@ end
 -- the 0x1234 signature bytes and a u16 record byte count precede the 8-byte
 -- records, so the struct header is the BGS block header, not part of the
 -- payload LandData exposes.
----@param land table
+---@param land table<string, unknown>
 ---@return string
 local function bgsBlock(land)
   local payload = land.bgs.payload
@@ -245,10 +245,10 @@ end
 -- cannot render (the default header filler and the unused headers) carry no
 -- land payload and emit an empty soundplates array, exactly like maps whose
 -- land BGS payload is empty.
----@param map table
+---@param map table<string, unknown>
 ---@param sha1hex fun(data: string): string
 ---@param romFs RomFs
----@return table plates, table audioSource { matrixMemberSha1, landDataMemberId?, landDataMemberSha1? }
+---@return table<string, unknown> plates, table<string, unknown> audioSource { matrixMemberSha1, landDataMemberId?, landDataMemberSha1? }
 local function compileSoundplates(romFs, map, sha1hex)
   local matrixNarc = must(romFs:openNarc("map_matrices"))
   local matrixBytes = must(matrixNarc:readMember(map.matrixMemberId)) --[[@as string]]

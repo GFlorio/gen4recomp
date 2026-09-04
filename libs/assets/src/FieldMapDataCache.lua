@@ -6,7 +6,7 @@ local FieldMapDataCache = {}
 ---@class FieldMapDataCache.Field
 ---@field schema string
 ---@field mapId integer
----@field events table
+---@field events table<string, unknown>
 ---@field transitionEnvironment string
 
 local Validate = require("libs.assets.src.Validate")
@@ -92,7 +92,7 @@ end
 -- record and the soundplates array. Soundplate records are runtime-semantic
 -- only (rectangle, sequence, donor-bank flag, derived duck/ambient targets,
 -- optional disable flag); raw source selectors live solely in producer data.
----@param field table
+---@param field table<string, unknown>
 ---@return boolean
 local function hasAudioPolicy(field)
   return type(field.music) == "table" and Validate.isArray(field.soundplates)

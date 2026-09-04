@@ -40,7 +40,7 @@ local LUA_KEYWORDS = {
 
 -- Deterministic key order for table emission (numeric keys first, then
 -- sorted string keys).
----@param t table
+---@param t table<string, unknown>
 ---@return string[]
 local function orderedKeys(t)
   local fields, others = {}, {}
@@ -113,8 +113,8 @@ local function stepsLiteral(steps, indent)
 end
 
 -- Render a full script resource.
----@param resource table
----@param meta table { member, scriptIndex, sourcePath, romSha1, repository,
+---@param resource table<string, unknown>
+---@param meta table<string, unknown> { member, scriptIndex, sourcePath, romSha1, repository,
 ---   sourceHash, game, coverage }
 ---@return string
 function LuaEmitter.emit(resource, meta)
@@ -159,8 +159,8 @@ end
 -- unsupported commands collapsed into explicit unsupported nodes. Deterministic
 -- like the cache emission; the header states the override origin and the
 -- `replaces` field names the generated base when the override id is curated.
----@param resource table
----@param meta table { member, scriptIndex, sourcePath, replaces? }
+---@param resource table<string, unknown>
+---@param meta table<string, unknown> { member, scriptIndex, sourcePath, replaces? }
 ---@return string
 function LuaEmitter.emitOverride(resource, meta)
   local lines = {}

@@ -855,7 +855,6 @@ end
 
 function T.destination_frames_draw_and_acknowledge_only_after_successful_presentation()
   local function makeState(renderer)
-    ---@diagnostic disable: missing-fields
     local session = FieldSession.new({
       versionId = "heartgold",
       currentMap = { fieldData = { events = { warps = {} } }, updateAnimated = function() end },
@@ -966,7 +965,6 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
         end,
       },
     })
-    ---@diagnostic enable: missing-fields
     session.mapEntryStage = "transition"
     local runtime = {
       runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
@@ -1116,10 +1114,13 @@ function T.presentation_sync_never_touches_simulation_side_avatar_references()
   local assets = presentationAssets({ [1001] = presentationEntry(1001), [1010] = presentationEntry(1010) })
   local state, _ = presentationState(assets, {})
   local simulationCalls = 0
-  ---@diagnostic disable-next-line: missing-fields -- focused recording double, never a real provider
   state.runtime.actorAssets = {
+    knows = function()
+      return true
+    end,
     acquire = function()
       simulationCalls = simulationCalls + 1
+      return { spriteId = 0, visual = {}, references = 0 }
     end,
     release = function()
       simulationCalls = simulationCalls + 1

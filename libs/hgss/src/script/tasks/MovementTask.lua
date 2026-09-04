@@ -44,9 +44,9 @@ local IMMEDIATE_ACTIONS = {
   resume_animation = true,
 }
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function MovementTask.create(spec, ctx)
   local node = spec.node or spec
   local actor = assert(node.actor or spec.actor, "movement task requires an actor")
@@ -85,7 +85,7 @@ function MovementTask.create(spec, ctx)
 end
 
 -- The repeat count of one action (walk tiles, on-spot count, delay count).
----@param action table
+---@param action table<string, unknown>
 ---@return integer
 local function actionCount(action)
   if action.action == "walk" then
@@ -97,9 +97,9 @@ end
 -- Advance one action by one tick. Returns the action's completion flag.
 -- The manager owns occupancy and world interpolation; the task drives it
 -- through begin/advance/commit and keeps the unit destination in sync.
----@param state table
----@param action table
----@param ctx table
+---@param state table<string, unknown>
+---@param action table<string, unknown>
+---@param ctx table<string, unknown>
 ---@return boolean completed
 local function advanceAction(state, action, ctx)
   local kind = action.action
@@ -238,8 +238,8 @@ end
 
 -- Advance the plan by one tick. Returns true when the whole sequence
 -- completed.
----@param state table
----@param ctx table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
 ---@return boolean done
 function MovementTask._advancePlan(state, ctx)
   if state.completed then
@@ -282,9 +282,9 @@ function MovementTask._advancePlan(state, ctx)
   return false
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function MovementTask.poll(state, ctx)
   if not state.completed then
     local done = MovementTask._advancePlan(state, ctx)
@@ -327,7 +327,7 @@ function MovementTask.cancel(state, _, ctx)
   end
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function MovementTask.validate(state)
   if type(state) ~= "table" or type(state.sequence) ~= "table" then

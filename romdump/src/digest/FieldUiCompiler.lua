@@ -739,7 +739,7 @@ end
 ---@param romFs RomFs
 ---@param sha1hex? fun(bytes: string): string|nil
 ---@param hashLua? fun(value: any): string|nil
----@return table|nil bundle
+---@return table<string, unknown>|nil bundle
 ---@return Errors.Error?
 function FieldUiCompiler.compile(romFs, sha1hex, hashLua)
   assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")

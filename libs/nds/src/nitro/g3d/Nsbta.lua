@@ -264,7 +264,7 @@ end
 --                              rotation, scaleOne = both scales 0x1000
 ---@return { transS: number|nil, transT: number|nil, scaleS: number|nil, scaleT: number|nil, rot: { sin: number, cos: number }|nil, transOne: boolean, rotOne: boolean, scaleOne: boolean }
 ---@param r BinaryReader
----@param res table
+---@param res table<string, unknown>
 ---@param targetIndex integer
 ---@param frameFx number
 function Nsbta.sample(r, res, targetIndex, frameFx)

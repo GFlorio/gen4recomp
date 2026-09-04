@@ -73,7 +73,7 @@ end
 -- the same batch's or another batch's boundary. Mixed-direction junctions (a wall meeting the
 -- ground, a cliff fold, opposing wall sheets) are ordinary authored relief:
 -- the edge is a crease rather than a boundary, so repair leaves it alone.
----@param batch table
+---@param batch table<string, unknown>
 ---@return TerrainBoundaryAnalysis
 local function analyzeBatch(batch)
   assert(
@@ -346,15 +346,15 @@ end
 ---@class TerrainSplitItem
 ---@field ia0 integer 0-based index of the original edge start
 ---@field ib0 integer 0-based index of the original edge end
----@field breaks { t: number, record: table }[] inserted points in parametric order
+---@field breaks { t: number, record: table<string, unknown> }[] inserted points in parametric order
 
 -- Splits the owning triangle of each boundary subsegment in turn. Every
 -- split replaces one triangle with two strict sub-triangles, so winding,
 -- area, and the partition property hold by construction; the next
 -- subsegment's owner is always the unique triangle holding both endpoints.
----@param batch table
+---@param batch table<string, unknown>
 ---@param items TerrainSplitItem[]
----@param makeErrorContext fun(batch: table): table|nil error-context factory for the owning batch
+---@param makeErrorContext fun(batch: table<string, unknown>): table<string, unknown>|nil error-context factory for the owning batch
 local function applyItems(batch, items, makeErrorContext)
   if #items == 0 then
     return
@@ -485,9 +485,9 @@ end
 
 -- Context for the did-not-converge producer error: stable map/model/role
 -- source fields plus the progress accounting and the remaining work.
----@param context table|nil
----@param info table
----@return table
+---@param context table<string, unknown>|nil
+---@param info table<string, unknown>
+---@return table<string, unknown>
 local function convergenceErrorContext(context, info)
   local out = {}
   if type(context) == "table" then
@@ -729,7 +729,7 @@ end
 -- any pass raises, so a failure never publishes a partially conformed
 -- model.
 ---@param batches table[]
----@param context table|nil map/model/role source context for producer errors
+---@param context table<string, unknown>|nil map/model/role source context for producer errors
 ---@return table[]
 function TerrainBoundaryConformer.conform(batches, context)
   assert(type(batches) == "table", "conform requires a compiled batch list")

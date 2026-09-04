@@ -14,7 +14,7 @@ RawIr.SCHEMA_NAME = "g4-hgss-raw-ir-v1"
 ---@param operands table[]
 ---@param size integer
 ---@param label string|nil
----@return table
+---@return table<string, unknown>
 function RawIr.instruction(offset, opcode, name, operands, size, label)
   return {
     offset = offset,
@@ -31,7 +31,7 @@ end
 ---@param movementCode integer|nil
 ---@param name string
 ---@param count integer
----@return table
+---@return table<string, unknown>
 function RawIr.movementAction(offset, movementCode, name, count)
   return {
     offset = offset,
@@ -47,7 +47,7 @@ end
 ---@param sourcePath string
 ---@param sourceHash string|nil
 ---@param messageBank integer|nil
----@return table
+---@return table<string, unknown>
 function RawIr.member(member, sourcePath, sourceHash, messageBank)
   return {
     schema = RawIr.SCHEMA_NAME,

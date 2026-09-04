@@ -25,9 +25,9 @@ local MapInitScriptController = require("libs.hgss.src.field.MapInitScriptContro
 -- FieldPlayer by reference so map swaps can rebind it.
 ---@class ScriptPlayerFacade
 ---@field private _player FieldPlayer|nil
----@field private _profile table|nil { gender: integer, name: string }
----@field private _avatarState table|nil avatar transition owner for queue/apply consumers
----@field private _avatarApplier fun(): table|nil materializes pending transitions through the owning runtime composition
+---@field private _profile table<string, unknown>|nil { gender: integer, name: string }
+---@field private _avatarState table<string, unknown>|nil avatar transition owner for queue/apply consumers
+---@field private _avatarApplier fun(): table<string, unknown>|nil materializes pending transitions through the owning runtime composition
 local ScriptPlayerFacade = {}
 ScriptPlayerFacade.__index = ScriptPlayerFacade
 
@@ -48,7 +48,7 @@ end
 -- queue/apply consumers reach it through this facade only. The owner must
 -- carry the queue/apply shape so direct setter callers cannot bypass the
 -- composition validation.
----@param avatarState table
+---@param avatarState table<string, unknown>
 function ScriptPlayerFacade:setAvatarState(avatarState)
   assert(
     type(avatarState.queueTransition) == "function" and type(avatarState.applyTransitions) == "function",
@@ -60,7 +60,7 @@ end
 -- Wire the runtime materializer that applies pending transitions with their
 -- visual and sound effects. Queue/apply consumers require it: an apply
 -- without one fails instead of moving avatar state without presenting it.
----@param applier fun(): table|nil
+---@param applier fun(): table<string, unknown>|nil
 function ScriptPlayerFacade:setAvatarApplier(applier)
   assert(type(applier) == "function", "the avatar applier must be callable")
   self._avatarApplier = applier
@@ -83,7 +83,7 @@ end
 -- through the runtime materializer, so the final visual and sound effects
 -- apply through the owning composition. An apply without a materializer is
 -- a composition fault: avatar state must never move without presenting it.
----@return table|nil
+---@return table<string, unknown>|nil
 function ScriptPlayerFacade:applyAvatarTransitions()
   local applier = self._avatarApplier
   if applier ~= nil then
@@ -95,7 +95,7 @@ end
 -- Wire the real player profile (gender and name) when the game owns one;
 -- until then profile-dependent operations fault instead of fabricating
 -- values.
----@param profile table { gender: integer, name: string }
+---@param profile table<string, unknown> { gender: integer, name: string }
 function ScriptPlayerFacade:setProfile(profile)
   self._profile = profile
 end
@@ -174,15 +174,15 @@ end
 
 ---@class FieldScriptsOptions
 ---@field cacheFs CacheFs
----@field overrideFs table read-shaped filesystem for data/scripts/overrides
+---@field overrideFs table<string, unknown> read-shaped filesystem for data/scripts/overrides
 ---@field eventState FieldEventState
 ---@field actors FieldActorManager
 ---@field player FieldPlayer
----@field profile table|nil { gender: integer, name: string }
+---@field profile table<string, unknown>|nil { gender: integer, name: string }
 ---@field dialogue FieldDialogueController
 ---@field messageProvider FieldMessageProvider
----@field layout fun(formatted: table): table
----@field fontDef table
+---@field layout fun(formatted: table<string, unknown>): table<string, unknown>
+---@field fontDef table<string, unknown>
 ---@field frameIndex integer|nil player-selected HGSS user-frame index for dialogue requests
 ---@field signpost FieldSignpostController the fixed-tick signpost controller the host advances
 ---@field windowStyles FieldWindowStyles the immutable per-runtime window style catalogue the high-level sign ops resolve appearances against
@@ -190,23 +190,23 @@ end
 ---@field mapLoader FieldMapLoader
 ---@field sourceMap RuntimeFieldMap
 ---@field seedText string|nil
----@field audio table|nil optional audio backend (absent -> SCRIPT_SERVICE_MISSING on use)
----@field weather table|nil optional live-weather backend
----@field camera table|nil optional camera backend
----@field screen table|nil optional screen backend
----@field events table|nil optional event sink
+---@field audio table<string, unknown>|nil optional audio backend (absent -> SCRIPT_SERVICE_MISSING on use)
+---@field weather table<string, unknown>|nil optional live-weather backend
+---@field camera table<string, unknown>|nil optional camera backend
+---@field screen table<string, unknown>|nil optional screen backend
+---@field events table<string, unknown>|nil optional event sink
 ---@field auxiliaryUi AuxiliaryFieldUi logical auxiliary field UI state
 ---@field contextChoice ContextChoiceProvider contextual two-choice provider
 ---@field menu FieldMenuHost modal field menu host
----@field startMenuReopen table|nil optional { request: fun() } service for the opcode-61 Start Menu reopen (absent -> SCRIPT_SERVICE_MISSING on use)
----@field effects table|nil semantic field-effect controller (absent -> SCRIPT_SERVICE_MISSING on reveal)
----@field playerAvatar table|nil avatar transition owner wired into the player facade (required together with avatarApplier)
----@field avatarApplier (fun(): table|nil)|nil pending-transition materializer wired into the player facade (required together with playerAvatar)
+---@field startMenuReopen table<string, unknown>|nil optional { request: fun() } service for the opcode-61 Start Menu reopen (absent -> SCRIPT_SERVICE_MISSING on use)
+---@field effects table<string, unknown>|nil semantic field-effect controller (absent -> SCRIPT_SERVICE_MISSING on reveal)
+---@field playerAvatar table<string, unknown>|nil avatar transition owner wired into the player facade (required together with avatarApplier)
+---@field avatarApplier (fun(): table<string, unknown>|nil)|nil pending-transition materializer wired into the player facade (required together with playerAvatar)
 
 ---@class FieldScripts
----@field registry table
+---@field registry table<string, unknown>
 ---@field composition Composition
----@field bindings table
+---@field bindings table<string, unknown>
 ---@field scheduler Scheduler
 ---@field client ScriptInteractionClient
 ---@field worldState WorldState
@@ -215,8 +215,8 @@ end
 ---@field menuHost ScriptMenuHost
 ---@field signpostHost ScriptSignpostHost
 ---@field player ScriptPlayerFacade
----@field cacheFs table CacheFs-shaped
----@field overrideFs table read-shaped filesystem for data/scripts/overrides
+---@field cacheFs table<string, unknown> CacheFs-shaped
+---@field overrideFs table<string, unknown> read-shaped filesystem for data/scripts/overrides
 ---@field registrySnapshotKey string|nil key the live registry was built under
 ---@field registrySnapshotUsed boolean true when a matching snapshot skipped per-use validation
 ---@field warmup RegistryWarmup|nil background warm-up after a snapshot miss

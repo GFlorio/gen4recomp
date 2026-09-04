@@ -134,10 +134,10 @@ end
 -- carry, unsupported-opcode and billboard-matrix guards). `dynamic` selects
 -- the transform-preserving decode (pre-draw-space segments) over the static
 -- bake of the draw matrix.
----@param model table
+---@param model table<string, unknown>
 ---@param draws table[] SBC draw submissions (the NsbmdSbcEvaluator.evaluate shape)
 ---@param dynamic boolean
----@return { draw: table, shape: table, matState: { polygonAttrRaw: integer, seed: table|nil }, geom: table }[]
+---@return { draw: table<string, unknown>, shape: table<string, unknown>, matState: { polygonAttrRaw: integer, seed: table<string, unknown>|nil }, geom: table<string, unknown> }[]
 local function decodeDraws(model, draws, dynamic)
   local shapeByIndex = {}
   for _, shp in ipairs(model.shapes) do
@@ -199,7 +199,7 @@ end
 
 -- Compile the static batches of a decoded model (shapes, display lists,
 -- materials, sbc.commands, nodes).
----@param model table
+---@param model table<string, unknown>
 ---@return CompiledBatch[]
 function MeshCompiler.compile(model)
   local batches = {}
@@ -303,8 +303,8 @@ end
 -- a second time for the descriptor it ships.
 ---@return DynamicMeshRecord[]
 ---@return { shape: string, straddling: integer }[]? straddlingPrimitives
----@return table program
----@param model table
+---@return table<string, unknown> program
+---@param model table<string, unknown>
 function MeshCompiler.compileDynamic(model)
   -- The draw set (order, visibility, material carries) is pose-independent:
   -- the bind-pose evaluation yields the same draws the static path compiles.

@@ -23,8 +23,8 @@ local function assertMapIdentity(mapIdentity)
   assert(SOURCE_FACING[mapIdentity.sourceFacing] ~= nil, "NewGame source facing is invalid")
 end
 
----@param options table
----@return table candidate
+---@param options table<string, unknown>
+---@return table<string, unknown> candidate
 function NewGame.createCandidate(options)
   assert(type(options) == "table", "NewGame.createCandidate requires options")
   assert(
@@ -69,10 +69,10 @@ function NewGame.createCandidate(options)
   }
 end
 
----@param candidate table
----@param confirmation table { name: string, gender: integer }
----@param options table { randomU32: fun(): number, playerDataContext: table }
----@return table|nil, Errors.Error?
+---@param candidate table<string, unknown>
+---@param confirmation table<string, unknown> { name: string, gender: integer }
+---@param options table<string, unknown> { randomU32: fun(): number, playerDataContext: table<string, unknown> }
+---@return table<string, unknown>|nil, Errors.Error?
 function NewGame.finalize(candidate, confirmation, options)
   assert(type(candidate) == "table" and candidate.playerData == nil, "NewGame candidate must be partial")
   assert(type(confirmation) == "table", "NewGame confirmation is required")

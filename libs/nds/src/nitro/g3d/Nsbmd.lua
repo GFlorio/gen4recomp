@@ -133,10 +133,10 @@ local pivotUtil_ = {
 -- returned -- composing them is the scaling rule's job, not the parser's.
 ---@param r BinaryReader
 ---@param nodeInfoBase integer
----@param e table
+---@param e table<string, unknown>
 ---@param scalingRule integer
 ---@param context Errors.Context
----@return table
+---@return table<string, unknown>
 local function decodeNodeData(r, nodeInfoBase, e, scalingRule, context)
   local offset = BinaryReader.new(e.data, "node-ref"):u32le(0)
   if offset == 0 then
@@ -442,7 +442,7 @@ local MATERIAL_PREFIX = 0x2C
 ---@param matBase integer
 ---@param blockOfs integer
 ---@param context Errors.Context
----@return table
+---@return table<string, unknown>
 local function decodeMaterialData(r, matBase, blockOfs, context)
   local base = matBase + blockOfs
   if base + MATERIAL_PREFIX > r:length() then

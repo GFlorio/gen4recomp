@@ -183,7 +183,6 @@ local coordinatorFixture
 local function halo_map_survives_same_anchor_movement()
   local coordinator, _, loader = coordinatorFixture()
   coordinator:initialize()
-  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   coordinator:updatePrefetch(1)
   local loads = loader.loads
   local protectionCalls = loader.protectionCalls[30]
@@ -200,7 +199,6 @@ end
 local function prefetched_logical_map_is_reused_on_boundary_promotion()
   local coordinator, coverage, loader, _, zone = coordinatorFixture()
   coordinator:initialize()
-  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   coordinator:updatePrefetch(1)
   local destinationLogicalMap = assert(coordinator:mapForId(30), "the ready map must already be a logical resident")
   local loads = loader.loads
@@ -233,7 +231,6 @@ local function physical_prefetch_error_does_not_block_logical_readiness()
   coverage.prefetchError = "physical prefetch failed"
   local prefetchCalls = coverage.prefetchCalls
 
-  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   coordinator:updatePrefetch(1)
 
   Assert.equal(coverage.prefetchCalls, prefetchCalls + 1, "the physical side must receive its bounded opportunity")
@@ -337,7 +334,6 @@ end
 local function eviction_tracks_committed_map_headers_and_releases_protection_once()
   local coordinator, coverage, loader = coordinatorFixture()
   coordinator:initialize()
-  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   coordinator:updatePrefetch(1)
   Assert.isTrue(hasId(coordinator:status().residentMapIds, 30))
   Assert.isTrue(loader.protections[10])
@@ -365,7 +361,6 @@ local function physical_prefetch_error_still_allows_logical_progress()
   coordinator:initialize()
   coverage.prefetchError = "physical prefetch failed"
 
-  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   Assert.equal(coordinator:updatePrefetch(1), 1)
   Assert.isTrue(hasId(coordinator:status().residentMapIds, 30))
   coordinator:dispose()
@@ -416,7 +411,6 @@ end
 local function overlapping_anchor_moves_do_not_churn_retained_residents()
   local coordinator, coverage, loader = coordinatorFixture()
   coordinator:initialize()
-  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   coordinator:updatePrefetch(1)
   local loads = loader.loads
   local map20ProtectionCalls = loader.protectionCalls[20]
@@ -508,7 +502,6 @@ local function prepared_map_hook_warms_music_before_publication()
     zoneController = zone,
     onPreparedMap = function(runtimeMap)
       if runtimeMap.mapId == 30 then
-        ---@diagnostic disable-next-line: undefined-field -- the optional audio hook is checked at the boundary
         local prewarmMapMusic = audio.prewarmMapMusic
         Assert.isTrue(
           type(prewarmMapMusic) == "function",
@@ -520,7 +513,6 @@ local function prepared_map_hook_warms_music_before_publication()
   })
 
   coordinator:initialize()
-  ---@diagnostic disable-next-line: redundant-parameter -- legacy callers may pass the ignored tick budget
   Assert.equal(coordinator:updatePrefetch(1), 1)
 
   Assert.deepEqual(calls.sequences, { 20 }, "prepared map hook must warm the map-header sequence")

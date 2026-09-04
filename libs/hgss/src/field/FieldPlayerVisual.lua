@@ -24,8 +24,15 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 ---@field clearGesturePresentation fun(self: any)
 ---@field renderPosition fun(self: any, alpha: number?): { x: number, y: number, z: number }
 
+---@class FieldPlayerVisual.SourceInput
+---@field facing string?
+---@field animationPaused boolean?
+---@field presentationState fun(self: FieldPlayerVisual.SourceInput): { locomotionActive: boolean, gesturePose: string?, gestureTick: integer?, gestureOffsetY: number }?
+---@field clearGesturePresentation fun(self: FieldPlayerVisual.SourceInput)
+---@field renderPosition fun(self: FieldPlayerVisual.SourceInput, alpha: number?): { x: number, y: number, z: number }
+
 ---@class FieldPlayerVisual.Options
----@field player FieldPlayer|FieldPlayerVisual.Source
+---@field player unknown
 ---@field spriteId integer?
 ---@field playerAvatar FieldPlayerAvatarState? surf-phase owner supplying the presentation offset
 
@@ -36,7 +43,7 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 ---@field spriteId integer?
 ---@field pose string
 ---@field poseTick integer
----@field _drawRecord table
+---@field _drawRecord table<string, unknown>
 local FieldPlayerVisual = {}
 FieldPlayerVisual.__index = FieldPlayerVisual
 
@@ -45,14 +52,18 @@ FieldPlayerVisual.ACTOR_ID = "field:player"
 ---@param opts FieldPlayerVisual.Options
 ---@return FieldPlayerVisual
 function FieldPlayerVisual.new(opts)
-  assert(type(opts) == "table" and opts.player, "FieldPlayerVisual requires a FieldPlayer")
+  assert(type(opts) == "table" and type(opts.player) == "table", "FieldPlayerVisual requires a FieldPlayer")
+  local player = opts.player
+  assert(type(player.facing) == "string", "FieldPlayerVisual requires player facing")
+  assert(type(player.renderPosition) == "function", "FieldPlayerVisual requires renderPosition")
   assert(
-    type(opts.player.presentationState) == "function" and type(opts.player.clearGesturePresentation) == "function",
+    type(player.presentationState) == "function" and type(player.clearGesturePresentation) == "function",
     "FieldPlayerVisual requires presentationState and clearGesturePresentation"
   )
+  ---@cast player FieldPlayerVisual.Source
   local self = setmetatable({
     actorId = FieldPlayerVisual.ACTOR_ID,
-    player = opts.player,
+    player = player,
     playerAvatar = opts.playerAvatar,
     spriteId = nil,
     pose = "idle",

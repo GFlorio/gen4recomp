@@ -42,6 +42,9 @@ local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
 local FieldAudioController = {}
 FieldAudioController.__index = FieldAudioController
 
+---@class FieldAudioController.RuntimeMap
+---@field fieldData table<string, unknown>
+
 ---@class FieldAudioControllerPendingMusicPolicy
 ---@field sourceMusicId integer
 ---@field destinationMusicId integer
@@ -81,7 +84,7 @@ end
 -- Does NOT apply persisted overrides (those are part of effectiveMusic).
 -- Resolves string symbols to numeric IDs using the provider.
 -- @param fieldData optional field data; if omitted, uses current map's data
----@param fieldData table?
+---@param fieldData table<string, unknown>?
 ---@return integer|nil
 function FieldAudioController:mapHeaderMusic(fieldData)
   if fieldData == nil then
@@ -118,7 +121,7 @@ function FieldAudioController:mapHeaderMusic(fieldData)
 end
 
 -- Loads a prepared map's selected music metadata without changing playback state.
----@param runtimeMap RuntimeFieldMap
+---@param runtimeMap FieldAudioController.RuntimeMap
 function FieldAudioController:prewarmMapMusic(runtimeMap)
   local reference = self:mapHeaderMusic(assert(runtimeMap.fieldData))
   if reference == nil then
@@ -173,7 +176,7 @@ end
 -- Enters a map and optionally plays the effective music
 -- Options: { clearMusicOverride, restoredMusicOverride, play }
 ---@param runtimeMap any
----@param options table|nil
+---@param options table<string, unknown>|nil
 function FieldAudioController:enterMap(runtimeMap, options)
   options = options or {}
 
@@ -225,7 +228,7 @@ function FieldAudioController:enterMap(runtimeMap, options)
   end
 end
 
----@param runtimeMap RuntimeFieldMap
+---@param runtimeMap FieldAudioController.RuntimeMap
 function FieldAudioController:enterZone(runtimeMap)
   local currentMusic = self._sound:currentMusic()
   local destinationMusic = self:mapHeaderMusic(runtimeMap.fieldData)
@@ -342,7 +345,6 @@ function FieldAudioController:_processSelection(fieldX, fieldZ)
       if selectedPlate.useFieldMusicBank then
         assert(self._fieldMusic ~= nil, "donor-bank soundplate requires base field music")
         local fieldBgm = self._provider:sequence(self._fieldMusic)
-        ---@diagnostic disable-next-line: undefined-field -- GameSound donor-bank surface is the contract under test
         self._sound:playWithBankOverride(selectedPlate.sequence, fieldBgm.bankId)
       else
         self._sound:play(selectedPlate.sequence)

@@ -25,13 +25,13 @@ local KEY_DIRECTIONS =
 local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", dpright = "east" }
 
 ---@class FieldStateOptions
----@field zoomConfig table? runtime zoom configuration (runtime contract)
+---@field zoomConfig table<string, unknown>? runtime zoom configuration (runtime contract)
 ---@field development boolean? product mode (the default) hides the playtest HUD
 ---@field initialFadeIn boolean? one-shot covered entry: first frame fully black, then reveal
 ---@field topologyProvider (fun(width: number, height: number): ScreenTopology)?
----@field saveStore table? global GameSaveStore
+---@field saveStore table<string, unknown>? global GameSaveStore
 ---@field saveValidation GameSaveValidation? shared version-aware GameSave validator
----@field audioOutput table? audio-output host namespace for deterministic runtime audio
+---@field audioOutput table<string, unknown>? audio-output host namespace for deterministic runtime audio
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
@@ -51,10 +51,10 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field _lastPlayerSpriteId integer?
 ---@field _actorRecords table[]
 ---@field _actorDrawStorage FieldActorDrawStorage
----@field _actorAssetLookup fun(spriteId: integer): table
+---@field _actorAssetLookup fun(spriteId: integer): table<string, unknown>
 ---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, movement-emote, and terrain-effect draw arrays
----@field fieldSurfRenderer table? persistent player-relative surf attachment presenter
----@field _surfPresentation table? borrowed generated surf attachment presentation configuration for yaw lookup
+---@field fieldSurfRenderer table<string, unknown>? persistent player-relative surf attachment presenter
+---@field _surfPresentation table<string, unknown>? borrowed generated surf attachment presentation configuration for yaw lookup
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field _entryFade StandardFade? one-shot covered-entry reveal, nil when inactive or complete
@@ -85,7 +85,7 @@ local function defaultScreenTopology(width, height)
   })
 end
 
----@param game table finalized unpublished game or validated loaded GameSave
+---@param game table<string, unknown> finalized unpublished game or validated loaded GameSave
 ---@param options FieldStateOptions?
 ---@return FieldState
 function FieldState.new(game, options)

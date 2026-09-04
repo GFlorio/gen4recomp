@@ -20,16 +20,16 @@ local SignTask = {}
 SignTask.type = "sign"
 SignTask.version = 1
 
----@param spec table
----@return table state
+---@param spec table<string, unknown>
+---@return table<string, unknown> state
 function SignTask.create(spec)
   local node = assert(spec.node, "sign task requires its graph node")
   return node.op == "trainer_tip" and { typed = true } or {}
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function SignTask.poll(state, ctx)
   local host = SignpostAccess.requireSignpost(ctx)
   local input = ctx.input or {}
@@ -57,14 +57,14 @@ end
 -- closing the signpost clears the printer, hides the window, returns the
 -- command to nop, restores the default style, and releases modal ownership
 -- exactly once.
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function SignTask.cancel(state, reason, ctx)
   SignpostAccess.closeOnCancel(state, reason, ctx)
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function SignTask.validate(state)
   if type(state) ~= "table" then

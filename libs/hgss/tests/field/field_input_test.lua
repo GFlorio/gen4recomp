@@ -104,8 +104,8 @@ end
 function T.rejects_missing_sources()
   local input = FieldInput.new()
   Assert.throws(function()
-    ---@diagnostic disable-next-line: missing-parameter -- intentional: a missing source must raise
-    input:pressAction()
+    ---@diagnostic disable-next-line: param-type-mismatch -- test supplies a missing action source to verify rejection
+    input:pressAction(nil)
   end)
   Assert.throws(function()
     ---@diagnostic disable-next-line: param-type-mismatch -- intentional: a nil source must raise
@@ -578,8 +578,8 @@ end
 function T.menu_rejects_missing_sources()
   local input = FieldInput.new()
   Assert.throws(function()
-    ---@diagnostic disable-next-line: missing-parameter -- intentional: a missing source must raise
-    input:pressMenu()
+    ---@diagnostic disable-next-line: param-type-mismatch -- test supplies a missing menu source to verify rejection
+    input:pressMenu(nil)
   end)
   Assert.throws(function()
     ---@diagnostic disable-next-line: param-type-mismatch -- intentional: a nil source must raise

@@ -10,7 +10,6 @@ local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}
 
----@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
 local EMPTY_MAP_PROPS = {}
 ---@cast EMPTY_MAP_PROPS MapProps
 

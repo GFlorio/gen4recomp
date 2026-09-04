@@ -1991,7 +1991,7 @@ function T.releases_expired_channel_before_the_next_physical_slot_runs()
   local mixer = VoiceMixer.new({ sampleRate = SAMPLE_RATE })
   local noteHandles = {}
   local noteOn = mixer.noteOn
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   mixer.noteOn = function(self, noteSpec)
     local handle = noteOn(self, noteSpec)
     if handle ~= nil then
@@ -3272,8 +3272,13 @@ function T.random_operands_use_only_the_signed_v5_pair_and_keep_source_arithmeti
   if not Errors.is(result) then
     error("expected structured validation error, got " .. tostring(result))
   end
-  ---@diagnostic disable-next-line: undefined-field -- Errors.is narrows result to Errors.Error
-  Assert.equal(result.code, AssetAudioErrors.AUDIO_SEQUENCE_INVALID, "the failure is the structured sequence error")
+  local errorResult = result --[[@as unknown]]
+  ---@cast errorResult Errors.Error
+  Assert.equal(
+    errorResult.code,
+    AssetAudioErrors.AUDIO_SEQUENCE_INVALID,
+    "the failure is the structured sequence error"
+  )
 end
 
 -- PROGRAM applies the source `< 0x10000` guard to the fully resolved

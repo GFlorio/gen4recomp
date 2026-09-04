@@ -18,13 +18,13 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 
 ---@class ScriptMapsService
----@field private _transition table FieldTransition-shaped
----@field private _loader table FieldMapLoader-shaped
----@field private _sourceMap table RuntimeFieldMap
----@field private _screen table|nil screen-fade-cover-shaped: isOpaque(): boolean
----@field private pendingWarp table|nil
+---@field private _transition table<string, unknown> FieldTransition-shaped
+---@field private _loader table<string, unknown> FieldMapLoader-shaped
+---@field private _sourceMap table<string, unknown> RuntimeFieldMap
+---@field private _screen table<string, unknown>|nil screen-fade-cover-shaped: isOpaque(): boolean
+---@field private pendingWarp table<string, unknown>|nil
 ---@field private _error any|nil
----@field private _specialSpawn table|nil
+---@field private _specialSpawn table<string, unknown>|nil
 local ScriptMapsService = {}
 ScriptMapsService.__index = ScriptMapsService
 
@@ -34,7 +34,7 @@ ScriptMapsService.__index = ScriptMapsService
 -- swap. A caller with no screen cover (only exercised where a test's
 -- contract is unrelated to warp fade behavior) falls back to the ordinary
 -- transition lifecycle instead of asserting a capability it does not need.
----@param opts table { transition, loader, sourceMap, screen? }
+---@param opts table<string, unknown> { transition, loader, sourceMap, screen? }
 ---@return ScriptMapsService
 function ScriptMapsService.new(opts)
   assert(
@@ -57,7 +57,7 @@ function ScriptMapsService:currentId()
 end
 
 -- Rebind the source map after a map swap (the transition replaced it).
----@param sourceMap table RuntimeFieldMap
+---@param sourceMap table<string, unknown> RuntimeFieldMap
 function ScriptMapsService:setSourceMap(sourceMap)
   self._sourceMap = sourceMap
 end
@@ -66,7 +66,7 @@ end
 -- not-found case (FIELD_MAP_UNKNOWN). Any other loader failure is an
 -- internal fault and re-raises with attribution.
 ---@param ref any
----@return table|nil
+---@return table<string, unknown>|nil
 function ScriptMapsService:resolve(ref)
   if type(ref) ~= "string" then
     return nil
@@ -109,7 +109,7 @@ end
 -- Start a scripted warp. `target` is the graph node's warp descriptor:
 -- { map = "<symbol>", warp = index, fieldX, fieldZ, facing } with the
 -- destination coordinates in the destination map's local cell space.
----@param target table
+---@param target table<string, unknown>
 function ScriptMapsService:startWarp(target)
   assert(self.pendingWarp == nil, "a scripted warp is already in progress")
   local destination, loadErr = self._loader:load(target.map)
@@ -169,7 +169,7 @@ function ScriptMapsService:setSpecialSpawn(spawn)
 end
 
 -- The recorded special-spawn location, or nil before the source setter ran.
----@return table|nil
+---@return table<string, unknown>|nil
 function ScriptMapsService:specialSpawn()
   return self._specialSpawn
 end

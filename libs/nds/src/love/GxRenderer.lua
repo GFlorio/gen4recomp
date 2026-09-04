@@ -52,14 +52,14 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@alias GxRenderer.RenderTarget GxRenderer.Canvas|GxRenderer.TargetDescriptor
 ---@class GxRenderer.Graphics
 ---@field newShader fun(source: string): GxRenderer.Shader
----@field newCanvas fun(width: integer, height: integer, opts?: table): GxRenderer.Canvas
+---@field newCanvas fun(width: integer, height: integer, opts?: table<string, unknown>): GxRenderer.Canvas
 ---@field setCanvas fun(...: GxRenderer.RenderTarget?)
 ---@field getCanvas fun(): GxRenderer.RenderTarget?
 ---@field setShader fun(shader?: GxRenderer.Shader|love.Shader)
 ---@field setDepthMode fun(mode?: string, write?: boolean)
 ---@field setBlendMode fun(mode?: string, alpha?: string)
 ---@field setColor fun(red: number, green: number, blue: number, alpha: number)
----@field draw fun(drawable: table, ...)
+---@field draw fun(drawable: table<string, unknown>, ...)
 ---@field clear fun(...)
 ---@field getDimensions fun(): integer, integer
 ---@field getBlendMode fun(): string?, string?
@@ -82,8 +82,8 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _edgeColorsProfile table<integer, integer>?
 ---@field _fogColorCache number[]
 ---@field _fogTableCache number[][]
----@field _fogFinalReference table?
----@field _fogSpriteReference table?
+---@field _fogFinalReference table<string, unknown>?
+---@field _fogSpriteReference table<string, unknown>?
 ---@field stats { drawCalls: integer, colorDrawCalls: integer, triangles: integer, meshCount: integer, textureCount: integer }
 ---@field sceneColor GxRenderer.Canvas?
 ---@field colorDepth GxRenderer.Canvas?
@@ -104,7 +104,7 @@ local FixedPoint = require("libs.math.src.FixedPoint")
 ---@field _lightMaterialColorCache { diffuse: number[], ambient: number[], specular: number[], emission: number[] }
 ---@field _lightVectorCache number[][]
 ---@field _lightColorCache number[][]
----@field _lightingDelivery table<GxRenderer.Shader, { lit: boolean, profile: table?, record: table? }>
+---@field _lightingDelivery table<GxRenderer.Shader, { lit: boolean, profile: table<string, unknown>?, record: table<string, unknown>? }>
 ---@field _presentationScale number[]
 ---@field _presentationOffset number[]
 ---@field worldRasterScale number?
@@ -224,7 +224,7 @@ function GxRenderer.worldRasterDimensions(displayWidth, displayHeight, scale)
   return math.max(1, worldW), math.max(1, math.floor(worldH + 0.5))
 end
 
----@param opts table?
+---@param opts table<string, unknown>?
 ---@return GxRenderer
 function GxRenderer.new(opts)
   opts = opts or {}
@@ -890,7 +890,7 @@ end
 -- neighbour ring, and actors. Its traversal position is the deterministic
 -- tie-breaker already resolved by HGSS presentation. FieldViewport limits the
 -- render-target size and places the result inside the host drawable.
----@param frame table normalized DS frame
+---@param frame table<string, unknown> normalized DS frame
 function GxRenderer:draw(frame)
   assert(type(frame) == "table", "GxRenderer requires a normalized frame")
   local sceneRuntime = {

@@ -97,7 +97,7 @@ end
 -- state). The optional current dimensions default to the material's own; the
 -- model evaluator passes pattern-selected variant dimensions when they
 -- differ.
----@param material table generated material record with texWidth/texHeight/texMtxMode and optional srt
+---@param material table<string, unknown> generated material record with texWidth/texHeight/texMtxMode and optional srt
 ---@param srtOrNil SampledTexSrtState|nil
 ---@param curWidth integer|nil
 ---@param curHeight integer|nil

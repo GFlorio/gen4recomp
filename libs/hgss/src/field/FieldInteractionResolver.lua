@@ -28,7 +28,7 @@ local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 
 ---@class FieldInteractionResolver
----@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table|nil
+---@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table<string, unknown>|nil
 ---@field targetMapAt fun(fieldX: integer, fieldZ: integer, currentMap: RuntimeFieldMap): RuntimeFieldMap
 ---@field _surfaceResolver SurfaceResolver?
 local FieldInteractionResolver = {}
@@ -69,7 +69,7 @@ FieldInteractionResolver.__index = FieldInteractionResolver
 ---@field tick integer
 
 ---@class FieldInteractionResolverOptions
----@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table|nil
+---@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table<string, unknown>|nil
 ---@field targetMapAt fun(fieldX: integer, fieldZ: integer, currentMap: RuntimeFieldMap): RuntimeFieldMap
 
 -- Named facing -> raw player-facing code. Raw codes match the zone-event
@@ -84,7 +84,7 @@ FieldInteractionResolver.BACKGROUND_DIRECTION_WILDCARD = 4
 -- pickup scripts whose collection-flag state is not tracked yet, so the
 -- family is declared noninteractive: the resolver never emits an intent for
 -- it. `isHiddenItem` is the single owner of this classification.
----@param event table
+---@param event table<string, unknown>
 ---@return boolean
 function FieldInteractionResolver.isHiddenItem(event)
   return event.hiddenItem == true

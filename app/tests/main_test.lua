@@ -7,6 +7,10 @@ local App = require("app.src.App")
 
 local T = {}
 
+---@class CapturedCallbackArguments
+---@field [integer] unknown
+---@field n integer
+
 function T.input_callbacks_forward_complete_argument_tuples()
   local savedLoveLoad = love.load
   local savedLoveKeypressed = love.keypressed
@@ -23,49 +27,39 @@ function T.input_callbacks_forward_complete_argument_tuples()
   local savedAppTouchpressed = App.touchpressed
 
   local ok, err = pcall(function()
-    ---@diagnostic disable-next-line: duplicate-set-field
+    ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
     App.load = function() end
     local entrypoint = assert(loadfile(love.filesystem.getSourceBaseDirectory() .. "/app/main.lua"))
     entrypoint()
     love.load({})
-    ---@diagnostic disable-next-line: duplicate-set-field
+    ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
     App.load = savedAppLoad
 
     local calls = {}
 
-    ---@diagnostic disable-next-line: duplicate-set-field
+    ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
     App.keypressed = function(...)
-      local t = { ... }
-      ---@diagnostic disable-next-line: inject-field
-      t.n = select("#", ...)
+      local t = { n = select("#", ...), ... } ---@type CapturedCallbackArguments
       calls.keypressed = t
     end
-    ---@diagnostic disable-next-line: duplicate-set-field
+    ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
     App.textinput = function(...)
-      local t = { ... }
-      ---@diagnostic disable-next-line: inject-field
-      t.n = select("#", ...)
+      local t = { n = select("#", ...), ... } ---@type CapturedCallbackArguments
       calls.textinput = t
     end
-    ---@diagnostic disable-next-line: duplicate-set-field
+    ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
     App.gamepadaxis = function(...)
-      local t = { ... }
-      ---@diagnostic disable-next-line: inject-field
-      t.n = select("#", ...)
+      local t = { n = select("#", ...), ... } ---@type CapturedCallbackArguments
       calls.gamepadaxis = t
     end
-    ---@diagnostic disable-next-line: duplicate-set-field
+    ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
     App.mousepressed = function(...)
-      local t = { ... }
-      ---@diagnostic disable-next-line: inject-field
-      t.n = select("#", ...)
+      local t = { n = select("#", ...), ... } ---@type CapturedCallbackArguments
       calls.mousepressed = t
     end
-    ---@diagnostic disable-next-line: duplicate-set-field
+    ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
     App.touchpressed = function(...)
-      local t = { ... }
-      ---@diagnostic disable-next-line: inject-field
-      t.n = select("#", ...)
+      local t = { n = select("#", ...), ... } ---@type CapturedCallbackArguments
       calls.touchpressed = t
     end
 
@@ -122,29 +116,29 @@ function T.input_callbacks_forward_complete_argument_tuples()
     Assert.equal(actual[1], touchId, "love.touchpressed identifier identity must be preserved")
   end)
 
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   App.load = savedAppLoad
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   App.keypressed = savedAppKeypressed
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   App.textinput = savedAppTextinput
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   App.gamepadaxis = savedAppGamepadaxis
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   App.mousepressed = savedAppMousepressed
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   App.touchpressed = savedAppTouchpressed
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   love.load = savedLoveLoad
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   love.keypressed = savedLoveKeypressed
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   love.textinput = savedLoveTextinput
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   love.gamepadaxis = savedLoveGamepadaxis
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   love.mousepressed = savedLoveMousepressed
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   love.touchpressed = savedLoveTouchpressed
 
   if not ok then

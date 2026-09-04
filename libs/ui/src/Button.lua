@@ -46,8 +46,8 @@ local function shapeRounded(rectValue, cornerRadius, name)
   return { rect = rectValue, cornerRadius = cornerRadius }
 end
 
----@param spec table
----@return table
+---@param spec table<string, unknown>
+---@return table<string, unknown>
 function Button.resolve(spec)
   assert(type(spec) == "table", "button specification is required")
   local rectValue = rectangle(spec.rect, "button rectangle")
@@ -136,9 +136,9 @@ local function drawRoundedFaceTop(graphics, face)
   end
 end
 
----@param graphics table
----@param button table
----@param palette table
+---@param graphics table<string, unknown>
+---@param button table<string, unknown>
+---@param palette table<string, unknown>
 function Button.draw(graphics, button, palette)
   assert(type(graphics) == "table", "button graphics is required")
   assert(type(graphics.setColor) == "function", "button graphics setColor is required")
@@ -164,7 +164,7 @@ function Button.draw(graphics, button, palette)
   drawRoundedFaceTop(graphics, button.face)
 end
 
----@param button table
+---@param button table<string, unknown>
 ---@param x number
 ---@param y number
 ---@return boolean

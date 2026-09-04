@@ -910,7 +910,6 @@ T["cancelling a live trainer reveal removes only the emitted effect"] = function
   local live = { [41] = true }
   local removed = {}
   local ownerRemovals = {}
-  ---@diagnostic disable-next-line: inject-field
   h.services.effects = {
     emit = function(_, request)
       Assert.equal(request.kind, "trainer_reveal")
@@ -951,7 +950,6 @@ end
 T["failed reveal cleanup faults the owning script"] = function()
   local h = harness()
   h.services.actors:add("rival", { fieldX = 2, fieldZ = 5, facing = "south" })
-  ---@diagnostic disable-next-line: inject-field
   h.services.effects = {
     emit = function(_)
       return 77

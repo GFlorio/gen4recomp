@@ -24,7 +24,6 @@ local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local T = {}
 
----@diagnostic disable-next-line: missing-fields -- focused test double, not a real MapProps
 local EMPTY_MAP_PROPS = {}
 ---@cast EMPTY_MAP_PROPS MapProps
 
@@ -71,7 +70,6 @@ end
 ---@return TestPlayerStub
 local function player()
   ---@type TestPlayerStub
-  ---@diagnostic disable-next-line: missing-fields
   local stub = {
     facing = "south",
     motion = "idle",
@@ -100,16 +98,16 @@ local function player()
       self._gestureTick = nil
       self._gestureOffsetY = 0
     end,
+    presentationState = function(self)
+      local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
+      return {
+        locomotionActive = locomotionActive,
+        gesturePose = self._gesturePose,
+        gestureTick = self._gestureTick,
+        gestureOffsetY = self._gestureOffsetY,
+      }
+    end,
   }
-  function stub:presentationState()
-    local locomotionActive = self.motion == "walking" or self.motion == "turning" or self.motion == "jumping"
-    return {
-      locomotionActive = locomotionActive,
-      gesturePose = self._gesturePose,
-      gestureTick = self._gestureTick,
-      gestureOffsetY = self._gestureOffsetY,
-    }
-  end
   return stub
 end
 
@@ -502,7 +500,6 @@ function T.presentation_snapshot_distinguishes_locomotion_from_stationary_script
 end
 
 function T.visual_requires_presentation_state_and_clear_collaborator()
-  ---@diagnostic disable-next-line: missing-fields
   local incomplete = {
     facing = "south",
     motion = "idle",
@@ -512,10 +509,8 @@ function T.visual_requires_presentation_state_and_clear_collaborator()
     end,
   }
   Assert.throws(function()
-    ---@diagnostic disable-next-line: assign-type-mismatch
     FieldPlayerVisual.new({ player = incomplete, spriteId = 0 })
   end)
-  ---@diagnostic disable-next-line: missing-fields
   local missingClear = {
     facing = "south",
     motion = "idle",
@@ -528,7 +523,6 @@ function T.visual_requires_presentation_state_and_clear_collaborator()
     end,
   }
   Assert.throws(function()
-    ---@diagnostic disable-next-line: assign-type-mismatch
     FieldPlayerVisual.new({ player = missingClear, spriteId = 0 })
   end)
   local complete = player()

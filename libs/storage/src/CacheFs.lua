@@ -44,7 +44,7 @@ local CACHE_ERRORS = {
 ---@field resolve fun(self: CacheFs, relativePath: string): string
 ---@field write fun(self: CacheFs, relativePath: string, data: string): boolean
 ---@field read fun(self: CacheFs, relativePath: string): string?
----@field getInfo fun(self: CacheFs, relativePath: string): table?
+---@field getInfo fun(self: CacheFs, relativePath: string): table<string, unknown>?
 ---@field exists fun(self: CacheFs, relativePath: string, expectedType?: string): boolean
 ---@field createDirectory fun(self: CacheFs, relativePath: string): boolean
 ---@field remove fun(self: CacheFs, relativePath: string): boolean
@@ -54,8 +54,8 @@ local CACHE_ERRORS = {
 ---@field removeStagedTree fun(self: CacheFs, stagingCache: CacheFs): boolean
 ---@field publishStaged fun(self: CacheFs, stageCache: CacheFs, roots: string[], cleanup: fun()): boolean
 ---@field publishFromStage fun(self: CacheFs, stagingCache: CacheFs): boolean
----@field writeLua fun(self: CacheFs, relativePath: string, value: table): boolean
----@field loadLua fun(self: CacheFs, relativePath: string): table?, Errors.Error?
+---@field writeLua fun(self: CacheFs, relativePath: string, value: table<string, unknown>): boolean
+---@field loadLua fun(self: CacheFs, relativePath: string): table<string, unknown>?, Errors.Error?
 local CacheFs = {}
 CacheFs.__index = CacheFs
 
@@ -68,7 +68,7 @@ CacheFs.__index = CacheFs
 CacheFs.STAGING_OLD_SUFFIX = ".old"
 
 ---@param versionId string
----@param backend table|nil
+---@param backend table<string, unknown>|nil
 ---@return CacheFs
 function CacheFs.forVersion(versionId, backend)
   ScopedFs.validateVersionId(versionId)
@@ -85,7 +85,7 @@ end
 -- the live root with publishFromStage; stale staging is discarded at the next
 -- import.
 ---@param versionId string
----@param backend table|nil
+---@param backend table<string, unknown>|nil
 ---@return CacheFs
 function CacheFs.forStaging(versionId, backend)
   ScopedFs.validateVersionId(versionId)
@@ -105,7 +105,7 @@ end
 -- import. `name` must be a single safe path component.
 ---@param versionId string
 ---@param name string
----@param backend table|nil
+---@param backend table<string, unknown>|nil
 ---@return CacheFs
 function CacheFs.forArtifactStage(versionId, name, backend)
   ScopedFs.validateVersionId(versionId)

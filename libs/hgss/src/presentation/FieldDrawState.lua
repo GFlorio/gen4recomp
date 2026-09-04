@@ -11,7 +11,7 @@ local FieldDrawState = {}
 -- stored as a table so a cleared scissor (nil tuple) is distinguishable from
 -- an active one.
 ---@param lg love.Graphics|love.graphics
----@return table
+---@return table<string, unknown>
 function FieldDrawState.save(lg)
   local blendMode, blendAlpha = lg.getBlendMode()
   local depthMode, depthWrite = lg.getDepthMode()
@@ -33,7 +33,7 @@ end
 -- Restores the exact captured state, including re-enabling a scissor that
 -- was active before the draw.
 ---@param lg love.Graphics|love.graphics
----@param state table
+---@param state table<string, unknown>
 function FieldDrawState.restore(lg, state)
   lg.setCanvas(state.canvas)
   lg.setShader(state.shader)

@@ -106,7 +106,6 @@ end
 
 function T.rejects_a_missing_graphics_namespace()
   local err = Assert.throws(function()
-    ---@diagnostic disable: assign-type-mismatch
     FieldSignpostRenderer.new({ cacheFs = uiCache(), manifest = MANIFEST, graphics = false })
   end)
   Assert.isTrue(tostring(err):find("FieldSignpostRenderer requires love.graphics", 1, true) ~= nil)
@@ -115,7 +114,6 @@ end
 function T.requires_a_window_style_catalogue()
   local lg = fakeGraphics({ imageSizes = { { 16, 16 }, { 16, 16 }, { 96, 32 }, { 144, 8 }, { 48, 128 } } })
   local err = Assert.throws(function()
-    ---@diagnostic disable: assign-type-mismatch
     FieldSignpostRenderer.new({ cacheFs = uiCache(), manifest = MANIFEST, graphics = lg, windowStyles = false })
   end)
   Assert.isTrue(tostring(err):find("FieldSignpostRenderer requires a window style catalogue", 1, true) ~= nil)

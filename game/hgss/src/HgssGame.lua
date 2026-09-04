@@ -16,7 +16,7 @@ local RepoFs = require("game.src.RepoFs")
 
 ---@class HgssGameOptions
 ---@field versionId string
----@field onExit fun(result: table|nil)
+---@field onExit fun(result: table<string, unknown>|nil)
 ---@field development boolean?
 ---@field actorPreview boolean?
 
@@ -53,7 +53,7 @@ end
 
 ---@param options HgssGameOptions
 ---@param game Game
----@param saveStore table
+---@param saveStore table<string, unknown>
 ---@param saveValidation GameSaveValidation
 ---@param versionId string
 local function installRoutes(options, game, saveStore, saveValidation, versionId)

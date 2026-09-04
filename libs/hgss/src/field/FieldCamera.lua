@@ -24,7 +24,7 @@ local FIELD_BILLBOARD_DEPTH_OFFSET_TILES = 0.5
 ---@field cameraAppliedY number
 ---@field zoom number
 ---@field projectionType "perspective"|"orthographic"
----@field profile table
+---@field profile table<string, unknown>
 ---@field distance number
 ---@field near number
 ---@field far number
@@ -34,7 +34,7 @@ local FIELD_BILLBOARD_DEPTH_OFFSET_TILES = 0.5
 ---@field eye { x: number, y: number, z: number }
 ---@field previousEye { x: number, y: number, z: number }
 ---@field up { x: number, y: number, z: number }
----@field history table
+---@field history table<string, unknown>
 ---@field historyEnabled boolean
 ---@field canonicalAspect number
 ---@field projectionAspect number

@@ -26,7 +26,7 @@ end
 -- and the scheduler's task-result write.
 ---@param ref any
 ---@param value any
----@param run table
+---@param run table<string, unknown>
 function RuntimeValues.writeRef(ref, value, run)
   if type(ref) ~= "table" or ref.value == nil then
     Errors.raise(
@@ -52,7 +52,7 @@ end
 
 -- Evaluate a value reference to a runtime scalar.
 ---@param v any
----@param run table
+---@param run table<string, unknown>
 ---@return any
 function RuntimeValues.evaluateValue(v, run)
   if type(v) ~= "table" or v.value == nil then
@@ -134,7 +134,7 @@ end
 -- variable id); every other form evaluates as before (a direct string or
 -- numeric id passes through, local/arg references dereference).
 ---@param v any
----@param run table
+---@param run table<string, unknown>
 ---@return any
 function RuntimeValues.resolveIdOperand(v, run)
   if type(v) == "table" and v.value == "var" then
@@ -147,7 +147,7 @@ end
 -- keeps dynamic operands and gender selection in the runtime, while the
 -- dialogue/menu hosts retain one concrete-message resolution contract.
 ---@param message any
----@param run table
+---@param run table<string, unknown>
 ---@return any
 function RuntimeValues.evaluateMessage(message, run)
   if type(message) ~= "table" then
@@ -172,7 +172,7 @@ end
 
 -- Evaluate a condition to a boolean.
 ---@param condition any
----@param run table
+---@param run table<string, unknown>
 ---@return boolean
 function RuntimeValues.evaluateCondition(condition, run)
   if type(condition) ~= "table" or condition.condition == nil then
@@ -249,7 +249,7 @@ end
 -- Resolve an actor reference to a concrete actor id. Special references
 -- resolve through the trigger context and the actor world adapter.
 ---@param ref any
----@param run table
+---@param run table<string, unknown>
 ---@return string
 function RuntimeValues.resolveActor(ref, run)
   if type(ref) == "string" then
@@ -305,7 +305,7 @@ end
 
 -- Resolve and require a live actor; missing actors are attributed errors.
 ---@param ref any
----@param run table
+---@param run table<string, unknown>
 ---@return string actorId
 function RuntimeValues.requireActor(ref, run)
   local actorId = RuntimeValues.resolveActor(ref, run)
@@ -320,7 +320,7 @@ function RuntimeValues.requireActor(ref, run)
 end
 
 ---@param ref any
----@param run table
+---@param run table<string, unknown>
 ---@return boolean
 function RuntimeValues.actorExists(ref, run)
   local actorId = RuntimeValues.resolveActor(ref, run)

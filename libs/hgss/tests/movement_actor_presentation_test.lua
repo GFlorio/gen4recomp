@@ -1183,8 +1183,7 @@ function T.gesture_warp_preserves_logic_and_reproduces_source_render_vector()
     Assert.equal(actor.worldY, startWorldY, "warp_out keeps logical worldY")
     Assert.isNil(record.gesturePose, "warp has no clip")
   end
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, 20, "warp_out commit retains +20")
+  Assert.equal(actor:presentationState().gestureOffsetY, 20, "warp_out commit retains +20")
   local holdRecord = assert(h.mgr:drawRecords()[1])
   Assert.equal(holdRecord.world.y, startWorldY + 20, "warp_out held Y remains +20 after commit")
   for progress = 1, 20 do
@@ -1196,8 +1195,7 @@ function T.gesture_warp_preserves_logic_and_reproduces_source_render_vector()
       "warp_in update " .. progress .. " renders " .. (20 - progress)
     )
   end
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, 0, "warp_in ends neutral")
+  Assert.equal(actor:presentationState().gestureOffsetY, 0, "warp_in ends neutral")
   Assert.equal(actor.fieldX, startFieldX, "warp sequence keeps logical fieldX")
   Assert.equal(actor.worldY, startWorldY, "warp sequence keeps logical worldY")
 end
@@ -1231,8 +1229,7 @@ function T.gesture_nurse_bow_uses_clip_then_faces_south()
   h.scheduler:step(210, nil)
   Assert.equal(actor.facing, "south", "bow remains south at update 10")
   Assert.isNil((h.mgr:drawRecords()[1]).gesturePose, "bow commit leaves no held gesture")
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, 0, "bow has no dynamic offset")
+  Assert.equal(actor:presentationState().gestureOffsetY, 0, "bow has no dynamic offset")
 end
 
 function T.gesture_give_and_receive_hold_final_clip_with_fixed_offset()
@@ -1256,10 +1253,8 @@ function T.gesture_give_and_receive_hold_final_clip_with_fixed_offset()
     Assert.equal(record.gesturePose, "give", "give update " .. progress)
     Assert.equal(record.gestureTick, progress - 1, "give tick " .. progress)
   end
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gesturePose, "give", "give held pose after commit")
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureTick, 21, "give held tick final")
+  Assert.equal(actor:presentationState().gesturePose, "give", "give held pose after commit")
+  Assert.equal(actor:presentationState().gestureTick, 21, "give held tick final")
   -- Drive a second gesture directly through the manager to avoid foreground conflicts
   for progress = 1, 22 do
     if progress == 1 then
@@ -1273,10 +1268,8 @@ function T.gesture_give_and_receive_hold_final_clip_with_fixed_offset()
     end
   end
   h.mgr:commitScriptedAction(ACTOR_ID)
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gesturePose, "receive", "receive held after commit")
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureTick, 21, "receive held tick final")
+  Assert.equal(actor:presentationState().gesturePose, "receive", "receive held after commit")
+  Assert.equal(actor:presentationState().gestureTick, 21, "receive held tick final")
 end
 
 function T.gesture_warp_hold_replaced_by_next_gesture_without_accumulation()
@@ -1286,16 +1279,13 @@ function T.gesture_warp_hold_replaced_by_next_gesture_without_accumulation()
   h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "warp_out", durationTicks = 20 })
   h.mgr:advanceScriptedAction(ACTOR_ID, 20, 20)
   h.mgr:commitScriptedAction(ACTOR_ID)
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, 20, "warp_out held")
+  Assert.equal(actor:presentationState().gestureOffsetY, 20, "warp_out held")
   h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "warp_in", durationTicks = 20 })
   h.mgr:advanceScriptedAction(ACTOR_ID, 1, 20)
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, 19, "warp_in replaces held warp_out at first update")
+  Assert.equal(actor:presentationState().gestureOffsetY, 19, "warp_in replaces held warp_out at first update")
   h.mgr:advanceScriptedAction(ACTOR_ID, 20, 20)
   h.mgr:commitScriptedAction(ACTOR_ID)
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, 0, "warp_in ends neutral")
+  Assert.equal(actor:presentationState().gestureOffsetY, 0, "warp_in ends neutral")
 end
 
 function T.gesture_cancellation_restores_prior_held_state_and_logical_anchor()
@@ -1306,23 +1296,19 @@ function T.gesture_cancellation_restores_prior_held_state_and_logical_anchor()
   h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "give", durationTicks = 22 })
   h.mgr:advanceScriptedAction(ACTOR_ID, 22, 22)
   h.mgr:commitScriptedAction(ACTOR_ID)
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gesturePose, "give", "give held")
-  ---@diagnostic disable-next-line: invisible
-  local heldPose, heldTick, heldOffset = actor._gesturePose, actor._gestureTick, actor._gestureOffsetY
+  local held = actor:presentationState()
+  Assert.equal(held.gesturePose, "give", "give held")
+  local heldPose, heldTick, heldOffset = held.gesturePose, held.gestureTick, held.gestureOffsetY
   local logicalWorldY = actor.worldY
   -- start new gesture and advance once, then cancel
   h.mgr:beginScriptedAction(ACTOR_ID, { action = "gesture", name = "warp_out", durationTicks = 20 })
   h.mgr:advanceScriptedAction(ACTOR_ID, 5, 20)
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, 5, "active warp offset")
+  Assert.equal(actor:presentationState().gestureOffsetY, 5, "active warp offset")
   h.mgr:cancelScriptedMovement(ACTOR_ID)
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gesturePose, heldPose, "cancel restores prior held pose")
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureTick, heldTick, "cancel restores prior held tick")
-  ---@diagnostic disable-next-line: invisible
-  Assert.equal(actor._gestureOffsetY, heldOffset, "cancel restores prior held offset")
+  local restored = actor:presentationState()
+  Assert.equal(restored.gesturePose, heldPose, "cancel restores prior held pose")
+  Assert.equal(restored.gestureTick, heldTick, "cancel restores prior held tick")
+  Assert.equal(restored.gestureOffsetY, heldOffset, "cancel restores prior held offset")
   Assert.equal(actor.worldY, logicalWorldY, "cancel restores logical anchor")
 end
 

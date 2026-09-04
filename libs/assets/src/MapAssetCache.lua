@@ -16,8 +16,8 @@ local MapAssetCache = {}
 ---@field mapBatches table[]
 ---@field buildingInstances table[]
 ---@field neighbors table[]
----@field terrainAnimations table
----@field [string] table|string|number|boolean|nil
+---@field terrainAnimations table<string, unknown>
+---@field [string] table<string, unknown>|string|number|boolean|nil
 
 ---@class MapAssetCache.Neighbor
 ---@field offsetTilesX integer
@@ -25,7 +25,7 @@ local MapAssetCache = {}
 ---@field offsetTilesZ integer
 ---@field batches table[]
 ---@field materials table[]
----@field [string] table|string|number|boolean|nil
+---@field [string] table<string, unknown>|string|number|boolean|nil
 
 local Errors = require("libs.errors.src.Errors")
 local AssetErrors = require("libs.assets.src.errors")
@@ -114,7 +114,7 @@ end
 -- The optional fixed-point srt table (the MaterialEvaluator shape): the four
 -- translation/scale fixed-point values, an optional { sin, cos } rotation
 -- (omitted for identity rotation), and the three "one" flags.
----@param srt table
+---@param srt table<string, unknown>
 ---@param invalid fun(reason: string)
 local function checkTerrainSrt(srt, invalid)
   for _, field in ipairs(TERRAIN_SRT_FIELDS) do
@@ -141,7 +141,7 @@ end
 -- valid: the source state machine can process them). The material's base
 -- texture stays outside the schedule in material.texture, so no step is
 -- compared against it.
----@param m table
+---@param m table<string, unknown>
 ---@param invalid fun(reason: string)
 local function checkTextureSwap(m, invalid)
   local swap = m.textureSwap ---@type table
@@ -169,7 +169,7 @@ end
 -- untextured materials zero or more (the producer emits zero), and only
 -- texture-matrix mode 0 has a compiled convention. A textureSwap requires
 -- the bound base texture the map starts from.
----@param m table
+---@param m table<string, unknown>
 ---@param invalid fun(reason: string)
 local function checkTerrainMaterial(m, invalid)
   local textured = type(m.texture) == "string"
@@ -245,7 +245,7 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
       invalid("terrainAnimations.textureSrt must be false or a table")
     end
     local textureSrtTable = textureSrt
-    ---@cast textureSrtTable table
+    ---@cast textureSrtTable table<string, unknown>
     CompiledNsbtaClip.validate(textureSrtTable, function(reason)
       invalid("terrainAnimations.textureSrt " .. reason)
     end)
@@ -283,7 +283,7 @@ function MapAssetCache.referencedPaths(scene, cacheFs)
   -- scene and every neighbor cell; the texture paths may differ because
   -- neighboring cells compile the same animation against their own packs.
   local swapSchedules = {} ---@type table<string, { count: integer, durations: number[] }>
-  ---@param m table
+  ---@param m table<string, unknown>
   local function checkSwapSchedule(m)
     local swap = m.textureSwap ---@type table
     if swap == nil then
@@ -492,7 +492,7 @@ end
 
 ---@param cacheFs CacheFs?
 ---@param mapId integer
----@return table
+---@return table<string, unknown>
 function MapAssetCache.dependencies(cacheFs, mapId)
   cacheFs = assert(cacheFs)
   local dependencies = cacheFs:loadLua(MapAssetCache.mapDir(mapId) .. "/dependencies.lua")

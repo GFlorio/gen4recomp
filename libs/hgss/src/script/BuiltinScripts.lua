@@ -9,7 +9,7 @@ local Sha256 = require("libs.script.src.Sha256")
 
 local BuiltinScripts = {}
 
----@return table<string, table>
+---@return table<string, table<string, unknown>>
 function BuiltinScripts.all()
   return {
     [Bindings.CANONICAL_INERT_SCRIPT] = S.script({

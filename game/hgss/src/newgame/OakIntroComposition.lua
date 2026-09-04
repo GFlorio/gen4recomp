@@ -109,7 +109,7 @@ local function validManifest(manifest, validate, name)
   return manifest
 end
 
----@param options table
+---@param options table<string, unknown>
 ---@return OakIntroState
 function OakIntroComposition.compose(options)
   assert(type(options) == "table", "Oak intro composition requires options")

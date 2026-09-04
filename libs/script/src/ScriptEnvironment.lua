@@ -20,7 +20,7 @@ local ScriptErrors = require("libs.script.src.errors")
 ---@field movementGeneration integer
 ---@field movementTasksByGeneration table<integer, table<string, boolean>>
 ---@field callerSignals table<integer, boolean>
----@field locks table
+---@field locks table<string, unknown>
 ---@field interactionClaim boolean immutable: true when the root was launched by field interaction/event arbitration rather than map initialization; grants player-input ownership for the whole environment lifetime independent of explicit locks
 ---@field createdAtTick integer
 local ScriptEnvironment = {}
@@ -312,7 +312,7 @@ end
 -- Absolute runtime ticks are diagnostics; the creation tick becomes a
 -- relative delay rebased at capture time `captureTick`.
 ---@param captureTick integer
----@return table
+---@return table<string, unknown>
 function ScriptEnvironment:capture(captureTick)
   assert(captureTick ~= nil, "capture tick required")
   local locks = {}
@@ -339,7 +339,7 @@ end
 -- Rebuild an environment from the save schema. Task references are reattached
 -- by the scheduler after task records restore. `restoreTick` is the load tick;
 -- the creation tick is rebased from the relative delay.
----@param record table
+---@param record table<string, unknown>
 ---@param restoreTick integer
 ---@return ScriptEnvironment
 function ScriptEnvironment.restore(record, restoreTick)

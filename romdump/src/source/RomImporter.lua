@@ -25,10 +25,10 @@ local RawDumpContract = require("romdump.src.source.RawDumpContract")
 ---@class RomImporter
 ---@field state string
 ---@field progress number?
----@field private _onComplete (fun(versionId: string, report: table?): nil)?
----@field private _versions table?
----@field private _manifest table?
----@field private _cacheFactory (fun(versionId: string): table)?
+---@field private _onComplete (fun(versionId: string, report: table<string, unknown>?): nil)?
+---@field private _versions table<string, unknown>?
+---@field private _manifest table<string, unknown>?
+---@field private _cacheFactory (fun(versionId: string): table<string, unknown>)?
 ---@field private _now (fun(): number)?
 local RomImporter = {}
 RomImporter.__index = RomImporter

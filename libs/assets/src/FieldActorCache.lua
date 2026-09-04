@@ -14,7 +14,7 @@ local FieldActorCache = {}
 ---@class FieldActorCache.Index
 ---@field schema string
 ---@field spriteIds integer[]
----@field runtime table
+---@field runtime table<string, unknown>
 
 ---@class FieldActorCache.Polygon
 ---@field cullMode string

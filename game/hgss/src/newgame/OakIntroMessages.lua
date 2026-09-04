@@ -13,8 +13,8 @@ local PLAYER_NAME_MESSAGE_IDS = {
   [43] = true,
 }
 
----@param options table
----@return table
+---@param options table<string, unknown>
+---@return table<string, unknown>
 function OakIntroMessages.new(options)
   assert(type(options) == "table", "Oak message formatter requires options")
   assert(type(options.templates) == "table", "Oak message formatter requires templates")

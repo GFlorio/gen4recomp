@@ -23,9 +23,9 @@ local function baseIntent(kind, runtimeMap, player, targetX, targetZ, scriptId)
 end
 
 ---@param runtimeMap RuntimeFieldMap
----@param player table
+---@param player table<string, unknown>
 ---@param eventState FieldEventState
----@return table?
+---@return table<string, unknown>?
 function FieldEventResolver.resolveCoordinate(runtimeMap, player, eventState)
   assert(runtimeMap and runtimeMap.fieldData and runtimeMap.fieldData.events, "coordinate events required")
   assert(player and player.fieldX and player.fieldZ and player.facing, "coordinate player state required")
@@ -49,8 +49,8 @@ function FieldEventResolver.resolveCoordinate(runtimeMap, player, eventState)
 end
 
 ---@param runtimeMap RuntimeFieldMap
----@param player table
----@return table?
+---@param player table<string, unknown>
+---@return table<string, unknown>?
 function FieldEventResolver.resolvePassiveSign(runtimeMap, player)
   assert(runtimeMap and runtimeMap.fieldData and runtimeMap.fieldData.events, "background events required")
   assert(player and player.fieldX and player.fieldZ and player.facing, "passive-sign player state required")

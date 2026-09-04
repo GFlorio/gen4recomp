@@ -49,13 +49,13 @@ local SAVE_ERRORS = {
 ---@field read fun(self: SaveFs, relativePath: string): string?
 ---@field remove fun(self: SaveFs, relativePath: string): boolean
 ---@field replace fun(self: SaveFs, sourceRelativePath: string, destinationRelativePath: string): boolean
----@field writeLua fun(self: SaveFs, relativePath: string, value: table): boolean
----@field loadLua fun(self: SaveFs, relativePath: string): table?, Errors.Error?
+---@field writeLua fun(self: SaveFs, relativePath: string, value: table<string, unknown>): boolean
+---@field loadLua fun(self: SaveFs, relativePath: string): table<string, unknown>?, Errors.Error?
 local SaveFs = {}
 SaveFs.__index = SaveFs
 
 ---@param versionId string
----@param backend table|nil
+---@param backend table<string, unknown>|nil
 ---@return SaveFs
 function SaveFs.forVersion(versionId, backend)
   ScopedFs.validateVersionId(versionId)
@@ -67,7 +67,7 @@ function SaveFs.forVersion(versionId, backend)
   }, SaveFs)
 end
 
----@param backend table|nil
+---@param backend table<string, unknown>|nil
 ---@return SaveFs
 function SaveFs.global(backend)
   return setmetatable({

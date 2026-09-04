@@ -108,7 +108,7 @@ end
 -- runtime ticks are diagnostics; the poll deadline and creation tick become
 -- relative delays rebased at capture time `captureTick`.
 ---@param captureTick integer
----@return table
+---@return table<string, unknown>
 function ScriptTask:capture(captureTick)
   assert(captureTick ~= nil, "capture tick required")
   return {
@@ -130,7 +130,7 @@ end
 
 -- Restore a record from the save schema. `restoreTick` is the load tick; the
 -- poll deadline and creation tick are rebased from the relative delays.
----@param record table
+---@param record table<string, unknown>
 ---@param restoreTick integer
 ---@return ScriptTask
 function ScriptTask.restore(record, restoreTick)
@@ -155,7 +155,7 @@ end
 
 -- The task implementation is responsible for validating its own state on
 -- restore; the record validates the scheduling envelope.
----@param record table
+---@param record table<string, unknown>
 ---@return Errors.Error|nil
 function ScriptTask.validateRecord(record)
   if type(record) ~= "table" then

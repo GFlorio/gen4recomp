@@ -24,15 +24,15 @@ local AudioCache = require("libs.assets.src.AudioCache")
 
 ---@class AudioAssetProvider
 ---@field private _cacheFs CacheFs
----@field private _index table
----@field private _sequences table<integer, table>
----@field private _banks table<integer, table>
----@field private _samples table<string, table>
+---@field private _index table<string, unknown>
+---@field private _sequences table<integer, table<string, unknown>>
+---@field private _banks table<integer, table<string, unknown>>
+---@field private _samples table<string, table<string, unknown>>
 ---@field new fun(cacheFs: CacheFs): AudioAssetProvider
----@field sequence fun(self: AudioAssetProvider, idOrSymbol: integer|string): table
----@field bank fun(self: AudioAssetProvider, idOrSymbol: integer|string): table
----@field player fun(self: AudioAssetProvider, id: integer): table
----@field loadSample fun(self: AudioAssetProvider, key: string): { metadata: table, pcm: integer[] }
+---@field sequence fun(self: AudioAssetProvider, idOrSymbol: integer|string): table<string, unknown>
+---@field bank fun(self: AudioAssetProvider, idOrSymbol: integer|string): table<string, unknown>
+---@field player fun(self: AudioAssetProvider, id: integer): table<string, unknown>
+---@field loadSample fun(self: AudioAssetProvider, key: string): { metadata: table<string, unknown>, pcm: integer[] }
 
 local AudioAssetProvider = {}
 AudioAssetProvider.__index = AudioAssetProvider
@@ -61,8 +61,8 @@ end
 
 -- Resolves a numeric id or a per-class symbol-map name to a numeric id in
 -- `section`, or nil when the reference is unknown.
----@param section table
----@param symbolMap table?
+---@param section table<string, unknown>
+---@param symbolMap table<string, unknown>?
 ---@param idOrSymbol integer|string
 ---@return integer?
 local function resolveId(section, symbolMap, idOrSymbol)
@@ -84,12 +84,12 @@ end
 -- Loads the asset file at `path` once, memoized by id. A missing or
 -- unreadable file is a structured failure; the file's content itself is
 -- trusted (see the module header: readiness validates the whole cache).
----@param memo table<integer, table>
+---@param memo table<integer, table<string, unknown>>
 ---@param cacheFs CacheFs
 ---@param id integer
 ---@param path string
 ---@param invalidCode string
----@return table
+---@return table<string, unknown>
 local function loadAsset(memo, cacheFs, id, path, invalidCode)
   local asset = memo[id]
   if asset ~= nil then

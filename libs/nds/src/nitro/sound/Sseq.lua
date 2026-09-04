@@ -100,7 +100,7 @@ end
 ---@param offset integer
 ---@param endPos integer
 ---@param source string?
----@return table?|nil
+---@return table<string, unknown>?|nil
 ---@return Errors.Error?|nil
 local function decodeCommandImpl(bytes, offset, endPos, source)
   local mode = "plain"
@@ -176,7 +176,7 @@ end
 ---@param offset integer
 ---@param endPos integer
 ---@param source string
----@return table?
+---@return table<string, unknown>?
 ---@return Errors.Error?
 function Sseq.decodeCommand(bytes, offset, endPos, source)
   local ok, result = pcall(decodeCommandImpl, bytes, offset, endPos, source)
@@ -213,7 +213,7 @@ end
 
 ---@param bytes string
 ---@param context string?
----@return table?|nil
+---@return table<string, unknown>?|nil
 ---@return Errors.Error?|nil
 function Sseq.open(bytes, context)
   local ok, result = pcall(_open, bytes, context)

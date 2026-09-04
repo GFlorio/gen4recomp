@@ -19,7 +19,7 @@ local FieldWeatherCache = {}
 ---@field offset integer
 ---@field slope integer
 ---@field alpha integer
----@field table integer[]
+---@field [string] integer[]
 
 ---@class FieldWeatherCache.Catalog
 ---@field schema string
@@ -204,7 +204,7 @@ local function validateWeatherFlagRule(rule, index, presets)
   return true
 end
 
----@param rule table
+---@param rule table<string, unknown>
 ---@param index integer
 ---@param presets table<integer, FieldWeatherCache.Preset>
 ---@return boolean, Errors.Error?

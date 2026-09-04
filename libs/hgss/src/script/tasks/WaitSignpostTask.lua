@@ -17,16 +17,16 @@ local WaitSignpostTask = {}
 WaitSignpostTask.type = "wait_signpost"
 WaitSignpostTask.version = 1
 
----@param spec table
----@return table state
+---@param spec table<string, unknown>
+---@return table<string, unknown> state
 function WaitSignpostTask.create(spec)
   assert(spec.node, "wait signpost requires its graph node")
   return {}
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function WaitSignpostTask.poll(state, ctx)
   local host = SignpostAccess.requireSignpost(ctx)
   local input = ctx.input or {}
@@ -46,14 +46,14 @@ end
 -- Fault/cancellation cleanup: the task owns the presented window it waits
 -- on, so closing the signpost hides the window, returns the command to nop,
 -- and releases modal ownership exactly once.
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function WaitSignpostTask.cancel(state, reason, ctx)
   SignpostAccess.closeOnCancel(state, reason, ctx)
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function WaitSignpostTask.validate(state)
   if type(state) ~= "table" then

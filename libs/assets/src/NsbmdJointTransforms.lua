@@ -28,7 +28,7 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local NsbmdJointTransforms = {}
 
 ---@class NsbmdJointTransforms
----@field localMatrix fun(scalingRule: integer, node: table, cmd: table, cache: table): number[]
+---@field localMatrix fun(scalingRule: integer, node: table<string, unknown>, cmd: table<string, unknown>, cache: table<integer, number[]|false>): number[]
 
 NsbmdJointTransforms.STANDARD = 0
 NsbmdJointTransforms.MAYA = 1
@@ -45,7 +45,7 @@ local function bitSet(v, mask)
   return math.floor(v / mask) % 2 == 1
 end
 
----@param rot table
+---@param rot table<string, unknown>
 ---@return number[]
 local function rotationMatrix(rot)
   return {
@@ -81,13 +81,13 @@ local function compose(ops)
   return m
 end
 
----@param node table
+---@param node table<string, unknown>
 ---@return number[]
 local function translation(node)
   return Matrix4.translate(node.translation.x, node.translation.y, node.translation.z)
 end
 
----@param vec table
+---@param vec table<string, unknown>
 ---@return number[]
 local function scaleOf(vec)
   return Matrix4.scale(vec.x, vec.y, vec.z)
@@ -95,7 +95,7 @@ end
 
 -- NNSi_G3dSendJointSRTBasic: [MULT_4x3(rot|trans) | TRANS | MULT_3x3] then SCALE.
 -- MULT_4x3 sends the rotation and translation as one 4x3, which is T * R.
----@param node table
+---@param node table<string, unknown>
 ---@return number[][]
 local function standardOps(node)
   local ops = {} ---@type number[][]
@@ -114,7 +114,7 @@ end
 -- NNSi_G3dSendJointSRTMaya. When the joint compensates its parent's scale, the
 -- parent's inverse scale is applied after the translation and before the
 -- rotation; otherwise the sequence is the standard one.
----@param node table
+---@param node table<string, unknown>
 ---@param scaleEx0 number[]?
 ---@return number[][]
 local function mayaOps(node, scaleEx0)
@@ -137,8 +137,8 @@ end
 -- NNSi_G3dGetJointScaleMaya: publish this joint's inverse scale for children
 -- that compensate it, and read the parent's when this joint compensates.
 -- `cache` maps node index -> inverse scale, with `false` meaning "scale is one".
----@param node table
----@param cmd table
+---@param node table<string, unknown>
+---@param cmd table<string, unknown>
 ---@param cache table<integer, number[]|false>
 ---@return number[]?
 local function mayaScaleEx0(node, cmd, cache)
@@ -163,9 +163,9 @@ end
 --   cmd    the NODEDESC command driving this joint (nodeIndex, parentIndex, flags)
 --   cache  caller-owned Maya inverse-scale cache, mutated as joints are walked
 ---@param scalingRule integer
----@param node table
----@param cmd table
----@param cache table
+---@param node table<string, unknown>
+---@param cmd table<string, unknown>
+---@param cache table<integer, number[]|false>
 ---@return number[]
 function NsbmdJointTransforms.localMatrix(scalingRule, node, cmd, cache)
   if scalingRule == NsbmdJointTransforms.STANDARD then

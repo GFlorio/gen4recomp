@@ -22,15 +22,15 @@ MovementPauseTask.actorType = "actor_pause"
 
 -- True when one movement task's state is at a pausable boundary: completed,
 -- or no plan action is mid-tick.
----@param state table
+---@param state table<string, unknown>
 ---@return boolean
 function MovementPauseTask.atBoundary(state)
   return state.completed == true or (state.progressTicks or 0) == 0
 end
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function MovementPauseTask.create(spec, ctx)
   return {
     paused = false,
@@ -41,8 +41,8 @@ end
 
 -- The watched movement task ids: the scoped actor's task, or every task of
 -- the watched generation.
----@param state table
----@param ctx table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
 ---@return string[]
 local function watchedTaskIds(state, ctx)
   if state.actor ~= nil then
@@ -55,9 +55,9 @@ local function watchedTaskIds(state, ctx)
   return ctx.environment:movementTasksInGeneration(state.generation)
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function MovementPauseTask.poll(state, ctx)
   local ids = watchedTaskIds(state, ctx)
   for _, taskId in ipairs(ids) do
@@ -84,13 +84,13 @@ function MovementPauseTask.poll(state, ctx)
   return { complete = true, state = state, result = { paused = true } }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function MovementPauseTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function MovementPauseTask.validate(state)
   if type(state) ~= "table" then

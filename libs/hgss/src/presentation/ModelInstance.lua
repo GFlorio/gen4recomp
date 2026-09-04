@@ -59,23 +59,23 @@ local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
 ---@field alphaMode string
 
 ---@class ModelInstance
----@field definition table
+---@field definition table<string, unknown>
 ---@field transform number[]
----@field animationState table
+---@field animationState table<string, unknown>
 ---@field materialState { [integer]: MaterialInstanceState }
 ---@field poseState PoseState|nil
----@field renderMeshesById table|nil -- caller-built render meshes per mesh id
+---@field renderMeshesById table<string, unknown>|nil -- caller-built render meshes per mesh id
 ---@field resolveImage fun(key: string, materialId: integer): any|nil
----@field timeOfDayPlan table|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
----@field play fun(self: ModelInstance, nameOrSemantic: string, opts: table?): table
----@field stop fun(self: ModelInstance, nameOrHandle: string|table): integer
+---@field timeOfDayPlan table<string, unknown>|nil -- band plan the scene loader attaches (TimeOfDayProps.plan)
+---@field play fun(self: ModelInstance, nameOrSemantic: string, opts: table<string, unknown>?): table<string, unknown>
+---@field stop fun(self: ModelInstance, nameOrHandle: string|table<string, unknown>): integer
 local ModelInstance = {}
 ModelInstance.__index = ModelInstance
 
 ---@class ModelInstance.Options
 ---@field transform number[]?
 ---@field resolveImage? fun(key: string, materialId: integer): any|nil
----@field timeOfDayPlan table|nil
+---@field timeOfDayPlan table<string, unknown>|nil
 
 -- The polygon draw fields the draw path consumes from a nitro backend mesh
 -- record: the shared PolygonState schema minus polygonAlpha, which rides on
@@ -303,8 +303,8 @@ end
 -- A draw item in the field renderer item shape (the contract the field renderer
 -- consumes for map/building draws).
 ---@class ModelDrawItem
----@field mesh table -- built render mesh for the item's mesh id
----@field material table -- effective material record
+---@field mesh table<string, unknown> -- built render mesh for the item's mesh id
+---@field material table<string, unknown> -- effective material record
 ---@field transform number[] -- 16-element column-major matrix
 ---@field modelNormal number[] -- inverse-transpose model linear transform
 ---@field alphaClass string
@@ -336,7 +336,7 @@ end
 -- The remaining center is the mesh's model-space bounding-box center (stamped
 -- by the loader); the
 -- render queue transforms it once by the item transform.
----@param renderMeshesById table
+---@param renderMeshesById table<string, unknown>
 ---@return ModelDrawItem[]
 function ModelInstance:drawItems(renderMeshesById)
   assert(type(renderMeshesById) == "table", "drawItems requires a mesh render table")

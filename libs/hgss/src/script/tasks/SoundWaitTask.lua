@@ -18,9 +18,9 @@ SoundWaitTask.type = "sound_wait"
 -- Serialized-state shape: kind + resolved sequence (was token strings).
 SoundWaitTask.version = 2
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function SoundWaitTask.create(spec, ctx)
   local node = spec.node or {}
   local audio = ctx.services.audio
@@ -69,9 +69,9 @@ function SoundWaitTask.create(spec, ctx)
   }
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function SoundWaitTask.poll(state, ctx)
   local audio = ctx.services.audio
   if audio == nil then
@@ -103,13 +103,13 @@ function SoundWaitTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function SoundWaitTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function SoundWaitTask.validate(state)
   if type(state) ~= "table" or state.kind == nil then

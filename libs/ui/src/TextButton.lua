@@ -85,7 +85,7 @@ local function rectangle(value, name)
 end
 
 ---@param spec { rect: {x:number,y:number,width:number,height:number}, scale: number }
----@return table
+---@return table<string, unknown>
 function TextButton.resolve(spec)
   assert(type(spec) == "table", "text button specification is required")
   local rectValue = rectangle(spec.rect, "text button rectangle")
@@ -145,9 +145,9 @@ local function drawFocusOutline(graphics, button, colors)
   )
 end
 
----@param graphics table
----@param button table
----@param spec { label: string, selected: boolean, text: TextAdapter, colors?: table }
+---@param graphics table<string, unknown>
+---@param button table<string, unknown>
+---@param spec { label: string, selected: boolean, text: TextAdapter, colors?: table<string, unknown> }
 function TextButton.draw(graphics, button, spec)
   assert(type(graphics) == "table", "text button graphics is required")
   assert(type(graphics.setColor) == "function", "text button graphics setColor is required")

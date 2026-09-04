@@ -16,7 +16,7 @@ local FieldFontLoader = {}
 
 -- Returns nil + a reason string when the definition violates the v2 codec
 -- contract. No mutation.
----@param definition table
+---@param definition table<string, unknown>
 ---@return boolean?, string?
 local function definitionValid(definition)
   local variants = definition.colorVariants

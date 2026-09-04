@@ -253,9 +253,10 @@ end
 function T.loads_the_shared_font_and_owned_assets(scope)
   local signpost = renderer(scope)
 
-  Assert.equal(signpost._text.fontDef.schema, FieldFontCache.SCHEMA)
-  Assert.notNil(signpost._text._atlas)
-  Assert.equal(signpost._text._atlas:getWidth(), 16)
+  local text = signpost._text
+  Assert.equal(text.fontDef.schema, FieldFontCache.SCHEMA)
+  local atlas = assert(text._atlas)
+  Assert.equal(atlas:getWidth(), 16)
   Assert.notNil(signpost._tilesImage, "the signpost frame strip is loaded")
   Assert.equal(signpost._tilesImage:getWidth(), 144)
   Assert.notNil(signpost._wayfindingImage, "the wayfinding atlas is loaded")

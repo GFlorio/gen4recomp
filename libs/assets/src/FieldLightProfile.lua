@@ -17,7 +17,7 @@ local DEFAULT_TIME_SECONDS = 43200 -- noon
 -- record carried over from the previous day.
 ---@param profile { records: table[] }
 ---@param secondsSinceMidnight number
----@return table record
+---@return table<string, unknown> record
 function FieldLightProfile.select(profile, secondsSinceMidnight)
   assert(profile and profile.records and #profile.records > 0, "profile has no records")
   local halfSeconds = math.floor((secondsSinceMidnight % SECONDS_PER_DAY) / 2)

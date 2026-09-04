@@ -109,11 +109,11 @@ end
 -- neighbor), every material whose texture name an fldtanime record names gets
 -- a textureSwap record and its alternate frames join the shared texture
 -- accumulator; other roles never gain terrain annotation.
----@param model table
----@param texturePack table
----@param meshes table
----@param textures table<string, table>
----@param context table
+---@param model table<string, unknown>
+---@param texturePack table<string, unknown>
+---@param meshes table<string, unknown>
+---@param textures table<string, table<string, unknown>>
+---@param context table<string, unknown>
 ---@return { batches: table[], materials: table[], unresolved: table[] }
 local function compileModel(model, texturePack, meshes, textures, context)
   local mat = MaterialCompiler.compile(model.materials, texturePack, { context = context })

@@ -123,7 +123,7 @@ end
 -- rebuilds only what is stale. The option wins over any CLI state; callers
 -- pass the parsed flag through explicitly.
 ---@param options { versionIds: string[]?, allowCompileExclusions: boolean?, noQuit: boolean? }|nil
----@return table|nil, string|nil
+---@return table<string, unknown>|nil, string|nil
 function Runner._runBuild(options)
   options = options or {}
   local CacheBuilder = require("romdump.src.CacheBuilder")
@@ -184,7 +184,7 @@ end
 -- supplies one. The optional lookup keeps this source-only app independent of
 -- the game runtime while preserving the completion seam used by integration
 -- hosts.
----@param status table
+---@param status table<string, unknown>
 ---@return nil
 function Runner._finishImport(status)
   local DumpAudit = require("romdump.src.source.DumpAudit")

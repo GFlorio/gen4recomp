@@ -313,7 +313,6 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
   -- Current signature: dialogue:draw(controller, viewport), signpost:draw(controller, viewport, alpha)
   -- Future should be: dialogue:draw(controller, viewport, fieldScale), signpost:draw(controller, viewport, alpha, fieldScale)
   -- Capture any numeric that equals expected.
-  ---@diagnostic disable-next-line: missing-fields
   state.dialogueRenderer = {
     draw = function(_, a, b, c)
       for _, v in ipairs({ a, b, c }) do
@@ -326,8 +325,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
       end
     end,
   }
-  ---@diagnostic disable-next-line: missing-fields
-  state.signpostRenderer = {
+  rawset(state, "signpostRenderer", {
     draw = function(_, a, b, c, d)
       for _, v in ipairs({ a, b, c, d }) do
         if type(v) == "number" and math.abs(v - expected) < 1e-9 then
@@ -341,14 +339,14 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
         gotSignpost = c
       end
     end,
-  }
+  })
   local oldGetDimensions = love.graphics.getDimensions
   rawset(love.graphics, "getDimensions", function()
     return 1280, 600
   end)
   local FieldDrawState = require("libs.hgss.src.presentation.FieldDrawState")
   local savedProtected = FieldDrawState.protectedDraw
-  ---@diagnostic disable-next-line: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   FieldDrawState.protectedDraw = function(_, fn)
     fn()
   end

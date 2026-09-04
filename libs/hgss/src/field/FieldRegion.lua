@@ -29,7 +29,7 @@ end
 ---@param cells table[]
 ---@param localX number
 ---@param localZ number
----@return table?, number?, number?
+---@return table<string, unknown>?, number?, number?
 local function cellAt(cells, localX, localZ)
   for _, cell in ipairs(cells) do
     local x, z = localX - cell.offsetTilesX, localZ - cell.offsetTilesZ
@@ -43,7 +43,7 @@ end
 ---@class FieldRegion.Collision
 ---@field cells table[]
 ---@field containsLocal fun(self: FieldRegion.Collision, localX: number, localZ: number): boolean
----@field getLocal fun(self: FieldRegion.Collision, localX: number, localZ: number): table
+---@field getLocal fun(self: FieldRegion.Collision, localX: number, localZ: number): table<string, unknown>
 ---@field isBlockedLocal fun(self: FieldRegion.Collision, localX: number, localZ: number): boolean
 local Collision = {}
 Collision.__index = Collision
@@ -59,7 +59,7 @@ end
 ---@param self FieldRegion.Collision
 ---@param localX number
 ---@param localZ number
----@return table
+---@return table<string, unknown>
 function Collision:getLocal(localX, localZ)
   local cell, x, z = cellAt(self.cells, localX, localZ)
   assert(cell, "field coordinate outside composed region")
@@ -84,7 +84,7 @@ local function collisionRegion(cells)
   return setmetatable({ cells = cells }, Collision)
 end
 
----@param self table
+---@param self table<string, unknown>
 ---@param cellKey string
 ---@param sourceSurfaceId integer
 ---@return integer?

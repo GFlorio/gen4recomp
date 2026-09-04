@@ -230,7 +230,6 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
     menuHost = menuHost,
     contextChoice = contextChoice,
     signpost = signpost,
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     applicationHost = {
       isActive = function()
         return false
@@ -240,7 +239,7 @@ function T.field_player_traverses_new_bark_east_staircase(romFs)
       takeReopen = function()
         return false
       end,
-    } --[[@as FieldApplicationHost]],
+    },
     interactions = interactions,
     bagUnlocked = function()
       return true

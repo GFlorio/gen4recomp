@@ -256,7 +256,7 @@ end
 
 ---@param bytes string
 ---@param context string?
----@return table?|nil
+---@return table<string, unknown>?|nil
 ---@return Errors.Error?|nil
 function SequenceReachability.analyze(bytes, context)
   local ok, result = pcall(_analyze, bytes, context)

@@ -31,10 +31,10 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 ---@field release fun(self: GpuAssetPool.Image)
 ---@class GpuAssetPool.Graphics
 ---@field newImage fun(data: unknown): GpuAssetPool.Image
----@alias GpuAssetPool.MeshBuilder fun(decoded: table): GpuAssetPool.Mesh
+---@alias GpuAssetPool.MeshBuilder fun(decoded: table<string, unknown>): GpuAssetPool.Mesh
 ---@alias GpuAssetPool.ImageBuilder fun(path: string): GpuAssetPool.Image
 ---@class GpuAssetPool
----@field cacheFs table
+---@field cacheFs table<string, unknown>
 ---@field graphics GpuAssetPool.Graphics|love.Graphics|love.graphics
 ---@field meshBuilder GpuAssetPool.MeshBuilder
 ---@field imageBuilder GpuAssetPool.ImageBuilder?
@@ -84,14 +84,14 @@ local function guarded(pool, fn, revert)
 end
 
 ---@class GpuAssetPoolOptions
----@field graphics? GpuAssetPool.Graphics|love.graphics -- injectable graphics namespace (nil keeps love.graphics)
+---@field graphics? unknown -- injectable graphics namespace (nil keeps love.graphics)
 ---@field meshBuilder? GpuAssetPool.MeshBuilder -- replaces SceneMesh.build (headless tests)
 ---@field imageBuilder? GpuAssetPool.ImageBuilder -- replaces graphics texture construction (headless tests)
 
 -- cacheFs: a CacheFs-shaped reader (read(path) returns raw bytes or nil); see
 -- GpuAssetPoolOptions for the injectable GPU seams. A builder image is
 -- configured (filter/wrap) and owned exactly like a love-built one.
----@param cacheFs table
+---@param cacheFs table<string, unknown>
 ---@param opts GpuAssetPoolOptions?
 ---@return GpuAssetPool
 function GpuAssetPool.new(cacheFs, opts)
@@ -103,6 +103,7 @@ function GpuAssetPool.new(cacheFs, opts)
     graphics = love and love.graphics
   end
   assert(graphics and graphics.newImage, "GpuAssetPool requires love.graphics")
+  ---@cast graphics GpuAssetPool.Graphics|love.Graphics|love.graphics
   return setmetatable({
     cacheFs = cacheFs,
     graphics = graphics,

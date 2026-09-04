@@ -55,9 +55,9 @@ local function validateFields(state)
   return nil
 end
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function ActorOscillationTask.create(spec, ctx)
   local actor = spec.actor
   assert(actor ~= nil, "actor oscillation task requires an actor")
@@ -103,9 +103,9 @@ function ActorOscillationTask.create(spec, ctx)
   }
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function ActorOscillationTask.poll(state, ctx)
   local actors = assert(ctx.services.actors, "actor oscillation task requires the actor service")
   -- Apply current angle offset before increment, matching source order.
@@ -128,9 +128,9 @@ function ActorOscillationTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function ActorOscillationTask.cancel(state, reason, ctx)
   if state == nil then
     return
@@ -143,7 +143,7 @@ function ActorOscillationTask.cancel(state, reason, ctx)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function ActorOscillationTask.validate(state)
   return validateFields(state)

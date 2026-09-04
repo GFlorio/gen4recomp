@@ -2315,12 +2315,14 @@ function T.save_restore_compacts_holes_but_preserves_active_lookup_order()
   local captured = mgr:captureObjects()
   local validated, validationErr = FieldObjectSave.validate(captured)
   Assert.notNil(validated, tostring(validationErr))
-  ---@diagnostic disable-next-line: need-check-nil
-  Assert.equal(validated.actors["map:61:object:0"].managerOrder, 0)
-  ---@diagnostic disable-next-line: need-check-nil
-  Assert.equal(validated.actors["map:61:object:2"].managerOrder, 1)
-  ---@diagnostic disable-next-line: need-check-nil
-  Assert.isNil(validated.actors["map:61:object:1"])
+  local validatedRecord = assert(validated)
+  local actors = assert(validatedRecord.actors)
+  local actorZero = assert(actors["map:61:object:0"])
+  local actorTwo = assert(actors["map:61:object:2"])
+  local actorOne = actors["map:61:object:1"]
+  Assert.equal(actorZero.managerOrder, 0)
+  Assert.equal(actorTwo.managerOrder, 1)
+  Assert.isNil(actorOne)
   Assert.isNil(captured.actors["map:61:object:0"].managerSlots)
   local restoredEventState = FieldEventState.new({ flags = { [401] = true } })
   local restoredAssets = fakeAssets({ [99] = true, [34] = true, [29] = true })

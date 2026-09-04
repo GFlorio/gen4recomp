@@ -27,20 +27,20 @@ local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
 
 ---@class FieldApplicationHostOptions
 ---@field registry FieldApplicationRegistry the immutable per-runtime child-application catalogue
----@field menuFactory fun(rememberedActionId: string?): table? the Start Menu composition step (nil = menu currently unavailable)
+---@field menuFactory fun(rememberedActionId: string?): table<string, unknown>? the Start Menu composition step (nil = menu currently unavailable)
 ---@field input FieldInput the field input whose modal lifetime the host acquires/releases
 ---@field fieldAction fun(actionId: string) immediate field-action dispatcher
 ---@field effect fun(sequence: string)? source UI sound effect boundary
 
 ---@class FieldApplicationHost
 ---@field _registry FieldApplicationRegistry
----@field _menuFactory fun(rememberedActionId: string?): table?
+---@field _menuFactory fun(rememberedActionId: string?): table<string, unknown>?
 ---@field _input FieldInput
 ---@field _fieldAction fun(actionId: string)
 ---@field _phase string
 ---@field _fadeTicks integer
 ---@field _fadeAlpha number
----@field _controller table? the active controller (menu or destination)
+---@field _controller table<string, unknown>? the active controller (menu or destination)
 ---@field _rememberedActionId string?
 ---@field _applicationId string?
 ---@field _failure any? retained factory/composition failure
@@ -103,7 +103,7 @@ end
 -- the application phase runs (the renderer channel: FieldState
 -- chooses the destination renderer from this snapshot; only the one active
 -- modal surface is presented).
----@return { phase: string, fadeAlpha: number, applicationId?: string, menu?: table, application?: table }
+---@return { phase: string, fadeAlpha: number, applicationId?: string, menu?: table<string, unknown>, application?: table<string, unknown> }
 function FieldApplicationHost:status()
   local phase = self._phase
   local status = {

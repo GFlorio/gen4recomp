@@ -9,9 +9,9 @@ local AuxiliaryUiTask = {}
 AuxiliaryUiTask.type = "auxiliary_ui"
 AuxiliaryUiTask.version = 1
 
----@param spec table
----@param ctx table
----@return table
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function AuxiliaryUiTask.create(spec, ctx)
   local visible = spec.node and spec.node.visible
   assert(type(visible) == "boolean", "auxiliary_ui requires a visibility boolean")
@@ -20,9 +20,9 @@ function AuxiliaryUiTask.create(spec, ctx)
   return { visible = visible }
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function AuxiliaryUiTask.poll(state, ctx)
   local auxiliary = assert(ctx.services.auxiliaryUi, "auxiliary UI service is unavailable")
   local expected = state.visible and "shown" or "hidden"
@@ -37,7 +37,7 @@ function AuxiliaryUiTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function AuxiliaryUiTask.validate(state)
   if type(state) ~= "table" or type(state.visible) ~= "boolean" then

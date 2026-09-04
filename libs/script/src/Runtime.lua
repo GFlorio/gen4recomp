@@ -15,8 +15,8 @@ local Runtime = {}
 
 -- Game meaning is supplied by the owning runtime package. The core executor
 -- only knows the evaluator contract and never constructs HGSS services.
----@param run table
----@return table
+---@param run table<string, unknown>
+---@return table<string, unknown>
 local function semanticsFor(run)
   local semantics = run.semantics
   if semantics == nil then
@@ -39,7 +39,7 @@ local OPPOSITE_FACING = { north = "south", south = "north", west = "east", east 
 
 -- Background-mode restriction: background scripts may never lock player
 -- input, open foreground dialogue, warp, or move the player.
----@param run table
+---@param run table<string, unknown>
 ---@param op string
 local function requireForeground(run, op)
   if run.instance.mode == "background" then
@@ -52,7 +52,7 @@ local function requireForeground(run, op)
 end
 
 -- The player is never a script-controlled actor in a background script.
----@param run table
+---@param run table<string, unknown>
 ---@param actorId string
 local function requireForegroundPlayer(run, actorId)
   if actorId == "player" and run.instance.mode == "background" then
@@ -79,10 +79,10 @@ end
 -- Create a blocking task through the scheduler and return the block outcome.
 -- The blocking node's `result` ref (ask_yes_no) rides along so the
 -- scheduler can write the completed task result on continuation.
----@param run table
+---@param run table<string, unknown>
 ---@param taskType string
----@param spec table
----@param resultRef table|nil
+---@param spec table<string, unknown>
+---@param resultRef table<string, unknown>|nil
 ---@return string outcome
 local function blockOnTask(run, taskType, spec, resultRef)
   local taskId = run.scheduler:createTask(taskType, spec, run.instance, run.tick, run.input)
@@ -94,8 +94,8 @@ end
 -- Advance the composition chain: pop the current chain frame and push the
 -- next entry's frame. With no next entry, return to the caller or complete.
 -- Used by the `next` node and by falling off a linear tail.
----@param run table
----@param frame table
+---@param run table<string, unknown>
+---@param frame table<string, unknown>
 ---@return string outcome
 local function advanceChain(run, frame)
   local entries = frame.chain
@@ -129,9 +129,9 @@ end
 
 -- Evaluate a call's args against the current frame and store them on a fresh
 -- frame (values are evaluated at call time).
----@param node table
----@param run table
----@return table
+---@param node table<string, unknown>
+---@param run table<string, unknown>
+---@return table<string, unknown>
 local function evaluatedArgs(node, run)
   local args = {}
   for name, ref in pairs(node.args or {}) do
@@ -143,9 +143,9 @@ end
 -- Push the entry frame of a composed script (the first chain entry),
 -- entering at `nodeId` when given (a label inside the entry graph) or at
 -- the composed entry otherwise.
----@param run table
----@param composed table
----@param args table
+---@param run table<string, unknown>
+---@param composed table<string, unknown>
+---@param args table<string, unknown>
 ---@param returnNodeId string|nil
 ---@param nodeId string|nil
 local function pushComposedFrame(run, composed, args, returnNodeId, nodeId)
@@ -170,10 +170,10 @@ end
 -- The graph and entry node id of a composed script, entering at `label`
 -- when given (a label inside the composed entry graph) or at the entry
 -- otherwise. A missing label is an attributed label error.
----@param _ table
----@param composed table
+---@param _ table<string, unknown>
+---@param composed table<string, unknown>
 ---@param label string|nil
----@return table graph, string nodeId
+---@return table<string, unknown> graph, string nodeId
 local function composedEntryAt(_, composed, label)
   local entries = composed.entries
   assert(#entries > 0, "composed script has no entries")
@@ -194,9 +194,9 @@ end
 
 -- Resolve a call target through the scheduler's composition resolver; a
 -- missing target is an attributed call error.
----@param run table
+---@param run table<string, unknown>
 ---@param target string
----@return table composed
+---@return table<string, unknown> composed
 local function resolveCallTarget(run, target)
   local composed = run.scheduler:resolveComposition(target)
   if composed == nil then
@@ -379,7 +379,7 @@ local COMPARE_OPS = {
 
 -- Evaluate the low-level compare state against an operator.
 ---@param operator string
----@param run table
+---@param run table<string, unknown>
 ---@return boolean
 local function compared(operator, run)
   local compare = run.instance.compare
@@ -396,9 +396,9 @@ end
 -- save pinning and ownership follow the target. Shared by the cross-script
 -- compare-state jump and `goto_script`; the jump continues in the same tick,
 -- matching the source `ScriptJump` semantics.
----@param _ table
----@param frame table
----@param composed table
+---@param _ table<string, unknown>
+---@param frame table<string, unknown>
+---@param composed table<string, unknown>
 ---@param nodeId string
 local function switchFrameToComposed(_, frame, composed, nodeId)
   local entries = composed.entries
@@ -730,9 +730,9 @@ end
 -- The avatar-transition carriers delegate opaque semantic names to the
 -- injected player service without learning any game transition vocabulary.
 -- Both require foreground execution like every other player-mutating op.
----@param run table
+---@param run table<string, unknown>
 ---@param op string
----@return table player
+---@return table<string, unknown> player
 local function requireAvatarPlayer(run, op)
   requireForeground(run, op)
   local player = run.services.player
@@ -770,8 +770,8 @@ end
 -- the block outcome. Completion cleanup for both forms lives in the task's
 -- poll: the nonblocking form completes through the scheduler, the blocking
 -- form unregisters before reporting its completion result.
----@param run table
----@param node table
+---@param run table<string, unknown>
+---@param node table<string, unknown>
 ---@param blocking boolean
 ---@return string outcome
 local function startMovement(run, node, blocking)
@@ -847,7 +847,7 @@ local function handleMessage(node, run)
     -- exactly as on the blocking DialogueTask path.
     local host = requireService(run, "dialogue")
     -- LuaLS cannot see through Errors.raise; requireService never returns nil.
-    ---@cast host table
+    ---@cast host table<string, unknown>
     host:openMessage(node)
     host:startPrint(node.message, node.bindings or {}, run.instance.textArgs or {})
     return Runtime.OUTCOME_CONTINUE
@@ -1114,12 +1114,12 @@ end
 -- service: the style id is stamped into the controller, and a style that
 -- does not exist is an attributed script fault, never a presentation crash
 -- at draw time.
----@param run table
+---@param run table<string, unknown>
 ---@param appearance string
 ---@return string styleId
 local function resolveSignpostStyle(run, appearance)
   local styles = requireService(run, "windowStyles")
-  ---@cast styles table
+  ---@cast styles table<string, unknown>
   -- LuaLS cannot see through Errors.raise; requireService never returns nil.
   local styleId = semanticsFor(run).semanticStyleId(appearance) or appearance
   if styles:resolve(styleId) == nil then
@@ -1285,8 +1285,8 @@ HANDLERS.hide_waiting_icon = handleHideWaitingIcon
 
 -- Execute one graph node against the run state. The outcome is one of the
 -- outcome constants; a blocking node records its task id in run.blockTaskId.
----@param node table
----@param run table
+---@param node table<string, unknown>
+---@param run table<string, unknown>
 ---@return string
 function Runtime.executeNode(node, run)
   run.node = node
@@ -1297,7 +1297,7 @@ end
 -- The run loop calls this when a linear tail has no successor node: a
 -- composition frame advances to the next chain entry, a call frame behaves
 -- like `return`, and a plain script tail completes the instance.
----@param run table
+---@param run table<string, unknown>
 ---@return string
 function Runtime.fallOffEnd(run)
   local instance = run.instance

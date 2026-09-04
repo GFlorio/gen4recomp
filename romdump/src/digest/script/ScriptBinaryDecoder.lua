@@ -126,7 +126,7 @@ end
 -- terminated by MOVEMENT_STEP_END (254) plus its zero arg.
 ---@param bytes string
 ---@param offset integer
----@return table|nil block { offset, actions, terminated, size }
+---@return table<string, unknown>|nil block { offset, actions, terminated, size }
 local function decodeMovement(bytes, offset)
   local actions = {}
   local cursor = offset
@@ -172,8 +172,8 @@ end
 
 -- Resolve a relative word operand (label-.-4 semantics: signed offset from
 -- the end of the instruction) to an absolute member offset.
----@param ins table
----@param operand table
+---@param ins table<string, unknown>
+---@param operand table<string, unknown>
 ---@return integer
 local function resolveRelative(ins, operand)
   local raw = operand.raw
@@ -635,8 +635,8 @@ end
 ---@param bytes string
 ---@param member integer
 ---@param sourcePath string
----@param opts table { msgBank: integer|nil }
----@return table|nil memberIr
+---@param opts table<string, unknown> { msgBank: integer|nil }
+---@return table<string, unknown>|nil memberIr
 function ScriptBinaryDecoder.parseMember(bytes, member, sourcePath, opts)
   local entries = scanEntries(bytes)
   if #entries == 0 then
@@ -660,11 +660,11 @@ end
 
 -- Decode every script member of the scr_seq archive. Header members return
 -- nil and are reported as `skipped`; script members keep their decode notes.
----@param archive table Narc-shaped
+---@param archive table<string, unknown> Narc-shaped
 ---@param banks table<integer, integer>
 ---@param sourcePath string
----@param catalog table|nil { sounds, flags, vars, maps }
----@return table memberIrs table<integer, table|nil>
+---@param catalog table<string, unknown>|nil { sounds, flags, vars, maps }
+---@return table<string, unknown> memberIrs table<integer, table<string, unknown>|nil>
 function ScriptBinaryDecoder.decodeArchive(archive, banks, sourcePath, catalog)
   local memberIrs = {}
   for member = 0, archive:memberCount() - 1 do

@@ -14,11 +14,11 @@
 -- right after queueing.
 
 ---@class LoveAudioSink
----@field private _audio table love.audio-shaped namespace
----@field private _sound table love.sound-shaped namespace
----@field private _renderer { render: fun(self: table, frames: integer): integer[] }
+---@field private _audio table<string, unknown> love.audio-shaped namespace
+---@field private _sound table<string, unknown> love.sound-shaped namespace
+---@field private _renderer { render: fun(self: table<string, unknown>, frames: integer): integer[] }
 ---@field private _sampleRate integer
----@field private _source table|nil
+---@field private _source table<string, unknown>|nil
 ---@field private _pendingPcm integer[]|nil
 ---@field private _started boolean
 ---@field private _underrunCount integer
@@ -43,7 +43,7 @@ local function sampleValue(sample)
   return sample / 32768
 end
 
----@param opts { audio: table, sound: table, renderer: { render: fun(self: table, frames: integer): integer[] }, sampleRate: integer }
+---@param opts { audio: table<string, unknown>, sound: table<string, unknown>, renderer: { render: fun(self: table<string, unknown>, frames: integer): integer[] }, sampleRate: integer }
 ---@return LoveAudioSink
 function LoveAudioSink.new(opts)
   assert(

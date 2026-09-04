@@ -9,8 +9,8 @@
 -- Pure domain module: no love dependency.
 
 ---@class ScriptInteractionClient
----@field private _bindings table
----@field private _compose fun(scriptId: string): table|nil
+---@field private _bindings table<string, unknown>
+---@field private _compose fun(scriptId: string): table<string, unknown>|nil
 ---@field private _scheduler Scheduler
 local ScriptInteractionClient = {}
 ScriptInteractionClient.__index = ScriptInteractionClient
@@ -26,7 +26,7 @@ ScriptInteractionClient.RESULTS = {
   unmapped = "unmapped",
 }
 
----@param opts table
+---@param opts table<string, unknown>
 ---@return ScriptInteractionClient
 function ScriptInteractionClient.new(opts)
   assert(
@@ -73,8 +73,8 @@ end
 
 -- Resolve one intent into a trigger + composed descriptor, or nil when the
 -- map event is not bound or the bound script cannot be composed.
----@param intent table InteractionIntent
----@return table|nil { trigger, composed }
+---@param intent table<string, unknown> InteractionIntent
+---@return table<string, unknown>|nil { trigger, composed }
 function ScriptInteractionClient:resolve(intent)
   local hit = self._bindings:resolveIntent(intent, intent.playerFacing)
   if hit == nil then
@@ -92,7 +92,7 @@ end
 -- owns it, or RESULTS.unmapped when nothing is bound (the session treats that
 -- as a composition fault: the binding audit guarantees every interactable
 -- event is bound). A started script may execute during this tick.
----@param intent table InteractionIntent
+---@param intent table<string, unknown> InteractionIntent
 ---@param tick integer
 ---@return string started|blocked|unmapped
 function ScriptInteractionClient:consume(intent, tick)

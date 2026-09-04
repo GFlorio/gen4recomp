@@ -76,11 +76,11 @@ end
 -- record (its height is authoritative, exactly as in the indexed path), then
 -- the topmost walkable terrain surface at the point. Never an unconditional
 -- zero-height hint: that selects the wrong floor on vertically stacked maps.
----@param destinationMap table
----@param warp table
+---@param destinationMap table<string, unknown>
+---@param warp table<string, unknown>
 ---@param localX number
 ---@param localZ number
----@return table sample
+---@return table<string, unknown> sample
 local function directSurface(destinationMap, warp, localX, localZ)
   local x = localX + FieldCoordinates.TILE_CENTER_OFFSET
   local z = localZ + FieldCoordinates.TILE_CENTER_OFFSET

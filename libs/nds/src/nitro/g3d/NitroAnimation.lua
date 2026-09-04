@@ -65,7 +65,7 @@ end
 -- nil, err at the public boundary.
 ---@param bytes string
 ---@param context Errors.Context|nil
----@return table|nil, table|nil
+---@return table<string, unknown>|nil, table<string, unknown>|nil
 function NitroAnimation.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)
   if ok then

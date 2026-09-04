@@ -3,7 +3,7 @@
 
 ---@class MainMenuRenderer
 ---@field new fun(): MainMenuRenderer
----@field draw fun(self: MainMenuRenderer, view: table)
+---@field draw fun(self: MainMenuRenderer, view: table<string, unknown>)
 ---@field dispose? fun(self: MainMenuRenderer)
 local MainMenuRenderer = {}
 MainMenuRenderer.__index = MainMenuRenderer
@@ -19,7 +19,7 @@ function MainMenuRenderer.new()
   return setmetatable({}, MainMenuRenderer)
 end
 
----@param view table
+---@param view table<string, unknown>
 function MainMenuRenderer:draw(view)
   local lg = love.graphics
   local layout = view.layout

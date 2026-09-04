@@ -97,7 +97,7 @@ local NsbmdSbcEvaluator = {}
 ---@field evpMatrices table<integer, { invM: number[] }>?
 
 ---@class NsbmdSbcEvaluator.PoseProvider
----@field nodeSRT fun(nodeIndex: integer): table?
+---@field nodeSRT fun(nodeIndex: integer): table<string, unknown>?
 
 ---@param m number[]
 ---@return number[]
@@ -126,7 +126,7 @@ end
 ---@param program NsbmdSbcEvaluator.Program
 ---@param slots table<integer, number[]>
 ---@param slot integer
----@param cmd table
+---@param cmd table<string, unknown>
 ---@return number[]
 local function slotAt(program, slots, slot, cmd)
   local m = slots[slot]
@@ -158,7 +158,7 @@ local AFFINE_INDICES = { 1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15 }
 
 -- The blended matrix a NODEMIX command installs and stores.
 ---@param program NsbmdSbcEvaluator.Program
----@param cmd table
+---@param cmd table<string, unknown>
 ---@param matrixSlots table<integer, number[]>
 ---@return number[]
 local function nodemixMatrix(program, cmd, matrixSlots)

@@ -2,9 +2,9 @@
 
 local InstrumentSelector = {}
 
----@param instrument table
+---@param instrument table<string, unknown>
 ---@param midiKey integer
----@return table?
+---@return table<string, unknown>?
 function InstrumentSelector.selectVoice(instrument, midiKey)
   if instrument.kind == "direct" then
     if instrument.voice.kind == "dummy" then

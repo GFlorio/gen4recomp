@@ -198,7 +198,7 @@ end
 
 ---@param bytes string
 ---@param context string?
----@return table?|nil
+---@return table<string, unknown>?|nil
 ---@return Errors.Error?|nil
 function Sbnk.decode(bytes, context)
   local ok, result = pcall(_decode, bytes, context)

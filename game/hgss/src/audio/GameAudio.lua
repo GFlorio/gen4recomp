@@ -9,12 +9,12 @@ local GameAudio = {}
 ---@class GameAudioComposeOptions
 ---@field cacheFs CacheFs
 ---@field outputRate integer
----@field outputHost table?
----@field field table?
+---@field outputHost table<string, unknown>?
+---@field field table<string, unknown>?
 
 ---@class GameAudioComposition
 ---@field sound GameSound
----@field renderer { render: fun(self: table, frames: integer): integer[] }
+---@field renderer { render: fun(self: table<string, unknown>, frames: integer): integer[] }
 ---@field fieldService FieldAudioController?
 ---@field sink LoveAudioSink|nil
 

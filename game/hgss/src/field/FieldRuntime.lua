@@ -142,35 +142,35 @@ local function createFieldTransition(runtime, doorAt, escalatorAt, resolveDestin
 end
 
 ---@class FieldRuntimeOptions
----@field zoomConfig table?
+---@field zoomConfig table<string, unknown>?
 ---@field viewportWidth integer?
 ---@field viewportHeight integer?
 ---@field screenTopology ScreenTopology?
----@field overrideFs table? read-shaped repository filesystem override
+---@field overrideFs table<string, unknown>? read-shaped repository filesystem override
 ---@field presentation boolean?
----@field scriptHosts table? deterministic host boundaries for script effects
+---@field scriptHosts table<string, unknown>? deterministic host boundaries for script effects
 ---@field dayNight (fun(): string)? deterministic day/night source for the field-music policy
----@field audioOutput table? { audio: table, sound: table } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
+---@field audioOutput table<string, unknown>? { audio: table<string, unknown>, sound: table<string, unknown> } audio-output host namespaces for the LÖVE sink (defaults to love.audio + love.sound)
 ---@field localClock LocalClock? injectable host-local civil-time boundary
----@field weatherClock table? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
+---@field weatherClock table<string, unknown>? injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 ---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 
 ---@class FieldRuntimeScriptHosts
----@field audio table?
----@field camera table?
----@field screen table?
----@field events table?
+---@field audio table<string, unknown>?
+---@field camera table<string, unknown>?
+---@field screen table<string, unknown>?
+---@field events table<string, unknown>?
 
 ---@class FieldRuntimeSaveStore
----@field save fun(self: FieldRuntimeSaveStore, record: table)
----@field publishFirst fun(self: FieldRuntimeSaveStore, record: table)
+---@field save fun(self: FieldRuntimeSaveStore, record: table<string, unknown>)
+---@field publishFirst fun(self: FieldRuntimeSaveStore, record: table<string, unknown>)
 
 ---@class FieldRuntime
 ---@field versionId string
----@field overrideFs table read-shaped repository filesystem
+---@field overrideFs table<string, unknown> read-shaped repository filesystem
 ---@field saveId string
----@field game table finalized unpublished game or validated loaded GameSave
+---@field game table<string, unknown> finalized unpublished game or validated loaded GameSave
 ---@field viewportWidth integer
 ---@field viewportHeight integer
 ---@field screenTopology ScreenTopology?
@@ -180,11 +180,12 @@ end
 ---@field saveStore FieldRuntimeSaveStore? global publication owner
 ---@field saveValidation GameSaveValidation? shared semantic GameSave validator
 ---@field savePublished boolean whether the reserved record has been published
----@field playerData table the validated profile/options authority (PlayerData shape)
----@field avatar table the gender-selected compiled avatar capability
+---@field playerData table<string, unknown> the validated profile/options authority (PlayerData shape)
+---@field avatar table<string, unknown> the gender-selected compiled avatar capability
 ---@field playerAvatar FieldPlayerAvatarState? the one avatar transition owner
 ---@field session FieldSession
 ---@field actors FieldActorManager
+---@field actorAssets FieldActorAssets
 ---@field dialogue FieldDialogueController?
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (script-owned via ScriptSignpostHost)
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
@@ -201,16 +202,16 @@ end
 ---@field applicationHost FieldApplicationHost the one application modal owner the session steps
 ---@field startMenuPlacement StartMenuLayout.Placement? the one Start Menu placement record rendering and pointer mapping share
 ---@field dayNight fun(): string?
----@field audioOutput table?
+---@field audioOutput table<string, unknown>?
 ---@field audio FieldAudioController? production-composed audio service (absent when only a recording script adapter is injected, without an audio-output host)
 ---@field mapMusicDayNight (fun(): string)? production-composed day/night band source for the map-music lookup (present whenever the production composition exists)
 ---@field audioSink LoveAudioSink? production-composed LÖVE output sink (absent without an audio-output host)
 ---@field screenFade FieldScriptScreenFade the production semantic script screen-fade controller (fade_screen/wait_fade); always composed, advanced once after each field tick
 ---@field localClock LocalClock the shared host-local civil-time boundary
----@field weatherClock table injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
+---@field weatherClock table<string, unknown> injectable host boundary { today()->{month,day}, hasPenalty()->boolean }
 ---@field fieldEntranceIndicator FieldEntranceIndicator
----@field fieldEntranceIndicatorAsset table
----@field fieldEffectAssets table
+---@field fieldEntranceIndicatorAsset table<string, unknown>
+---@field fieldEffectAssets table<string, unknown>
 ---@field physicalCoverage FieldCoverage?
 ---@field residency FieldResidencyCoordinator?
 local FieldRuntime = {}
@@ -283,7 +284,7 @@ end
 
 ---@param avatars table[]
 ---@param gender integer
----@return table
+---@return table<string, unknown>
 local function avatarForGender(avatars, gender)
   assert(PlayerData.GENDERS[gender] == true, "field player gender is unsupported")
   local match
@@ -393,7 +394,7 @@ local function composePhysicalMap(logicalMap, coverage)
 end
 
 ---@param localClock LocalClock
----@return table
+---@return table<string, unknown>
 local function defaultWeatherClock(localClock)
   local function today()
     local now = localClock:nowLocal()
@@ -452,7 +453,7 @@ end
 -- discard). `composeMap` is a no-op for non-outdoor scenes, so this runs
 -- unconditionally; every FieldCoordinates/terrain lookup below runs only
 -- after the composed map is in hand.
----@param game table
+---@param game table<string, unknown>
 ---@param mapLoader FieldMapLoader
 ---@param composeMap fun(logicalMap: RuntimeFieldMap, position: { fieldX: integer, fieldZ: integer }): RuntimeFieldMap
 ---@return RuntimeFieldMap, { fieldX: integer, fieldZ: integer, surfaceId: integer, facing: FieldDirection, worldY: number }
@@ -1368,10 +1369,12 @@ end
 -- fieldDataForMap lookup. The day/night source defaults to the wall-clock
 -- IsNighttime predicate (hours 0-3 and 20-23, the bandForHour nite band);
 -- tests and hosts inject a deterministic one.
----@param cacheFs CacheFs
----@param restoredAudio table? the restored save's audio bucket, when resuming
----@return table audioService the GameSound instance, or the injected recording adapter
+---@param cacheFs unknown
+---@param restoredAudio table<string, unknown>? the restored save's audio bucket, when resuming
+---@return table<string, unknown> audioService the GameSound instance, or the injected recording adapter
 function FieldRuntime:_composeAudio(cacheFs, restoredAudio)
+  assert(type(cacheFs) == "table" and type(cacheFs.loadLua) == "function", "field runtime cache reader required")
+  ---@cast cacheFs CacheFs
   local audioService = self.scriptHosts and self.scriptHosts.audio
   if audioService == nil or self.audioOutput ~= nil then
     local function defaultDayNight()
@@ -1407,7 +1410,6 @@ function FieldRuntime:_composeAudio(cacheFs, restoredAudio)
       cacheFs = cacheFs,
       outputRate = AUDIO_SAMPLE_RATE,
       eventState = self.eventState,
-      ---@diagnostic disable-next-line: missing-return-value -- the narrower audio contract returns fieldX,fieldZ; the runtime provider is sufficient
       fieldPosition = fieldPosition,
       dayNight = self.mapMusicDayNight,
       fieldDataForMap = fieldDataForMap,
@@ -1452,8 +1454,8 @@ end
 
 -- Capture the current field session for the explicit-save owner. This boundary
 -- only builds and validates a snapshot; publication belongs to storage.
----@return table? snapshot
----@return string|table? reason validation or stability failure
+---@return table<string, unknown>? snapshot
+---@return string|table<string, unknown>? reason validation or stability failure
 ---@param allowMenu boolean?
 function FieldRuntime:_captureGameSave(allowMenu)
   if not canCapture(self.session, allowMenu == true) then
@@ -1593,9 +1595,9 @@ end
 -- still authoritative: construct the destination player, camera, and player
 -- visual, then stage logical residency as the final ownership-bearing step.
 -- The coordinator keeps the source logical world live until the hidden commit.
----@param resolution table
+---@param resolution table<string, unknown>
 ---@param facing FieldDirection
----@return table prepared destination player, camera, and player visual
+---@return table<string, unknown> prepared destination player, camera, and player visual
 function FieldRuntime:_prepareSwap(resolution, facing)
   -- The hidden-commit invariant accepts either cover: the ordinary
   -- transition's own fade for a plain warp, or the source-authored script
@@ -1662,8 +1664,8 @@ end
 
 -- Dispose only transition-owned physical state. A reused coverage remains
 -- owned by the runtime, while a staged replacement is released once on abort.
----@param resolution table?
----@param prepared table?
+---@param resolution table<string, unknown>?
+---@param prepared table<string, unknown>?
 function FieldRuntime:_disposePreparedSwap(resolution, prepared)
   local residency = prepared and prepared.residency
   if residency then
@@ -1685,8 +1687,8 @@ end
 -- The irreversible current-map ownership transfer, run by FieldTransition
 -- only after every fallible preparation step succeeded. Logical residency is
 -- published first; runtime/session pointers and physical ownership follow.
----@param resolution table
----@param prepared table
+---@param resolution table<string, unknown>
+---@param prepared table<string, unknown>
 function FieldRuntime:_commitSwap(resolution, _, prepared)
   local runtimeMap = resolution.destinationMap
   local physical = (prepared and prepared.physical) or resolution.physical
@@ -1807,7 +1809,8 @@ function FieldRuntime:_releaseAll()
   end
   self.playerVisual = nil
   if self.actorAssets then
-    self.actorAssets:dispose()
+    local dispose = assert(self.actorAssets.dispose, "field actor assets dispose operation is required")
+    dispose(self.actorAssets)
   end
   if self.physicalCoverage then
     self.physicalCoverage:release()

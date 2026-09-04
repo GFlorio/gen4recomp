@@ -22,7 +22,7 @@ function FieldTransitionFade:updateSourceFrame()
   return StandardFade.updateSourceFrame(self)
 end
 
----@return table
+---@return table<string, unknown>
 function FieldTransitionFade:status()
   return StandardFade.status(self)
 end

@@ -22,7 +22,7 @@ local HEADER_SIZE = 10 -- magic 4 + version 2 + width 2 + height 2
 
 ---@param code string
 ---@param message string
----@param context table?
+---@param context table<string, unknown>?
 ---@return nil, Errors.Error
 local function fail(code, message, context)
   return nil, Errors.new(code, message, context)
@@ -64,8 +64,8 @@ end
 -- Decode a G4CL asset into the normalized grid shape { width, height, cells }.
 -- Returns (grid | nil, err) for malformed data.
 ---@param bytes string
----@param context table|nil
----@return table?, Errors.Error?
+---@param context table<string, unknown>|nil
+---@return table<string, unknown>?, Errors.Error?
 function CollisionGridAsset.decode(bytes, context)
   assert(type(bytes) == "string", "CollisionGridAsset.decode requires a string")
   if #bytes < HEADER_SIZE then

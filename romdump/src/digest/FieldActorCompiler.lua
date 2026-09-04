@@ -162,10 +162,10 @@ local function avatarCapabilities()
   return capabilities
 end
 
----@param pack table
+---@param pack table<string, unknown>
 ---@param frames table[]
 ---@param context Errors.Context
----@return table
+---@return table<string, unknown>
 local function decodeAtlas(pack, frames, context)
   local width, height
   for _, frame in ipairs(frames) do
@@ -454,7 +454,7 @@ end
 ---@param memberId integer
 ---@param staticArchive Narc
 ---@param context Errors.Context
----@return table, table
+---@return table<string, unknown>, table<string, unknown>
 local function compileStaticModel(spriteId, memberId, staticArchive, context)
   local modelBytes = must(
     staticArchive:readMember(memberId),
@@ -470,10 +470,10 @@ end
 
 ---@param romFs RomFs
 ---@param spriteId integer
----@param graphics table
+---@param graphics table<string, unknown>
 ---@param archive Narc
 ---@param staticArchive Narc
----@return table, table
+---@return table<string, unknown>, table<string, unknown>
 local function compileSprite(romFs, spriteId, graphics, archive, staticArchive)
   local context = { spriteId = spriteId, romVersion = romFs:version() } ---@type Errors.Context
   local resolved = must(FieldActorGraphics.resolve(graphics, spriteId))

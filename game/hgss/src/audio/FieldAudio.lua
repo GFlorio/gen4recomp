@@ -12,7 +12,7 @@ local FieldAudio = {}
 ---@field fieldPosition fun(): integer, integer
 ---@field dayNight fun(): "day"|"night"
 ---@field fieldDataForMap fun(mapIdOrSymbol: integer|string): any
----@field outputHost table|nil
+---@field outputHost table<string, unknown>|nil
 
 ---@param opts FieldAudioComposeOptions
 ---@return { service: FieldAudioController, sink: LoveAudioSink|nil }
@@ -27,7 +27,7 @@ function FieldAudio.compose(opts)
       and opts.fieldDataForMap,
     "FieldAudio.compose requires cacheFs, outputRate, eventState, fieldPosition, dayNight, and fieldDataForMap"
   )
-  ---@cast opts +{ outputHost: table|nil }
+  ---@cast opts +{ outputHost: table<string, unknown>|nil }
   local core = GameAudio.compose({
     cacheFs = opts.cacheFs,
     outputRate = opts.outputRate,

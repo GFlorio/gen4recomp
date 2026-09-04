@@ -233,7 +233,7 @@ local function dynamicBatches(dynamicModel, meshes)
 end
 
 ---@param target table[]
----@param source table
+---@param source table<string, unknown>
 local function appendUnresolved(target, source)
   for _, entry in ipairs(source.unresolved) do
     target[#target + 1] = entry
@@ -249,15 +249,15 @@ end
 -- compiled clips are plain serializable data. The runtime assembles the
 -- ModelDefinition from this descriptor. The caller stamps `key` after hashing
 -- the descriptor's content into the model key.
----@param buildingModel table
----@param buildingNsbmd table
----@param texPack table
----@param animResult table
----@param context table
+---@param buildingModel table<string, unknown>
+---@param buildingNsbmd table<string, unknown>
+---@param texPack table<string, unknown>
+---@param animResult table<string, unknown>
+---@param context table<string, unknown>
 ---@param memberId integer
----@param textures table<string, table>
----@param meshes table<string, table>
----@return table, table[]
+---@param textures table<string, table<string, unknown>>
+---@param meshes table<string, table<string, unknown>>
+---@return table<string, unknown>, table[]
 local function compileAnimatedModel(
   buildingModel,
   buildingNsbmd,
@@ -463,15 +463,15 @@ function MapAssetCompiler.compileBuildings(romFs, area, land, opts)
 end
 
 ---@param romFs RomFs
----@param resolved table
+---@param resolved table<string, unknown>
 ---@param mapId integer
----@param terrainAnimationCompiler table
----@param meshes table<string, table>
----@param textures table<string, table>
+---@param terrainAnimationCompiler table<string, unknown>
+---@param meshes table<string, table<string, unknown>>
+---@param textures table<string, table<string, unknown>>
 ---@param unresolvedMaterials table[]
----@return table neighbors
----@return table textureSrt
----@return table neighborChunkByMember
+---@return table<string, unknown> neighbors
+---@return table<string, unknown> textureSrt
+---@return table<string, unknown> neighborChunkByMember
 local function compileNeighborAssets(
   romFs,
   resolved,

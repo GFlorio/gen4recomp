@@ -25,7 +25,7 @@
 ---@field _visibleActions table<integer, StartMenuController.Action> ordered display positions with entries
 ---@field _orderedPositions integer[] the visible display positions in ascending order
 ---@field _selectedPosition integer the selected display position
----@field _result table?
+---@field _result table<string, unknown>?
 ---@field _closed boolean
 ---@field _cursorFrames { duration: integer }[] the manifest cursor frame durations
 ---@field _cursorFrameIndex integer zero-based index into _cursorFrames

@@ -18,9 +18,9 @@ local MusicFadeTask = {}
 MusicFadeTask.type = "music_fade"
 MusicFadeTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function MusicFadeTask.create(spec, ctx)
   local node = assert(spec.node, "music fade task requires its graph node")
   assert(node.op == "fade_music_out" or node.op == "fade_music_in", "music fade task requires a fade op")
@@ -34,7 +34,7 @@ function MusicFadeTask.create(spec, ctx)
   end
   -- LuaLS cannot see through Errors.raise; the nil check above never falls
   -- through, so the service is non-nil from here on.
-  ---@cast audio { fadeMusicOut: fun(self: table, spec: table), fadeMusicIn: fun(self: table, spec: table) }
+  ---@cast audio { fadeMusicOut: fun(self: table<string, unknown>, spec: table<string, unknown>), fadeMusicIn: fun(self: table<string, unknown>, spec: table<string, unknown>) }
   if node.op == "fade_music_out" then
     audio:fadeMusicOut(node)
   else
@@ -43,9 +43,9 @@ function MusicFadeTask.create(spec, ctx)
   return { op = node.op }
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function MusicFadeTask.poll(state, ctx)
   local audio = ctx.services.audio
   if audio == nil then
@@ -53,7 +53,7 @@ function MusicFadeTask.poll(state, ctx)
   end
   -- LuaLS cannot see through Errors.raise; the nil check above never falls
   -- through, so the service is non-nil from here on.
-  ---@cast audio { isMusicFadeActive: fun(self: table): boolean }
+  ---@cast audio { isMusicFadeActive: fun(self: table<string, unknown>): boolean }
   local active = audio:isMusicFadeActive()
   assert(active ~= nil, "the audio service must report music fade state as a boolean")
   if not active then
@@ -62,13 +62,13 @@ function MusicFadeTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function MusicFadeTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function MusicFadeTask.validate(state)
   if type(state) ~= "table" or state.op == nil then

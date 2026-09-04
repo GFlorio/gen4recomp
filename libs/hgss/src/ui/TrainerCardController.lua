@@ -30,6 +30,16 @@
 ---@field playTimeSeconds number
 ---@field effect fun(sequence: string)? source UI sound effect boundary
 
+---@class TrainerCardController.InputProfile
+---@field name string?
+---@field trainerId integer?
+---@field money number?
+
+---@class TrainerCardController.Input
+---@field profile TrainerCardController.InputProfile?
+---@field playTimeSeconds number?
+---@field effect fun(sequence: string)?
+
 ---@class TrainerCardController
 ---@field _name string
 ---@field _trainerId integer
@@ -46,11 +56,14 @@ local PlayerData = require("libs.hgss.src.save.PlayerData")
 -- The profile is already canonical before it reaches the controller (the
 -- player-data model validates it at the runtime boundary), so construction
 -- only asserts the fields the card copies.
----@param opts TrainerCardController.Options
+---@param opts unknown
 ---@return TrainerCardController
 function TrainerCardController.new(opts)
-  assert(type(opts) == "table" and type(opts.profile) == "table", "the trainer card controller requires the profile")
+  assert(type(opts) == "table", "the trainer card controller requires the profile")
+  ---@cast opts TrainerCardController.Input
   local profile = opts.profile
+  assert(type(profile) == "table", "the trainer card controller requires the profile")
+  ---@cast profile TrainerCardController.InputProfile
   assert(
     profile.name ~= nil and profile.trainerId ~= nil,
     "the trainer card requires name and trainerId from the player profile"
@@ -58,12 +71,16 @@ function TrainerCardController.new(opts)
   assert(profile.money ~= nil, "the trainer card requires money from the player profile")
   assert(opts.playTimeSeconds ~= nil, "the trainer card requires play time")
   assert(type(opts.playTimeSeconds) == "number" and opts.playTimeSeconds >= 0, "trainer card play time is invalid")
+  local name = assert(profile.name)
+  local trainerId = assert(profile.trainerId)
+  local money = assert(profile.money)
+  local playTimeSeconds = assert(opts.playTimeSeconds)
   local self = setmetatable({
-    _name = profile.name,
-    _trainerId = profile.trainerId,
-    _visibleTrainerId = PlayerData.visibleTrainerId(profile.trainerId),
-    _money = profile.money,
-    _playTimeSeconds = opts.playTimeSeconds,
+    _name = name,
+    _trainerId = trainerId,
+    _visibleTrainerId = PlayerData.visibleTrainerId(trainerId),
+    _money = money,
+    _playTimeSeconds = playTimeSeconds,
     _effect = opts.effect,
     _result = nil,
     _closed = false,
@@ -101,7 +118,7 @@ end
 
 -- The presentation snapshot: the copied immutable profile fields. Fresh
 -- table per call; the caller may not mutate controller state through it.
----@return table
+---@return table<string, unknown>
 function TrainerCardController:status()
   if self._closed then
     return { open = false }

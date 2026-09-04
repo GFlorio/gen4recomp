@@ -11,7 +11,7 @@ local AssetErrors = require("libs.assets.src.errors")
 ---@class FieldCellCache.FileSystem
 ---@field exists fun(self: FieldCellCache.FileSystem, path: string, expectedType?: string): boolean
 ---@field read fun(self: FieldCellCache.FileSystem, path: string): string?
----@field loadLua fun(self: FieldCellCache.FileSystem, path: string): table?
+---@field loadLua fun(self: FieldCellCache.FileSystem, path: string): table<string, unknown>?
 
 local FieldCellCache = {}
 FieldCellCache.FORMAT = Contract.fieldCells.cacheFormat
@@ -232,14 +232,14 @@ local function validateReferencedPaths(cacheFs, cell)
   return true
 end
 
----@param index table
+---@param index table<string, unknown>
 ---@return boolean
 function FieldCellCache.validateIndex(index)
   return validateIndex(index)
 end
 
 ---@param cacheFs CacheFs|FieldCellCache.FileSystem
----@param cell table
+---@param cell table<string, unknown>
 ---@param expected? unknown
 ---@return boolean
 function FieldCellCache.validateCell(cacheFs, cell, expected)

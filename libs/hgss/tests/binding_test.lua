@@ -573,13 +573,11 @@ T["session script phase"] = function()
     dialogue = dialogue,
     menuHost = menuHost,
     contextChoice = contextChoice,
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     signpost = {
       isModal = function()
         return false
       end,
     },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     applicationHost = {
       isActive = function()
         return false

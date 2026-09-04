@@ -149,9 +149,9 @@ end
 -- The prepared focus_indicator token shape the provider produces: zero-width,
 -- carrying the imported field index.
 ---@param field integer
----@return table
+---@return MessageToken
 function FieldDialogueFixture.focusToken(field)
-  return { kind = "focus_indicator", control = 0x0200, name = "YESNO", args = { field } }
+  return { kind = "focus_indicator", control = 0x0200, name = "YESNO", args = { field }, raw = { field } }
 end
 
 -- The drawn 24x32 indicator frames in a recorded draw stream: only the focus

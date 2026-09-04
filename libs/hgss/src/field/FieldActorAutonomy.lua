@@ -6,9 +6,9 @@ local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 
 ---@class FieldActorAutonomy
----@field rng table
----@field profiles table
----@field states table<string, table>
+---@field rng table<string, unknown>
+---@field profiles table<string, unknown>
+---@field states table<string, table<string, unknown>>
 local FieldActorAutonomy = {}
 FieldActorAutonomy.__index = FieldActorAutonomy
 
@@ -102,8 +102,8 @@ local function resetState(state, movementType, profile)
 end
 
 ---@class FieldActorAutonomyOptions
----@field rng table
----@field profiles table|{ require: fun(self: table, movementType: string): table }?
+---@field rng table<string, unknown>
+---@field profiles table<string, unknown>|{ require: fun(self: table<string, unknown>, movementType: string): table<string, unknown> }?
 
 ---@param opts FieldActorAutonomyOptions
 ---@return FieldActorAutonomy
@@ -116,7 +116,7 @@ end
 
 ---@param actorId string
 ---@param movementType string
----@param sourceEvent table
+---@param sourceEvent table<string, unknown>
 function FieldActorAutonomy:attach(actorId, movementType, sourceEvent)
   assert(self.states[actorId] == nil, "field actor autonomy is already attached: " .. actorId)
   local profile = self.profiles.require(movementType)
@@ -165,7 +165,7 @@ function FieldActorAutonomy:applyPendingMovementType(actorId)
 end
 
 ---@param actorId string
----@return table
+---@return table<string, unknown>
 function FieldActorAutonomy:state(actorId)
   return copy(assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId))
 end
@@ -177,7 +177,7 @@ function FieldActorAutonomy:isOrdinary(actorId)
 end
 
 ---@param actorId string
----@return table
+---@return table<string, unknown>
 function FieldActorAutonomy:capture(actorId)
   local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
   local controller = {
@@ -200,7 +200,7 @@ end
 
 ---@param actorId string
 ---@param movementType string
----@param controller table
+---@param controller table<string, unknown>
 function FieldActorAutonomy:restore(actorId, movementType, controller)
   local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
   local profile = self.profiles.require(movementType)
@@ -241,12 +241,12 @@ function FieldActorAutonomy:restore(actorId, movementType, controller)
   end
 end
 
----@return table
+---@return table<string, unknown>
 function FieldActorAutonomy:captureRng()
   return self.rng:serialize()
 end
 
----@param record table
+---@param record table<string, unknown>
 function FieldActorAutonomy:restoreRng(record)
   self.rng = ScriptRng.restore(record)
 end
@@ -338,7 +338,7 @@ local function stepSpin(state, capability)
 end
 
 ---@param actorId string
----@param capability table
+---@param capability table<string, unknown>
 function FieldActorAutonomy:step(actorId, capability)
   local state = assert(self.states[actorId], "field actor autonomy is not attached: " .. actorId)
   state.fieldX = assert(capability.fieldX)

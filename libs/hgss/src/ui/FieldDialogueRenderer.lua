@@ -26,8 +26,8 @@ local FieldDrawState = require("libs.hgss.src.presentation.FieldDrawState")
 ---@class FieldDialogueRenderer
 ---@field _theme FieldDialogueTheme
 ---@field _graphics love.Graphics|love.graphics
----@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
----@field _manifest table the generated field-UI manifest
+---@field _text FieldDialogueRenderer.TextRenderer the shared glyph atlas/line drawing collaborator
+---@field _manifest table<string, unknown> the generated field-UI manifest
 ---@field _focusIndicatorEnabled boolean whether the source focus indicator is composed
 ---@field _frameImage love.Image?
 ---@field _cursorImage love.Image?
@@ -38,6 +38,13 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 
 ---@alias FieldDialogueRenderer.Layout FieldDialogueTheme.Layout|DialoguePresentationLayout.Presentation
 
+---@class FieldDialogueRenderer.TextRenderer
+---@field fontDef FieldFontDef
+---@field _atlas love.Image?
+---@field drawLine fun(self: FieldDialogueRenderer.TextRenderer, tokens: MessageToken[], x: number, y: number)
+---@field drawFocusIndicator fun(self: FieldDialogueRenderer.TextRenderer, field: integer, x: number, y: number)
+---@field windowBackgroundColor fun(self: FieldDialogueRenderer.TextRenderer): number[]
+
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
 -- class (frame strip PNGs); opts.manifest: the already-validated generated
 -- field-UI manifest the runtime loaded once (FieldRuntime.uiManifest);
@@ -47,7 +54,7 @@ FieldDialogueRenderer.__index = FieldDialogueRenderer
 -- PNG bytes still enter through love.filesystem.newFileData); opts.theme:
 -- geometry record.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, theme?: FieldDialogueTheme, graphics?: love.Graphics|love.graphics, drawFocusIndicator?: boolean }
+---@param opts { cacheFs: CacheFs, manifest: table<string, unknown>, text: unknown, theme?: FieldDialogueTheme, graphics?: unknown, drawFocusIndicator?: boolean }
 ---@return FieldDialogueRenderer
 function FieldDialogueRenderer.new(opts)
   assert(
@@ -60,11 +67,13 @@ function FieldDialogueRenderer.new(opts)
     graphics = assert(love.graphics)
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldDialogueRenderer requires love.graphics")
+  ---@cast graphics love.Graphics|love.graphics
   local text = opts.text
   assert(
     text and type(text.drawLine) == "function" and type(text.drawFocusIndicator) == "function",
     "FieldDialogueRenderer requires the shared FieldTextRenderer"
   )
+  ---@cast text FieldDialogueRenderer.TextRenderer
   local cacheFs = opts.cacheFs
   local manifest = opts.manifest
   assert(type(manifest) == "table", "FieldDialogueRenderer requires the runtime-validated field-UI manifest")

@@ -545,7 +545,8 @@ end
 ---@field resolveComposition fun(scriptId: string): table|nil|nil
 ---@field menu table
 ---@field scriptMenu table
----@field signpost ScriptSignpostHost|nil
+---@field effects table<string, unknown>|nil
+---@field signpost ScriptSignpostHost|{ setSourceAppearance: fun(self: unknown, appearance: table), setCommand: fun(self: unknown, command: integer), isCommandIdle: fun(self: unknown): boolean }|nil
 ---@field windowStyles { resolve: fun(registry: table, id: string): table|nil }|nil the immutable window-style catalogue surface the high-level sign ops resolve appearances against
 ---@field startMenuReopen { request: fun() }|nil the opcode-61 Start Menu reopen hook boundary
 ---@field auxiliaryUi AuxiliaryFieldUi
@@ -570,6 +571,8 @@ function FakeServices.new(opts)
     advanceAsync = opts.advanceAsync,
     foreground = nil,
     resolveComposition = nil,
+    effects = opts.effects,
+    signpost = nil,
   }, FakeServices)
 end
 

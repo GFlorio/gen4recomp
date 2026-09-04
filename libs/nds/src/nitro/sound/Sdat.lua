@@ -467,7 +467,7 @@ end
 
 ---@param bytes string
 ---@param context string?
----@return table|nil
+---@return table<string, unknown>|nil
 ---@return Errors.Error|nil
 function Sdat.open(bytes, context)
   assert(type(bytes) == "string", "Sdat.open requires a byte string")

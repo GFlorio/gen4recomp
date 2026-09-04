@@ -31,8 +31,8 @@ local OPPOSITE_PROTAGONIST_NAME_BANK = 445
 ---@class FieldMessageCompiler.Bundle
 ---@field marker string
 ---@field index { schema: string, version: string, bankIds: integer[] }
----@field banks table<integer, table>
----@field dependencies table
+---@field banks table<integer, table<string, unknown>>
+---@field dependencies table<string, unknown>
 
 local FieldMessageCompiler = {}
 

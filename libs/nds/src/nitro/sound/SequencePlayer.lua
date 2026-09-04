@@ -118,35 +118,35 @@ local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 local bit = require("bit")
 
 ---@class NdsSoundProvider
----@field player fun(self: NdsSoundProvider, id: integer): table
----@field loadSample fun(self: NdsSoundProvider, key: string): { metadata: table, pcm: integer[] }
+---@field player fun(self: NdsSoundProvider, id: integer): table<string, unknown>
+---@field loadSample fun(self: NdsSoundProvider, key: string): { metadata: table<string, unknown>, pcm: integer[] }
 
 ---@class SequencePlayer
 ---@field private _sampleRate integer
 ---@field private _mixer VoiceMixer
 ---@field private _provider NdsSoundProvider
----@field private _logicalPlayers table<integer, table>
----@field private _seqPlayers table<integer, table?>
+---@field private _logicalPlayers table<integer, table<string, unknown>>
+---@field private _seqPlayers table<integer, table<string, unknown>?>
 ---@field private _freeSeqPlayerSlots integer[] FIFO of inactive physical slots
----@field private _trackPool table<integer, table?> concrete reusable track objects
----@field private _handles table<table, boolean> handles created by this player
----@field private _handleAttachments table<table, table?> current instance per handle
+---@field private _trackPool table<integer, table<string, unknown>?> concrete reusable track objects
+---@field private _handles table<table<string, unknown>, boolean> handles created by this player
+---@field private _handleAttachments table<table<string, unknown>, table<string, unknown>?> current instance per handle
 ---@field private _soundPhase integer the one global 192 Hz sound-interval phase accumulator
----@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: NdsSoundProvider, observer: table? }): SequencePlayer
----@field createHandle fun(self: SequencePlayer): table
----@field play fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
----@field playSynthetic fun(self: SequencePlayer, handle: table, sequence: table, bank: table): boolean
+---@field new fun(opts: { sampleRate: integer, mixer: VoiceMixer, provider: NdsSoundProvider, observer: table<string, unknown>? }): SequencePlayer
+---@field createHandle fun(self: SequencePlayer): table<string, unknown>
+---@field play fun(self: SequencePlayer, handle: table<string, unknown>, sequence: table<string, unknown>, bank: table<string, unknown>): boolean
+---@field playSynthetic fun(self: SequencePlayer, handle: table<string, unknown>, sequence: table<string, unknown>, bank: table<string, unknown>): boolean
 ---@field render fun(self: SequencePlayer, frames: integer): integer[]
 ---@field stop fun(self: SequencePlayer)
 ---@field stopPlayer fun(self: SequencePlayer, playerId: integer)
 ---@field isPlayerPlaying fun(self: SequencePlayer, playerId: integer): boolean
 ---@field isPlaying fun(self: SequencePlayer): boolean
----@field setHandleFader fun(self: SequencePlayer, handle: table, level: integer)
----@field pauseHandle fun(self: SequencePlayer, handle: table)
----@field resumeHandle fun(self: SequencePlayer, handle: table)
----@field stopHandle fun(self: SequencePlayer, handle: table)
----@field releaseHandle fun(self: SequencePlayer, handle: table)
----@field isHandlePlaying fun(self: SequencePlayer, handle: table): boolean
+---@field setHandleFader fun(self: SequencePlayer, handle: table<string, unknown>, level: integer)
+---@field pauseHandle fun(self: SequencePlayer, handle: table<string, unknown>)
+---@field resumeHandle fun(self: SequencePlayer, handle: table<string, unknown>)
+---@field stopHandle fun(self: SequencePlayer, handle: table<string, unknown>)
+---@field releaseHandle fun(self: SequencePlayer, handle: table<string, unknown>)
+---@field isHandlePlaying fun(self: SequencePlayer, handle: table<string, unknown>): boolean
 ---@field stopSequence fun(self: SequencePlayer, sequenceId: integer)
 
 local SequencePlayer = {}
@@ -575,8 +575,8 @@ end
 -- TrackUpdateChannel lfo snapshot of the track mod state.
 ---@param provider NdsSoundProvider
 ---@param mixer VoiceMixer
----@param instance table
----@param track table
+---@param instance table<string, unknown>
+---@param track table<string, unknown>
 ---@param midiKey integer
 ---@param velocity integer
 ---@param length integer
@@ -1265,7 +1265,7 @@ function retireInstance(self, instance, reason)
   end
 end
 
----@param opts { sampleRate: number, mixer: table, provider: table, observer?: table, rng?: fun(): number }
+---@param opts { sampleRate: number, mixer: table<string, unknown>, provider: table<string, unknown>, observer?: table<string, unknown>, rng?: fun(): number }
 ---@return SequencePlayer
 function SequencePlayer.new(opts)
   assert(
@@ -1517,7 +1517,7 @@ end
 -- player's voices immediately as a queued dB-domain fader event
 -- (NnsSoundMath.decibel; the mixer clamps at -0x8000). The GameSound
 -- fade state is the caller; a player with no active instance is a no-op.
----@param handle table
+---@param handle table<string, unknown>
 ---@param level integer
 ---@return nil
 function SequencePlayer:setHandleFader(handle, level)
@@ -1544,7 +1544,7 @@ end
 -- SDK pause releases and frees channels, preserving no sample or envelope
 -- state for resumption. A player with no active instance, or one already
 -- paused, is a no-op.
----@param handle table
+---@param handle table<string, unknown>
 ---@return nil
 function SequencePlayer:pauseHandle(handle)
   validateHandle(self, handle)
@@ -1561,7 +1561,7 @@ function SequencePlayer:pauseHandle(handle)
   end
 end
 
----@param handle table
+---@param handle table<string, unknown>
 ---@return nil
 function SequencePlayer:resumeHandle(handle)
   validateHandle(self, handle)
@@ -1571,7 +1571,7 @@ function SequencePlayer:resumeHandle(handle)
   end
 end
 
----@param handle table
+---@param handle table<string, unknown>
 ---@return nil
 function SequencePlayer:stopHandle(handle)
   validateHandle(self, handle)
@@ -1583,7 +1583,7 @@ end
 
 -- Releases only the handle attachment. The active instance remains owned by
 -- its logical player and physical slot.
----@param handle table
+---@param handle table<string, unknown>
 ---@return nil
 function SequencePlayer:releaseHandle(handle)
   validateHandle(self, handle)

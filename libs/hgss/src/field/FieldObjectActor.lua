@@ -14,7 +14,7 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field actorId string
 ---@field mapId integer
 ---@field objectEventId integer
----@field sourceEvent table
+---@field sourceEvent table<string, unknown>
 ---@field spriteId integer
 ---@field fieldX integer
 ---@field fieldZ integer
@@ -29,7 +29,7 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field facing FieldDirection
 ---@field pose string
 ---@field poseTick integer
----@field private _visual table
+---@field private _visual table<string, unknown>
 ---@field private _idlePresentation { mode: "static"|"animated", cadence: integer }
 ---@field private _scriptedPresentationAdvanced boolean
 ---@field presentationOffset { x: number, y: number, z: number } render-only action or idle display offset
@@ -41,28 +41,34 @@ local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibrat
 ---@field solid boolean
 ---@field movementType string
 ---@field interactionFacingOverride { owner: string, facing: FieldDirection, restoreFacing: FieldDirection }?
----@field pushFacingOverride fun(self: FieldObjectActor, request: { owner: string, facing: FieldDirection }): table
----@field releaseFacingOverride fun(self: FieldObjectActor, token: table)
+---@field pushFacingOverride fun(self: FieldObjectActor, request: { owner: string, facing: FieldDirection }): table<string, unknown>
+---@field releaseFacingOverride fun(self: FieldObjectActor, token: table<string, unknown>)
 ---@field clearFacingOverride fun(self: FieldObjectActor)
----@field beginAction fun(self: FieldObjectActor, descriptor: table, owner: "script"|"autonomous")
+---@field beginAction fun(self: FieldObjectActor, descriptor: table<string, unknown>, owner: "script"|"autonomous")
 ---@field advanceAction fun(self: FieldObjectActor, progressTicks: integer, durationTicks: integer)
----@field commitAction fun(self: FieldObjectActor): table?
+---@field commitAction fun(self: FieldObjectActor): table<string, unknown>?
 ---@field cancelAction fun(self: FieldObjectActor)
----@field beginScriptedAction fun(self: FieldObjectActor, descriptor: table)
+---@field beginScriptedAction fun(self: FieldObjectActor, descriptor: table<string, unknown>)
 ---@field advanceScriptedAction fun(self: FieldObjectActor, progressTicks: integer, durationTicks: integer)
----@field commitScriptedAction fun(self: FieldObjectActor): table?
+---@field commitScriptedAction fun(self: FieldObjectActor): table<string, unknown>?
 ---@field cancelScriptedAction fun(self: FieldObjectActor)
 ---@field isScriptedMoving fun(self: FieldObjectActor): boolean
 ---@field advancePresentationTick fun(self: FieldObjectActor)
 ---@field settlePresentation fun(self: FieldObjectActor)
 ---@field currentAction fun(self: FieldObjectActor): string?
----@field scriptedMotionState fun(self: FieldObjectActor): table?
+---@field presentationState fun(self: FieldObjectActor): FieldObjectActor.PresentationState
+---@field scriptedMotionState fun(self: FieldObjectActor): table<string, unknown>?
 ---@field setFacing fun(self: FieldObjectActor, direction: FieldDirection)
 ---@field setVisible fun(self: FieldObjectActor, visible: boolean)
 ---@field setPosition fun(self: FieldObjectActor, position: { fieldX: integer, fieldZ: integer, worldY: number?, worldX: number?, worldZ: number?, surfaceId: integer?, cellKey: string?, sourceSurfaceId: integer?, resident: boolean })
 
 local FieldObjectActor = {}
 FieldObjectActor.__index = FieldObjectActor
+
+---@class FieldObjectActor.PresentationState
+---@field gesturePose string?
+---@field gestureTick integer?
+---@field gestureOffsetY number
 
 local FACINGS = { north = true, south = true, west = true, east = true }
 
@@ -506,6 +512,17 @@ end
 
 function FieldObjectActor:scriptedMotionState()
   return self._motion
+end
+
+-- The renderer-facing presentation snapshot keeps gesture state private to
+-- the actor while exposing the complete draw contract to its consumers.
+---@return FieldObjectActor.PresentationState
+function FieldObjectActor:presentationState()
+  return {
+    gesturePose = self._gesturePose,
+    gestureTick = self._gestureTick,
+    gestureOffsetY = self._gestureOffsetY,
+  }
 end
 
 -- --- Scripted mutation  ------------------------------------

@@ -14,9 +14,9 @@ local AskYesNoTask = {}
 AskYesNoTask.type = "ask_yes_no"
 AskYesNoTask.version = 1
 
----@param spec table
----@param _ table
----@return table state
+---@param spec table<string, unknown>
+---@param _ table<string, unknown>
+---@return table<string, unknown> state
 function AskYesNoTask.create(spec, _)
   local node = assert(spec.node, "ask_yes_no requires its graph node")
   return {
@@ -27,9 +27,9 @@ function AskYesNoTask.create(spec, _)
   }
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function AskYesNoTask.poll(state, ctx)
   local host = assert(ctx.services.dialogue, "ask_yes_no requires the dialogue host")
   if state.phase == "opening" then
@@ -66,13 +66,13 @@ function AskYesNoTask.poll(state, ctx)
   }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function AskYesNoTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function AskYesNoTask.validate(state)
   if type(state) ~= "table" or (state.phase ~= "opening" and state.phase ~= "waiting_selection") then

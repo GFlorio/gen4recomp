@@ -306,7 +306,7 @@ local function validateActor(actor, key)
 end
 
 ---@param record any
----@return table|nil, Errors.Error?
+---@return table<string, unknown>|nil, Errors.Error?
 function FieldObjectSave.validate(record)
   if type(record) ~= "table" then
     return fail("field object save bucket must be a table")

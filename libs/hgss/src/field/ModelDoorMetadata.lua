@@ -15,7 +15,7 @@ local ModelDoorMetadata = {}
 -- models). `desc` is the plain generated record: `desc.doorSoundType`
 -- (integer|nil) and `desc.animations` (an array of clip-shaped tables, each
 -- optionally carrying `semanticNames`).
----@param desc table
+---@param desc table<string, unknown>
 ---@return { doorSoundType: integer|nil, roles: { open: { frameCount: integer }|nil, close: { frameCount: integer }|nil } }|nil
 function ModelDoorMetadata.forDescriptor(desc)
   if type(desc) ~= "table" or type(desc.animations) ~= "table" then

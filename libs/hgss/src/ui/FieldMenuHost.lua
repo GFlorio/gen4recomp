@@ -8,7 +8,7 @@ local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 ---@class FieldMenuHost.Active
 ---@field definition FieldMenuController.Spec
 ---@field selectedIndex integer
----@field layout table?
+---@field layout table<string, unknown>?
 ---@field closingAtTick integer?
 ---@field pointerId string?
 ---@field pointerDrag { y: number, remainder: number }?
@@ -181,7 +181,7 @@ end
 
 -- The renderer receives a value snapshot instead of reaching into the host's
 -- private live state. The task remains the only owner of menu interaction.
----@return { status: { selectedIndex: integer }, layout: table }|nil
+---@return { status: { selectedIndex: integer }, layout: table<string, unknown> }|nil
 function FieldMenuHost:presentation()
   if not self:isModal() then
     return nil
@@ -287,7 +287,7 @@ end
 
 -- This is semantic presentation state for non-rendering hosts. Closed menus
 -- deliberately expose no geometry, so no stale surface state survives.
----@return table
+---@return table<string, unknown>
 function FieldMenuHost:snapshot()
   if self._active == nil then
     return { modal = false }

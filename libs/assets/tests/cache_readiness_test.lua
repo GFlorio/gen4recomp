@@ -1546,6 +1546,9 @@ function T.actor_visual_with_malformed_static_part_is_not_ready()
 end
 
 function T.actor_visual_with_malformed_geometry_is_not_ready()
+  ---@param isAtlas boolean
+  ---@param label string
+  ---@param mutator fun(geometry: table<string, unknown>, visual: table<string, unknown>)
   local function mutateGeometry(isAtlas, mutator, label)
     local c = cache()
     writeActorIndex(c, { 0 })
@@ -1558,7 +1561,6 @@ function T.actor_visual_with_malformed_geometry_is_not_ready()
       gestures = {},
     }
     local geom = isAtlas and visual.render.geometry or visual.render.parts[1].geometry
-    ---@diagnostic disable-next-line: redundant-parameter
     mutator(geom, visual)
     c:writeLua(FieldActorCache.visualPath(0), visual)
     c:write(FieldActorCache.atlasPath(0), "atlas-bytes")

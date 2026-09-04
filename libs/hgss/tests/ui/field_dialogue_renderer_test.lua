@@ -88,7 +88,6 @@ end
 
 function T.rejects_a_missing_graphics_namespace()
   local err = Assert.throws(function()
-    ---@diagnostic disable: assign-type-mismatch
     FieldTextRenderer.new({ cacheFs = uiCache(), graphics = false })
   end)
   Assert.isTrue(tostring(err):find("FieldTextRenderer requires love.graphics", 1, true) ~= nil)

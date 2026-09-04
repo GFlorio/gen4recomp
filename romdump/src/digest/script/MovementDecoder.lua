@@ -121,8 +121,8 @@ local TRAJECTORIES = {
 -- nil plus the unsupported descriptor. Simple commands return a one-element list.
 -- Trajectory commands 105-112 expand to their full semantic segment list, with
 -- count repetitions cloned as independent ordered entries.
----@param action table
----@return table[]|nil steps, table|nil unsupported
+---@param action table<string, unknown>
+---@return table[]|nil steps, table<string, unknown>|nil unsupported
 function MovementDecoder.decode(action)
   local code = action.movementCode or -1
   local count = action.count or 1

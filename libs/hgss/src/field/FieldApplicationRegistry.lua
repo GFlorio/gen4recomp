@@ -13,7 +13,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 
 ---@class FieldApplicationRegistry
----@field _factories table<string, fun(...): table>
+---@field _factories table<string, fun(...): table<string, unknown>>
 local FieldApplicationRegistry = {}
 FieldApplicationRegistry.__index = FieldApplicationRegistry
 
@@ -26,7 +26,7 @@ end
 -- The immutable construction boundary: every descriptor is validated once
 -- here (table, non-empty id, factory function, no duplicate ids) and stored
 -- in a factory map the runtime never mutates.
----@param descriptors { id: string, factory: fun(...): table }[]
+---@param descriptors { id: string, factory: fun(...): table<string, unknown> }[]
 ---@return FieldApplicationRegistry
 function FieldApplicationRegistry.new(descriptors)
   assert(type(descriptors) == "table", "the application registry requires a descriptor list")
@@ -57,7 +57,7 @@ end
 -- The registry holds child destinations only; the Start Menu is composed by
 -- the application host's own menu factory, so no arguments are forwarded.
 ---@param id string
----@return table controller
+---@return table<string, unknown> controller
 function FieldApplicationRegistry:create(id)
   if self._factories[id] == nil then
     Errors.raise(FieldErrors.APPLICATION_REGISTRY_UNKNOWN_ID, "unknown application id", { id = id })

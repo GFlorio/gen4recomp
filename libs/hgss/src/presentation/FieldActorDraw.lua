@@ -31,9 +31,9 @@ local FieldActorDraw = {}
 
 ---@class FieldActorDraw.Entry
 ---@field visual FieldActorCache.Visual
----@field meshes table?
----@field image table?
----@field billboardScales table?
+---@field meshes table<string, unknown>?
+---@field image table<string, unknown>?
+---@field billboardScales table<string, unknown>?
 
 -- Draw items carry no submission numbers: queue traversal orders every part
 -- and draw in source order, positionally.
@@ -46,7 +46,7 @@ local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 ---@param entry FieldActorDraw.Entry
 ---@param meshIndex integer
 ---@param record FieldActorDraw.Record
----@return table
+---@return table<string, unknown>
 local function requireMesh(entry, meshIndex, record)
   local mesh = entry.meshes and entry.meshes[meshIndex]
   if mesh then
@@ -74,7 +74,7 @@ local function writeTranslation(matrix, x, y, z)
   matrix[15] = z
 end
 
----@param item table
+---@param item table<string, unknown>
 ---@param x number
 ---@param y number
 ---@param z number
@@ -95,8 +95,8 @@ end
 ---@param record FieldActorDraw.Record
 ---@param entry FieldActorDraw.Entry
 ---@param partIndex integer?
----@param item table
----@return table
+---@param item table<string, unknown>
+---@return table<string, unknown>
 local function writeItem(record, entry, partIndex, item)
   assert(type(record) == "table" and type(record.world) == "table", "a draw record needs a world position")
   assert(type(entry) == "table" and type(entry.visual) == "table", "a draw record needs its visual asset")
@@ -201,14 +201,14 @@ end
 ---@param record FieldActorDraw.Record
 ---@param entry FieldActorDraw.Entry
 ---@param partIndex integer?
----@return table
+---@return table<string, unknown>
 function FieldActorDraw.item(record, entry, partIndex)
   return writeItem(record, entry, partIndex, {})
 end
 
 ---@class FieldActorDrawStorage
 ---@field items table[]
----@field actorSlots table<string, table>
+---@field actorSlots table<string, table<string, unknown>>
 ---@field generation integer
 
 -- Draw items into caller-owned storage. The storage retains one skeleton per

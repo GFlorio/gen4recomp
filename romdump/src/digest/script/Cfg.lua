@@ -22,7 +22,7 @@ local OP_END = 2
 -- Resolve a branch/call operand to an absolute target offset. Decomp
 -- operands are label symbols; binary operands are relative word offsets
 -- from the end of the instruction (ScriptReadWord semantics).
----@param ins table
+---@param ins table<string, unknown>
 ---@param operandIndex integer
 ---@param labels table<string, integer>
 ---@return integer|nil offset
@@ -42,7 +42,7 @@ local function resolveTarget(ins, operandIndex, labels)
 end
 
 -- The successors of one instruction: `{ kind, targetOffset? }` pairs.
----@param ins table
+---@param ins table<string, unknown>
 ---@param labels table<string, integer>
 ---@return table[] successors
 local function successorsOf(ins, labels)
@@ -74,9 +74,9 @@ end
 
 -- Build the CFG for one script. `memberIr` is optional and supplies the
 -- movement blocks that ApplyMovement references (movement-sequence roots).
----@param script table
----@param memberIr table|nil
----@return table cfg
+---@param script table<string, unknown>
+---@param memberIr table<string, unknown>|nil
+---@return table<string, unknown> cfg
 function Cfg.build(script, memberIr)
   local instructions = script.instructions
   local empty = {

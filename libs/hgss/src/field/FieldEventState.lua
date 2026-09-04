@@ -12,7 +12,7 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 ---@field private _flags table<integer, boolean>
 ---@field private _vars table<integer, integer>
 ---@field private _tick integer
----@field private _listeners fun(change: table)[]
+---@field private _listeners fun(change: table<string, unknown>)[]
 local FieldEventState = {}
 FieldEventState.__index = FieldEventState
 
@@ -78,8 +78,8 @@ local function validateSerialized(serialized)
   }
 end
 
----@param serialized table
----@return table|nil, Errors.Error?
+---@param serialized table<string, unknown>
+---@return table<string, unknown>|nil, Errors.Error?
 function FieldEventState.validate(serialized)
   local ok, result = pcall(validateSerialized, serialized)
   if ok then

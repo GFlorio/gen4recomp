@@ -200,9 +200,10 @@ end
 function T.loads_the_shared_font_atlas_and_own_frame_strip(scope)
   local dialogue = renderer(scope)
 
-  Assert.equal(dialogue._text.fontDef.schema, FieldFontCache.SCHEMA)
-  Assert.notNil(dialogue._text._atlas)
-  Assert.equal(dialogue._text._atlas:getWidth(), 16)
+  local text = dialogue._text
+  Assert.equal(text.fontDef.schema, FieldFontCache.SCHEMA)
+  local atlas = assert(text._atlas)
+  Assert.equal(atlas:getWidth(), 16)
   Assert.notNil(dialogue._frameImage, "the generated frame strip is loaded")
   Assert.equal(dialogue._frameImage:getWidth(), 144)
 end

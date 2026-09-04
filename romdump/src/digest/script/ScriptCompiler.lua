@@ -50,7 +50,7 @@ end
 
 ---@param member integer
 ---@param scriptIndex integer
----@param stdCatalog table|nil
+---@param stdCatalog table<string, unknown>|nil
 ---@return string
 function ScriptCompiler.publicId(member, scriptIndex, stdCatalog)
   if stdCatalog ~= nil then
@@ -67,10 +67,10 @@ function ScriptCompiler.publicId(member, scriptIndex, stdCatalog)
 end
 
 -- Translate one script into a DSL resource.
----@param memberIr table
+---@param memberIr table<string, unknown>
 ---@param scriptIndex integer
----@param opts table { stdCatalog, publicId, romSha1, repository, game, sourceHash }
----@return table resource, table report
+---@param opts table<string, unknown> { stdCatalog, publicId, romSha1, repository, game, sourceHash }
+---@return table<string, unknown> resource, table<string, unknown> report
 local function translateScript(memberIr, scriptIndex, opts)
   local script = memberIr.scripts[scriptIndex]
   if opts.publicIdFor == nil then
@@ -124,7 +124,7 @@ end
 ---@param romFs RomFs
 ---@param sha1hex? fun(bytes: string): string
 ---@param hashLua? fun(value: any): string
----@return table bundle
+---@return table<string, unknown> bundle
 function ScriptCompiler.compile(romFs, sha1hex, hashLua)
   assert(romFs and romFs.read and romFs.openNarc and romFs.resolvedNarc, "compile requires a RomFs-shaped object")
   sha1hex = sha1hex or Hashing.sha1hex
@@ -275,8 +275,8 @@ function ScriptCompiler.memberBanksVersion()
 end
 
 -- Emit the Lua text for one resource (the cache writer persists it).
----@param entry table { id, member, scriptIndex, resource, report }
----@param opts table { sourcePath, romSha1, game, sourceHash }
+---@param entry table<string, unknown> { id, member, scriptIndex, resource, report }
+---@param opts table<string, unknown> { sourcePath, romSha1, game, sourceHash }
 ---@return string
 function ScriptCompiler.emit(entry, opts)
   return LuaEmitter.emit(entry.resource, {

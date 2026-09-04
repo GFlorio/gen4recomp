@@ -69,8 +69,8 @@ local MaterialEvaluator = {}
 ---@field materials MaterialEvaluator.Material[]
 
 ---@class MaterialEvaluator.Attachment
----@field clip table
----@field binding table
+---@field clip table<string, unknown>
+---@field binding table<string, unknown>
 ---@field player { frameFx: number }
 
 -- BGR555 (low 5 bits -> blue) — the NSBMA packed order, the OPPOSITE of
@@ -92,7 +92,7 @@ end
 -- loops every track looking names up.
 ---@param attachment MaterialEvaluator.Attachment
 ---@param materialIndex integer
----@return table?
+---@return table<string, unknown>?
 local function trackForMaterial(attachment, materialIndex)
   local trackIndex = attachment.binding.trackByMaterial[materialIndex]
   if trackIndex == nil then
@@ -161,7 +161,7 @@ end
 -- baseColor and polygonAlpha fields on every dynamic material record.
 ---@param definition MaterialEvaluator.Definition
 ---@param materialIndex integer
----@return table
+---@return table<string, unknown>
 local function baseMaterialState(definition, materialIndex)
   local material =
     assert(definition.materials[materialIndex + 1], "material index " .. tostring(materialIndex) .. " out of range")
@@ -181,10 +181,10 @@ end
 
 -- The texture variant a pattern key selects, or nil when the material has
 -- no variants (no pattern animation compiled).
----@param compiled table
----@param key table
+---@param compiled table<string, unknown>
+---@param key table<string, unknown>
 ---@param material MaterialEvaluator.Material
----@return table
+---@return table<string, unknown>
 local function variantFor(compiled, key, material)
   local texName = compiled.textureNames[key.texIdx + 1]
   if texName == nil then
@@ -236,8 +236,8 @@ end
 -- height, format, alphaUsage } with nil texture for untextured materials.
 ---@param material MaterialEvaluator.Material
 ---@param patternAttachment MaterialEvaluator.Attachment?
----@param patternTrack table?
----@return table
+---@param patternTrack table<string, unknown>?
+---@return table<string, unknown>
 local function currentTexture(material, patternAttachment, patternTrack)
   local selected ---@type table?
   if patternAttachment and patternTrack then
@@ -261,8 +261,8 @@ end
 -- instance keeps its identity.
 ---@param definition MaterialEvaluator.Definition
 ---@param attachments MaterialEvaluator.Attachment[]
----@param materialState table<integer, table>
----@return table<integer, table>
+---@param materialState table<integer, table<string, unknown>>
+---@return table<integer, table<string, unknown>>
 function MaterialEvaluator.evaluate(definition, attachments, materialState)
   assert(type(definition) == "table" and definition.materials ~= nil, "MaterialEvaluator requires a model definition")
   assert(

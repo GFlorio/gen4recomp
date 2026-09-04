@@ -11,10 +11,10 @@ local SourceCatalog = {}
 
 SourceCatalog.SOURCE = StdCatalog.source
 
----@return table catalog
+---@return table<string, unknown> catalog
 function SourceCatalog.catalog()
   ---@param stdId integer
-  ---@return table|nil { member: integer, scriptIndex: integer }
+  ---@return table<string, unknown>|nil { member: integer, scriptIndex: integer }
   local function locate(stdId)
     local groups = StdCatalog.groups
     for i = #groups, 1, -1 do
@@ -35,7 +35,7 @@ end
 -- The public `common.<name>` id for a CallStd operand (numeric id or `std_*`
 -- symbol). Known names lose the `std_` prefix; unknown operands stay
 -- mechanical (`common.std_<id>`).
----@param catalog table
+---@param catalog table<string, unknown>
 ---@param operand any
 ---@return string publicId
 function SourceCatalog.commonPublicId(catalog, operand)

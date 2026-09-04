@@ -507,13 +507,13 @@ local function readResourceTable(archive, dependencies, spec, memberId, role)
   end
 end
 
----@param resourceDataArchive table
----@param dependencies table
----@param spec table
+---@param resourceDataArchive table<string, unknown>
+---@param dependencies table<string, unknown>
+---@param spec table<string, unknown>
 ---@param id string
----@param paletteRecords table|nil
+---@param paletteRecords table<string, unknown>|nil
 ---@param paletteBytes string|nil
----@return table
+---@return table<string, unknown>
 local function resolveResourceSet(resourceDataArchive, dependencies, spec, id, paletteRecords, paletteBytes)
   local resolution = assert(spec.resourceResolution)
   local headerBytes = decodeMember(resourceDataArchive, resolution.header, id .. " resource header", resolution.archive)
@@ -626,7 +626,7 @@ local function effectivePalette(archive, dependencies, layout, id, spec)
     end
     error(ownerOrError, 0)
   end
-  ---@cast ownerOrError table
+  ---@cast ownerOrError table<string, unknown>
   local owner = ownerOrError
   if owner.narcId ~= spec.resourceResolution.sourceNarcId then
     sourceError("intro absolute palette owner is outside the supported source archive", {
@@ -661,7 +661,7 @@ local function buildPaletteLayout(records)
     end
     error(layoutOrError, 0)
   end
-  ---@cast layoutOrError table
+  ---@cast layoutOrError table<string, unknown>
   return layoutOrError
 end
 
@@ -789,8 +789,8 @@ local function sourceArchive(romFs, archiveName)
   return archive
 end
 
----@param romFs table RomFs-shaped source reader
----@return table bundle
+---@param romFs table<string, unknown> RomFs-shaped source reader
+---@return table<string, unknown> bundle
 function IntroAssetCompiler.compile(romFs)
   assert(
     romFs and type(romFs.metadata) == "function" and type(romFs.openNarc) == "function",
@@ -876,7 +876,7 @@ function IntroAssetCompiler.compile(romFs)
   for _, id in ipairs({ "ball_open", "marill_appear", "marill" }) do
     local spec = assert(config[id])
     assert(type(spec) == "table")
-    ---@cast spec table
+    ---@cast spec table<string, unknown>
     local resolved = resolveResourceSet(resourceDataArchive, dependencies, spec, id, paletteRecords, paletteBytes)
     compileCellAnimation(ballArchive, dependencies, manifest, assets, id, resolved, paletteLayout)
   end

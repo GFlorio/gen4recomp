@@ -38,7 +38,7 @@ local ALPHA_CLASSES = {
 -- Validate the item's renderer-facing alpha class instead of inferring it from
 -- material state. Queue classification is the authority for the pass an item
 -- lands in; the renderer receives that selected class when drawing it.
----@param item table
+---@param item table<string, unknown>
 ---@return string
 function RenderQueue.classifyAlphaClass(item)
   local mode = item.alphaClass

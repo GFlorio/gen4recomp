@@ -6,13 +6,13 @@ local ImageButton = require("libs.ui.src.ImageButton")
 local TextButton = require("libs.ui.src.TextButton")
 
 ---@class OakIntroRenderer
----@field graphics table
+---@field graphics table<string, unknown>
 ---@field text FieldTextRenderer
 ---@field choiceText FieldTextRenderer
----@field assets table
----@field bindings table
----@field manifest table
----@field draw fun(self: OakIntroRenderer, view: table)
+---@field assets table<string, unknown>
+---@field bindings table<string, unknown>
+---@field manifest table<string, unknown>
+---@field draw fun(self: OakIntroRenderer, view: table<string, unknown>)
 ---@field dispose fun(self: OakIntroRenderer)
 local REQUIRED_ASSETS = {
   "oak",
@@ -143,7 +143,7 @@ local function loadResources(manifest, graphics, imageLoader)
   return imagesByPath, bindings, assets
 end
 
----@param options table
+---@param options table<string, unknown>
 ---@return OakIntroRenderer
 function OakIntroRenderer.new(options)
   assert(type(options) == "table", "Oak renderer requires options")
@@ -181,8 +181,7 @@ function OakIntroRenderer.new(options)
     releaseAll(acquired)
     error("Oak renderer shader construction returned no shader", 0)
   end
-  ---@diagnostic disable-next-line: return-type-mismatch
-  return setmetatable({
+  local renderer = setmetatable({
     assets = renderedAssets,
     manifest = options.manifest,
     graphics = graphics,
@@ -193,6 +192,8 @@ function OakIntroRenderer.new(options)
     revealShader = revealShader,
     released = false,
   }, OakIntroRenderer)
+  ---@cast renderer OakIntroRenderer
+  return renderer
 end
 
 local function drawAsset(self, assetId, frameIndex, region, opacity, brightness, tint)
@@ -243,7 +244,7 @@ local function drawBackground(self, region)
   self.graphics.draw(binding.image, binding.quad, region.x, region.y, 0, sx, sy)
 end
 
----@param view table
+---@param view table<string, unknown>
 function OakIntroRenderer:_draw(view)
   assert(not self.released, "Oak renderer is released")
   local graphics = self.graphics

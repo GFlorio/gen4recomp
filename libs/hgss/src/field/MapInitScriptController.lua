@@ -2,9 +2,9 @@
 -- boundary. The scheduler remains the sole owner of script execution.
 
 ---@class MapInitScriptController
----@field rules table
----@field world table
----@field scriptClient table
+---@field rules table<string, unknown>
+---@field world table<string, unknown>
+---@field scriptClient table<string, unknown>
 ---@field mapId integer|nil
 local MapInitScriptController = {}
 MapInitScriptController.__index = MapInitScriptController
@@ -64,7 +64,7 @@ local function validateRules(rules, mapId)
   end
 end
 
----@param opts table { rules: table, world: table, scriptClient: table }
+---@param opts table<string, unknown> { rules: table<string, unknown>, world: table<string, unknown>, scriptClient: table<string, unknown> }
 ---@return MapInitScriptController
 function MapInitScriptController.new(opts)
   assert(opts and type(opts.rules) == "table", "map init rules required")

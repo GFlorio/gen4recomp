@@ -168,7 +168,7 @@ function T.load_lua_read_failure_is_not_reclassified_as_missing()
   local backend = FakeCache.new()
   local c = cache("heartgold", backend)
   c:write("data/generated/x.lua", "DATA")
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.read = function(_)
     return nil, "injected read failure"
   end
@@ -273,7 +273,7 @@ function T.publish_from_stage_restores_previous_root_on_failure()
   s:write("romfs/a/0/0/2", "NEW")
   s:write("rom-dump.complete", "NEW-MARKER")
   local originalReplace = backend.replace
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.replace = function(self, sourcePath, destinationPath)
     if sourcePath == "staging/heartgold" then
       error(Errors.new(StorageErrors.CACHE_REPLACE_FAILED, "injected publish failure", { sourcePath = sourcePath }))
@@ -302,7 +302,7 @@ end
 
 function T.write_reports_backend_failure()
   local backend = FakeCache.new()
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.write = function()
     return false, "injected write failure"
   end
@@ -313,7 +313,7 @@ end
 
 function T.write_reports_parent_directory_failure()
   local backend = FakeCache.new()
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.createDirectory = function()
     return false, "injected mkdir failure"
   end
@@ -324,7 +324,7 @@ end
 
 function T.create_directory_reports_backend_failure()
   local backend = FakeCache.new()
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.createDirectory = function()
     return false, "injected mkdir failure"
   end
@@ -336,7 +336,7 @@ end
 function T.remove_reports_backend_failure()
   local backend = FakeCache.new()
   cache("heartgold", backend):write("romfs/a/0/0/2", "data")
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.remove = function()
     return false, "injected remove failure"
   end
@@ -349,7 +349,7 @@ end
 -- never asked to remove something that does not exist.
 function T.remove_absent_path_is_a_noop()
   local backend = FakeCache.new()
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.remove = function()
     error("backend must not be asked to remove an absent path")
   end
@@ -359,7 +359,7 @@ end
 function T.remove_tree_reports_backend_failure()
   local backend = FakeCache.new()
   cache("heartgold", backend):write("romfs/a/0/0/2", "data")
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.remove = function()
     return false, "injected remove failure"
   end
@@ -373,7 +373,7 @@ function T.replace_reports_backend_failure()
   local c = cache("heartgold", backend)
   c:write("save/session.lua", "old")
   c:write("save/session.lua.tmp", "new")
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.replace = function()
     return false, "injected replace failure"
   end
@@ -390,7 +390,7 @@ function T.publish_from_stage_reports_aside_failure()
   local s = staging("heartgold", backend)
   c:write("romfs/a/0/0/2", "OLD")
   s:write("romfs/a/0/0/2", "NEW")
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.replace = function(self, sourcePath, destinationPath)
     if sourcePath == "heartgold" then
       return false, "injected replace failure"
@@ -412,7 +412,7 @@ function T.publish_from_stage_restores_previous_root_when_replace_reports_failur
   c:write("rom-dump.complete", "OLD-MARKER")
   s:write("romfs/a/0/0/2", "NEW")
   s:write("rom-dump.complete", "NEW-MARKER")
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.replace = function(self, sourcePath, destinationPath)
     if sourcePath == "staging/heartgold" then
       return false, "injected publish failure"
@@ -439,7 +439,7 @@ function T.publish_from_stage_reports_incomplete_rollback()
   s:write("romfs/a/0/0/2", "NEW")
   s:write("rom-dump.complete", "NEW-MARKER")
   local originalReplace = backend.replace
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.replace = function(self, sourcePath, destinationPath)
     if sourcePath == "staging/heartgold" then
       return false, "injected publish failure"
@@ -474,7 +474,7 @@ function T.publish_from_stage_reports_cleanup_failure()
   c:write("romfs/a/0/0/2", "OLD")
   s:write("romfs/a/0/0/2", "NEW")
   local originalRemove = backend.remove
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.remove = function(self, path)
     if path:find("staging/heartgold.old", 1, true) then
       return false, "injected cleanup failure"
@@ -495,7 +495,7 @@ function T.remove_staged_tree_reports_backend_failure()
   local c = cache("heartgold", backend)
   local s = staging("heartgold", backend)
   s:write("romfs/a/0/0/2", "STAGE")
-  ---@diagnostic disable: duplicate-set-field
+  ---@diagnostic disable-next-line: duplicate-set-field -- test replaces an externally owned callback
   backend.remove = function()
     return false, "injected remove failure"
   end

@@ -102,7 +102,7 @@ end
 
 function T.rejects_non_table_and_missing_required_buckets()
   returnsCode("GAME_SAVE_INVALID", function()
-    ---@diagnostic disable-next-line: param-type-mismatch
+    ---@diagnostic disable-next-line: param-type-mismatch -- test deliberately exercises an invalid call
     return GameSave.validate(nil)
   end)
   for _, key in ipairs({ "playerData", "world", "auxiliaryUi", "audio" }) do

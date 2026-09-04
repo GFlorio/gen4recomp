@@ -46,14 +46,14 @@ local AnimationClip = require("libs.assets.src.AnimationClip")
 ---@field materials table[]
 ---@field animations table[]
 ---@field doorSoundType integer?
----@field backend table?
+---@field backend table<string, unknown>?
 ---@field sourceBackend unknown?
----@field animationByName table<string, table>
----@field animationBySemantic table<string, table>
----@field bindings table<table, table>
----@field node fun(self: ModelDefinition, index: integer): table?
----@field animation fun(self: ModelDefinition, nameOrSemantic: string): table?
----@field binding fun(self: ModelDefinition, clip: table): table
+---@field animationByName table<string, table<string, unknown>>
+---@field animationBySemantic table<string, table<string, unknown>>
+---@field bindings table<table<string, unknown>, table<string, unknown>>
+---@field node fun(self: ModelDefinition, index: integer): table<string, unknown>?
+---@field animation fun(self: ModelDefinition, nameOrSemantic: string): table<string, unknown>?
+---@field binding fun(self: ModelDefinition, clip: table<string, unknown>): table<string, unknown>
 ---@class ModelDefinition.NodeSource
 ---@field name string?
 ---@field translation number[]
@@ -68,11 +68,11 @@ local AnimationClip = require("libs.assets.src.AnimationClip")
 ---@field drawIndex integer
 ---@field positionSource string?
 ---@field transformMode string?
----@field straddle table?
+---@field straddle table<string, unknown>?
 
 ---@class ModelDefinition.Descriptor
 ---@field key string?
----@field dynamic { transformProgram: table, nodes: ModelDefinition.NodeSource[], batches: ModelDefinition.BatchSource[] }
+---@field dynamic { transformProgram: table<string, unknown>, nodes: ModelDefinition.NodeSource[], batches: ModelDefinition.BatchSource[] }
 ---@field materials table[]
 ---@field animations table[]
 ---@field doorSoundType integer?
@@ -84,7 +84,7 @@ local AnimationClip = require("libs.assets.src.AnimationClip")
 ---@field materials table[]
 ---@field animations table[]
 ---@field doorSoundType integer?
----@field backend table?
+---@field backend table<string, unknown>?
 ---@field sourceBackend unknown?
 local ModelDefinition = {}
 ModelDefinition.__index = ModelDefinition
@@ -187,7 +187,7 @@ end
 -- Resolve a clip by name or semantic role (e.g. "door.open"), or nil.
 ---@param self ModelDefinition
 ---@param nameOrSemantic string
----@return table?
+---@return table<string, unknown>?
 function ModelDefinition:animation(nameOrSemantic)
   return self.animationByName[nameOrSemantic] or self.animationBySemantic[nameOrSemantic]
 end
@@ -195,7 +195,7 @@ end
 -- The model node for a node index, or nil.
 ---@param self ModelDefinition
 ---@param index integer
----@return table?
+---@return table<string, unknown>?
 function ModelDefinition:node(index)
   return self.nodes[index + 1]
 end
@@ -264,7 +264,7 @@ function ModelDefinition.fromNitroDescriptor(desc, opts)
     -- positionSource/transformMode are not mandatory (the billboard batch
     -- in the corpus legitimately omits positionSource).
     local backendRecord = PolygonState.copy(mesh)
-    ---@cast backendRecord table
+    ---@cast backendRecord table<string, unknown>
     backendRecord.drawIndex = mesh.drawIndex
     backendRecord.positionSource = mesh.positionSource
     backendRecord.transformMode = mesh.transformMode
@@ -302,9 +302,9 @@ end
 -- A clip outside the animations list has no binding: the assembly loop
 -- precomputes every in-list clip, so a miss here is a programming fault and
 -- raises instead of lazily binding an unlisted clip.
----@param clip table
+---@param clip table<string, unknown>
 ---@param self ModelDefinition
----@return table
+---@return table<string, unknown>
 function ModelDefinition:binding(clip)
   local record = self.bindings[clip]
   if not record then

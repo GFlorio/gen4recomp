@@ -20,7 +20,7 @@ local HgssScript = require("libs.hgss.src.script.Composition")
 local FieldScriptCompatibility = {}
 FieldScriptCompatibility.__index = FieldScriptCompatibility
 
----@param opts { cacheFs: CacheFs, overrideFs: table }
+---@param opts { cacheFs: CacheFs, overrideFs: table<string, unknown> }
 ---@return FieldScriptCompatibility
 function FieldScriptCompatibility.new(opts)
   assert(opts and opts.cacheFs and opts.overrideFs, "script compatibility requires filesystems")
@@ -66,7 +66,7 @@ function FieldScriptCompatibility:registryFingerprint()
   return self.registry:fingerprint()
 end
 
----@return table
+---@return table<string, unknown>
 function FieldScriptCompatibility:validationOptions()
   local function resolveTask(taskType, version)
     return self.taskRegistry:resolve(taskType, version)

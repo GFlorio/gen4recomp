@@ -376,7 +376,7 @@ end
 ---@param bytes string
 ---@param identity { sequenceId: integer, symbol: string? }
 ---@param context string?
----@return table?|nil
+---@return table<string, unknown>?|nil
 ---@return Errors.Error?|nil
 function SequenceLowering.lower(bytes, identity, context)
   local ok, result = pcall(_lower, bytes, identity, context)

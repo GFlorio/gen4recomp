@@ -10,16 +10,16 @@
 local ScriptEnvironment = require("libs.script.src.ScriptEnvironment")
 
 ---@class ScriptFrame
----@field graph table
+---@field graph table<string, unknown>
 ---@field graphRevision string
 ---@field nodeId string
 ---@field returnNodeId string|nil
 ---@field resultRef any|nil
----@field chain table|nil
+---@field chain table<string, unknown>|nil
 ---@field chainScriptId string|nil
 ---@field chainRevision string|nil
----@field args table|nil
----@field composition table|nil { entryIndex, operation, owner }
+---@field args table<string, unknown>|nil
+---@field composition table<string, unknown>|nil { entryIndex, operation, owner }
 
 ---@class ScriptInstance
 ---@field instanceId string
@@ -27,14 +27,14 @@ local ScriptEnvironment = require("libs.script.src.ScriptEnvironment")
 ---@field contextSlot integer
 ---@field scriptId string composed public id
 ---@field revision string effective revision
----@field owner table
+---@field owner table<string, unknown>
 ---@field mode string foreground|background
----@field trigger table|nil
----@field args table
----@field locals table
----@field textArgs table
+---@field trigger table<string, unknown>|nil
+---@field args table<string, unknown>
+---@field locals table<string, unknown>
+---@field textArgs table<string, unknown>
 ---@field compare any|nil
----@field menuBuilder table|nil imported HGSS menu construction owned by this instance
+---@field menuBuilder table<string, unknown>|nil imported HGSS menu construction owned by this instance
 ---@field frames ScriptFrame[]
 ---@field waitingTaskId string|nil
 ---@field taskResult any
@@ -68,10 +68,10 @@ ScriptInstance.STATUSES = {
 ---@field contextSlot integer
 ---@field scriptId string
 ---@field revision string
----@field owner table
+---@field owner table<string, unknown>
 ---@field mode string
----@field trigger table|nil
----@field args table|nil
+---@field trigger table<string, unknown>|nil
+---@field args table<string, unknown>|nil
 ---@field createdAtTick integer
 ---@field readyAtTick integer
 
@@ -122,9 +122,9 @@ end
 -- Build one call/composition frame (the shared shape used by same-graph
 -- calls, composed entry frames, and chain advancement). The graph revision
 -- always mirrors the graph; the remaining fields default to nil.
----@param graph table
+---@param graph table<string, unknown>
 ---@param nodeId string
----@param opts table|nil { returnNodeId, resultRef, args, chain, chainScriptId,
+---@param opts table<string, unknown>|nil { returnNodeId, resultRef, args, chain, chainScriptId,
 --- chainRevision, composition }
 ---@return ScriptFrame
 function ScriptInstance:makeFrame(graph, nodeId, opts)
@@ -180,7 +180,7 @@ end
 -- relative delays rebased at capture time `captureTick`; `lastRunTick` is
 -- diagnostic data and is not restored.
 ---@param captureTick integer
----@return table
+---@return table<string, unknown>
 function ScriptInstance:capture(captureTick)
   local frames = {}
   for _, frame in ipairs(self.frames) do
@@ -226,9 +226,9 @@ end
 -- Rebuild an instance from the save schema. `restoreTick` rebases the ready
 -- deadline and the creation tick; the caller reattaches graphs by revision
 -- and reconnects environment and task references.
----@param record table
+---@param record table<string, unknown>
 ---@param restoreTick integer
----@param graphs table<string, table> graphRevision -> graph
+---@param graphs table<string, table<string, unknown>> graphRevision -> graph
 ---@return ScriptInstance
 function ScriptInstance.restore(record, restoreTick, graphs)
   assert(record and record.instanceId, "instance record required")

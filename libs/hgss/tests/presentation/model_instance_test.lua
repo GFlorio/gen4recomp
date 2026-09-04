@@ -167,8 +167,7 @@ function T.straddle_origin_items_use_the_current_transform_and_normal()
   Assert.equal(items[1].mesh, residentMesh)
   Assert.deepEqual(items[1].transform, current)
   Assert.deepEqual(items[1].modelNormal, Matrix3.modelNormal(current))
-  ---@diagnostic disable-next-line: undefined-field -- renderer items omit dormant provenance
-  Assert.isNil(items[1].straddle, "renderer items do not carry the discarded split")
+  Assert.isNil(rawget(items[1], "straddle"), "renderer items do not carry the discarded split")
 end
 
 -- The effective material reads the record's optional colors block (the four

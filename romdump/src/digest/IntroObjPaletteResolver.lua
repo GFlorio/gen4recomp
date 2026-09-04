@@ -52,7 +52,7 @@ end
 
 --- Allocate records in source order into independent absolute engine-bank maps.
 ---@param records table[] dense source-order palette records
----@return { main: table, sub: table }
+---@return { main: table<string, unknown>, sub: table<string, unknown> }
 function IntroObjPaletteResolver.build(records)
   if type(records) ~= "table" then
     invalidLayout("intro palette layout records are required")
@@ -79,10 +79,10 @@ function IntroObjPaletteResolver.build(records)
 end
 
 --- Look up the owner and local NCLR bank for an absolute engine bank.
----@param layout { main: table, sub: table }
+---@param layout { main: table<string, unknown>, sub: table<string, unknown> }
 ---@param engine "main"|"sub"
 ---@param paletteNumber integer
----@return table owner resdat palette record
+---@return table<string, unknown> owner resdat palette record
 ---@return integer localBank zero-based bank within the owner's NCLR
 function IntroObjPaletteResolver.owner(layout, engine, paletteNumber)
   if

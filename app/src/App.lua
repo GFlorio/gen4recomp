@@ -9,7 +9,7 @@ local VersionSelectState = require("app.src.launcher.VersionSelectState")
 
 ---@class App
 ---@field opts AppOptions
----@field state table|nil
+---@field state table<string, unknown>|nil
 ---@field importer RomImporter|nil
 ---@field drawableWidth number?
 ---@field drawableHeight number?

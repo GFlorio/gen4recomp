@@ -36,7 +36,7 @@ local function validateRecord(record)
 end
 
 ---@param record any
----@return table|nil, Errors.Error?
+---@return table<string, unknown>|nil, Errors.Error?
 function AuxiliaryFieldUi.validate(record)
   local ok, result = pcall(validateRecord, record)
   if ok then
@@ -61,7 +61,7 @@ function AuxiliaryFieldUi:capture()
   return self:status()
 end
 
----@param record table
+---@param record table<string, unknown>
 ---@return AuxiliaryFieldUi
 function AuxiliaryFieldUi.restore(record)
   local valid, err = AuxiliaryFieldUi.validate(record)

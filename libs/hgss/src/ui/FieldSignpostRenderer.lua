@@ -52,15 +52,23 @@ end
 
 ---@class FieldSignpostRenderer
 ---@field _graphics love.Graphics|love.graphics
----@field _windowStyles FieldWindowStyles
----@field _text FieldTextRenderer the shared glyph atlas/line drawing collaborator
----@field _manifest table the generated field-UI manifest
+---@field _windowStyles FieldSignpostRenderer.WindowStyles
+---@field _text FieldSignpostRenderer.TextRenderer the shared glyph atlas/line drawing collaborator
+---@field _manifest table<string, unknown> the generated field-UI manifest
 ---@field _tilesImage love.Image? the signpost frame strip
 ---@field _wayfindingImage love.Image? the wayfinding atlas
 ---@field _frameQuadCache table<integer, love.Quad[]>|nil per-source-type frame quads, built lazily
 ---@field _wayfindingQuadCache table<string, love.Quad>|nil per-(type,map) final-surface quad, built lazily
 local FieldSignpostRenderer = {}
 FieldSignpostRenderer.__index = FieldSignpostRenderer
+
+---@class FieldSignpostRenderer.WindowStyles
+---@field resolve fun(self: FieldSignpostRenderer.WindowStyles, styleId: string): table<string, unknown>?
+---@class FieldSignpostRenderer.TextRenderer
+---@field fontDef FieldFontDef
+---@field _atlas love.Image?
+---@field drawLineWithPalette fun(self: FieldSignpostRenderer.TextRenderer, line: table<string, unknown>, x: number, y: number, palette: table<string, unknown>)
+---@field drawFocusIndicator fun(self: FieldSignpostRenderer.TextRenderer, field: integer, x: number, y: number)
 
 -- opts.cacheFs: version-scoped private cache holding the generated field-UI
 -- class; opts.manifest: the already-validated generated field-UI manifest
@@ -71,7 +79,7 @@ FieldSignpostRenderer.__index = FieldSignpostRenderer
 -- enter through love.filesystem.newFileData); opts.windowStyles: the
 -- per-runtime window style catalogue the controller's styleId resolves in.
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, windowStyles: FieldWindowStyles, graphics?: love.Graphics|love.graphics }
+---@param opts { cacheFs: CacheFs, manifest: table<string, unknown>, text: unknown, windowStyles: unknown, graphics?: unknown }
 ---@return FieldSignpostRenderer
 function FieldSignpostRenderer.new(opts)
   assert(
@@ -83,16 +91,19 @@ function FieldSignpostRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldSignpostRenderer requires love.graphics")
+  ---@cast graphics love.Graphics|love.graphics
   local windowStyles = opts.windowStyles
   assert(
     windowStyles and type(windowStyles.resolve) == "function",
     "FieldSignpostRenderer requires a window style catalogue"
   )
+  ---@cast windowStyles FieldSignpostRenderer.WindowStyles
   local text = opts.text
   assert(
     text and type(text.drawLineWithPalette) == "function" and type(text.drawFocusIndicator) == "function",
     "FieldSignpostRenderer requires the shared FieldTextRenderer"
   )
+  ---@cast text FieldSignpostRenderer.TextRenderer
   local cacheFs = opts.cacheFs
   local manifest = opts.manifest
   assert(type(manifest) == "table", "FieldSignpostRenderer requires the runtime-validated field-UI manifest")
@@ -217,7 +228,7 @@ end
 -- fallback to type 0 ever happens for a real appearance whose type the
 -- manifest cannot resolve -- that is a manifest/source-contract failure.
 ---@param status FieldSignpostController.Status
----@return table
+---@return table<string, unknown>
 function FieldSignpostRenderer:_resolveType(status)
   local types =
     assert(self._manifest.signposts and self._manifest.signposts.types, "the manifest must carry signpost types")
@@ -233,7 +244,7 @@ end
 ---@param status FieldSignpostController.Status
 ---@param graphicRegion FieldDialogueTheme.Rect? the type's wayfinding region
 ---@param wipe number
----@param typeEntry table the active source type's generated manifest entry
+---@param typeEntry table<string, unknown> the active source type's generated manifest entry
 function FieldSignpostRenderer:_drawFrame(status, graphicRegion, wipe, typeEntry)
   local lg = assert(self._graphics)
   local image = assert(self._tilesImage)

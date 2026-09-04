@@ -3,9 +3,9 @@
 -- deliberately remains outside this pure domain module.
 
 ---@class TerrainSurface
----@field artifact table
+---@field artifact table<string, unknown>
 ---@field plates table[]
----@field plateById table<integer, table>
+---@field plateById table<integer, table<string, unknown>>
 local TerrainSurface = {}
 TerrainSurface.__index = TerrainSurface
 

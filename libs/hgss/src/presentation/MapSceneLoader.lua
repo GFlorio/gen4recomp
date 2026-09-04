@@ -64,7 +64,7 @@ local MapSceneLoader = {}
 ---@class MapSceneLoader.ModelDescriptor
 ---@field kind "static"|"nitro-dynamic"
 ---@field batches MapSceneLoader.Batch[]?
----@field dynamic { nodes: ModelDefinition.NodeSource[], transformProgram: table, batches: MapSceneLoader.Batch[] }?
+---@field dynamic { nodes: ModelDefinition.NodeSource[], transformProgram: table<string, unknown>, batches: MapSceneLoader.Batch[] }?
 ---@field materials table[]
 ---@field animations table[]?
 
@@ -81,13 +81,13 @@ local MapSceneLoader = {}
 ---@field alphaClass string
 ---@field fogEnabled boolean
 ---@field transformMode string?
----@field baseTransform table?
+---@field baseTransform table<string, unknown>?
 
 ---@class MapSceneLoader.DescriptorCacheEntry
 ---@field descriptor MapSceneLoader.ModelDescriptor
----@field materials table
----@field wrapByMaterial table
----@field bounds table
+---@field materials table<string, unknown>
+---@field wrapByMaterial table<number, { x: string, y: string }>
+---@field bounds table<string, unknown>
 
 ---@class MapSceneLoader.BuildTask
 ---@field state "active"|"ready"|"transferred"|"released"|"failed"
@@ -102,25 +102,25 @@ local MapSceneLoader = {}
 ---@field release fun(self: MapSceneLoader.BuildTask)
 
 ---@class MapSceneLoader.Runtime
----@field scene table
+---@field scene table<string, unknown>
 ---@field assetPool GpuAssetPool
 ---@field mapId integer
 ---@field cameraType integer
 ---@field collision CollisionGrid
----@field bounds table
+---@field bounds table<string, unknown>
 ---@field mapDraws table[]
 ---@field staticBuildingDraws table[]
 ---@field animatedBuildingDraws table[]
----@field lighting table
----@field edgeColors table
----@field fog table
+---@field lighting table<string, unknown>
+---@field edgeColors table<string, unknown>
+---@field fog table<string, unknown>
 ---@field fieldTimeSeconds number
 ---@field timeBand "day"|"night"
 ---@field animatedInstances ModelInstance[]
 ---@field updateAnimated fun(self: MapSceneLoader.Runtime)
 ---@field setTimeBand fun(self: MapSceneLoader.Runtime, band: "day"|"night")
 ---@field mapProps MapProps
----@field stats table
+---@field stats table<string, unknown>
 ---@field release fun(self: MapSceneLoader.Runtime)
 
 -- The identity UV-transform matrix every assembled material starts with:
@@ -176,10 +176,10 @@ end
 -- in headless tests).
 ---@param pool GpuAssetPool
 ---@param cacheFs CacheFs
----@param scene table
----@param opts table
+---@param scene table<string, unknown>
+---@param opts table<string, unknown>
 ---@param checkpoint fun()
----@return table
+---@return table<string, unknown>
 local function buildScene(pool, cacheFs, scene, opts, checkpoint)
   local timeBand = opts.timeBand or TimeOfDayProps.bandForSeconds(FieldLightProfile.DEFAULT_TIME_SECONDS)
   assert(VALID_BANDS[timeBand], "unknown time-of-day band " .. tostring(timeBand))
@@ -753,7 +753,7 @@ end
 -- Begin one resumable scene build. The task owns the fresh pool until the
 -- completed runtime is transferred or the task is cancelled/failed.
 ---@param cacheFs CacheFs
----@param scene table
+---@param scene table<string, unknown>
 ---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder, imageBuilder?: GpuAssetPool.ImageBuilder }?
 ---@return MapSceneLoader.BuildTask
 function MapSceneLoader.begin(cacheFs, scene, opts)
@@ -785,9 +785,9 @@ end
 -- Load an assembled scene synchronously by finishing the same task used by
 -- background physical presentation prefetch.
 ---@param cacheFs CacheFs
----@param scene table
+---@param scene table<string, unknown>
 ---@param opts { graphics?: GpuAssetPool.Graphics, timeBand?: string, meshBuilder?: GpuAssetPool.MeshBuilder, imageBuilder?: GpuAssetPool.ImageBuilder }?
----@return table
+---@return table<string, unknown>
 function MapSceneLoader.load(cacheFs, scene, opts)
   return MapSceneLoader.begin(cacheFs, scene, opts):finish()
 end
@@ -795,8 +795,8 @@ end
 -- Build the logical render environment without acquiring geometry or model
 -- resources. Outdoor physical cells own all rendered geometry; the renderer
 -- still needs the logical scene's lighting, edge colors, and fog state.
----@param scene table
----@return table
+---@param scene table<string, unknown>
+---@return table<string, unknown>
 function MapSceneLoader.loadEnvironment(scene)
   assert(type(scene) == "table" and scene.schema == MapAssetCache.SCENE_SCHEMA, "field scene required")
   local function release() end
@@ -819,8 +819,8 @@ end
 -- Build the synthetic scene used by one physical cell and expose it through
 -- the same staged scene task as a full logical scene.
 ---@param cacheFs CacheFs
----@param cell table
----@param opts table?
+---@param cell table<string, unknown>
+---@param opts table<string, unknown>?
 ---@return MapSceneLoader.BuildTask
 function MapSceneLoader.beginCell(cacheFs, cell, opts)
   assert(type(cell) == "table", "field cell descriptor required")

@@ -80,8 +80,8 @@ end
 
 -- Apply schema field defaults to a normalized table (defaults are copied per
 -- table so they are never shared).
----@param t table
----@param spec table
+---@param t table<string, unknown>
+---@param spec table<string, unknown>
 local function applyDefaults(t, spec)
   for name, field in pairs(spec.fields) do
     if field.default ~= nil and t[name] == nil then
@@ -98,10 +98,10 @@ local normalizeByType
 
 -- Shared shape for value/text/condition references: copy, apply defaults,
 -- normalize nested fields by their schema types.
----@param v table
----@param kindMap table
+---@param v table<string, unknown>
+---@param kindMap table<string, unknown>
 ---@param discriminator string
----@return table
+---@return table<string, unknown>
 local function normalizeKind(v, kindMap, discriminator)
   local spec = kindMap[v[discriminator]]
   local out = deepCopy(v)
@@ -126,7 +126,7 @@ end
 
 -- String actor shorthand becomes an actor reference.
 ---@param v any
----@return table
+---@return table<string, unknown>
 local function normalizeActor(v)
   if type(v) == "string" then
     if ACTOR_SPECIALS_SET[v] then
@@ -299,8 +299,8 @@ normalizeByType = normalizeByTypeImpl
 -- A multi-step lowering (one source instruction expanded into several
 -- canonical steps) shares provenance; the second and later steps append a
 -- `/n` counter so every node id stays unique.
----@param context table per-call compiler state
----@param step table
+---@param context table<string, unknown> per-call compiler state
+---@param step table<string, unknown>
 ---@param path string
 ---@return string
 local function nodeIdFor(context, step, path)
@@ -346,8 +346,8 @@ end
 -- compilation share one immutable id map. The provenance suffix counter is
 -- consumed here and never again: a label is registered and emitted under the
 -- very same id. The switch default branch is part of the tree.
----@param context table per-call compiler state
----@param steps table
+---@param context table<string, unknown> per-call compiler state
+---@param steps table<string, unknown>
 ---@param path string
 local function assignNodeIds(context, steps, path)
   for i = 1, #steps do
@@ -372,8 +372,8 @@ local function assignNodeIds(context, steps, path)
 end
 
 -- Pre-pass: register every label name with its precomputed node ID.
----@param context table per-call compiler state
----@param steps table
+---@param context table<string, unknown> per-call compiler state
+---@param steps table<string, unknown>
 ---@param path string
 local function prewalk(context, steps, path)
   for i = 1, #steps do
@@ -502,8 +502,8 @@ local function compileNextStep(context, path)
   end
 end
 
----@param context table per-call compiler state
----@param step table
+---@param context table<string, unknown> per-call compiler state
+---@param step table<string, unknown>
 ---@param path string
 ---@param cont string|nil
 ---@param depth integer
@@ -557,8 +557,8 @@ end
 -- node ID, or nil for an empty sequence. Node IDs come from the precomputed
 -- immutable map, so each step's continuation (the following step, or `cont`
 -- at the tail) is known before its branches compile.
----@param context table per-call compiler state
----@param steps table
+---@param context table<string, unknown> per-call compiler state
+---@param steps table<string, unknown>
 ---@param path string
 ---@param cont string|nil
 ---@param depth integer
@@ -583,8 +583,8 @@ compileSteps = compileStepsImpl
 
 -- Reachability, unsupported-node analysis, and load-time warnings on the
 -- completed graph.
----@param context table per-call compiler state
----@param graph table
+---@param context table<string, unknown> per-call compiler state
+---@param graph table<string, unknown>
 local function analyze(context, graph)
   local visited = {}
   local reachable = {}
@@ -630,8 +630,8 @@ end
 -- warnings, and the non-identity metadata/coverage fields are excluded; an
 -- operation-owned `source` operand (copy_var) is semantic data and stays in
 -- the projection.
----@param graph table
----@return table
+---@param graph table<string, unknown>
+---@return table<string, unknown>
 local function buildProjection(graph)
   local nodes = {}
   for id, node in pairs(graph.nodes) do
@@ -718,8 +718,8 @@ end
 -- Compiles a validated script resource into the internal graph. Returns the
 -- graph, or nil plus an Errors object on validation or structural failure.
 ---@param script any
----@param opts table|nil
----@return table|nil, Errors.Error|nil
+---@param opts table<string, unknown>|nil
+---@return table<string, unknown>|nil, Errors.Error|nil
 function Compiler.compile(script, opts)
   local ok, result = pcall(Compiler._compile, script, opts)
   if ok then

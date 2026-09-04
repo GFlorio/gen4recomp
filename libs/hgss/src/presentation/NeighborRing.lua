@@ -145,10 +145,10 @@ end
 -- release }. The whole build runs inside pool:build(), so any failure --
 -- including a malformed cell descriptor -- releases every GPU object the
 -- construction acquired before the error propagates.
----@param cacheFs table
+---@param cacheFs table<string, unknown>
 ---@param descriptors table[]
----@param opts { graphics?: GpuAssetPool.Graphics, textureSrt?: table|false }?
----@return table
+---@param opts { graphics?: GpuAssetPool.Graphics, textureSrt?: table<string, unknown>|false }?
+---@return table<string, unknown>
 function NeighborRing.load(cacheFs, descriptors, opts)
   opts = opts or {}
   local pool = GpuAssetPool.new(cacheFs, opts)

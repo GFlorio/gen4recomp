@@ -128,7 +128,7 @@ end
 
 -- Read-only status for the scheduler poll and for presentation/acceptance
 -- observation. Never mutates the controller.
----@return table
+---@return table<string, unknown>
 function FieldScriptScreenFade:status()
   if not self._active then
     return { active = false, direction = nil, color = nil, coefficient = 0, completed = true, overlay = nil }

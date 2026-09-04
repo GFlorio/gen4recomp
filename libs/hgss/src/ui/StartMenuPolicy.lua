@@ -114,7 +114,7 @@ local ACTIONS = {
 -- separate questions. The runtime composes this with implementation capability
 -- to decide the final enabled state. Fresh records per call; the facts are
 -- never mutated.
----@param value table the seven unlock facts (asserted booleans, unknown keys tolerated)
+---@param value table<string, unknown> the seven unlock facts (asserted booleans, unknown keys tolerated)
 ---@return { id: string, actionKind: string, targetApplication: string?, sourceEnabled: boolean, displayPosition: integer }[]
 function StartMenuPolicy.actions(value)
   assert(type(value) == "table", "the start menu policy requires the unlock facts")

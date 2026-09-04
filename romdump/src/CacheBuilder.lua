@@ -101,7 +101,7 @@ end
 -- compile-excluded maps across every version.
 ---@param versionIds string[]
 ---@param options { allowCompileExclusions?: boolean, log?: fun(line: string) }|nil
----@return table|nil report, string|nil err
+---@return table<string, unknown>|nil report, string|nil err
 function CacheBuilder.buildVersions(versionIds, options)
   options = options or {}
   local log = options.log or print

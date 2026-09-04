@@ -1873,7 +1873,6 @@ function T.catch_up_ticks_do_not_replay_one_action_edge()
   -- consumed by the first tick's snapshot and never replayed by catch-up.
   -- update() takes no snapshot of its own -- each fixed step samples the input,
   -- so even a stale snapshot passed along must be ignored.
-  ---@diagnostic disable-next-line: redundant-parameter -- intentional: a stale snapshot must never be replayed
   session:update(5 * FieldSession.FIXED_DT, { actionPressed = true })
   Assert.equal(session.tick, 5, "the full catch-up ran")
   Assert.equal(resolved, 1, "one Action edge must not be replayed over catch-up ticks")

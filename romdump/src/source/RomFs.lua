@@ -18,14 +18,14 @@ local RawDumpContract = require("romdump.src.source.RawDumpContract")
 
 ---@class RomFs
 ---@field private _version string
----@field private _metadata table
+---@field private _metadata table<string, unknown>
 local RomFs = {}
 RomFs.__index = RomFs
 
 ---@class RomFs.Narc
 ---@field readMember fun(self: RomFs.Narc, memberId: integer): string?, Errors.Error?
 ---@field memberCount fun(self: RomFs.Narc): integer
----@field memberInfo fun(self: RomFs.Narc, memberId: integer): table?, Errors.Error?
+---@field memberInfo fun(self: RomFs.Narc, memberId: integer): table<string, unknown>?, Errors.Error?
 
 ---@class RomFs.NarcInfo
 ---@field symbol string

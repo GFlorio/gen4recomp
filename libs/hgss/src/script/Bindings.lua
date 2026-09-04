@@ -17,7 +17,7 @@ function Bindings.new()
   return setmetatable({}, Bindings)
 end
 
----@param intent table InteractionIntent
+---@param intent table<string, unknown> InteractionIntent
 ---@return string|nil
 local function scriptIdFor(intent)
   local rawScriptId = intent.scriptId
@@ -43,10 +43,10 @@ local function scriptIdFor(intent)
 end
 
 -- Build the trigger descriptor for an object intent.
----@param intent table InteractionIntent
+---@param intent table<string, unknown> InteractionIntent
 ---@param scriptId string
 ---@param playerFacing string
----@return table
+---@return table<string, unknown>
 function Bindings.objectTrigger(intent, scriptId, playerFacing)
   assert(intent.kind == "object", "object trigger requires an object intent")
   assert(intent.object ~= nil, "object intent identity required")
@@ -66,10 +66,10 @@ function Bindings.objectTrigger(intent, scriptId, playerFacing)
 end
 
 -- Build the trigger descriptor for a background intent.
----@param intent table InteractionIntent
+---@param intent table<string, unknown> InteractionIntent
 ---@param scriptId string
 ---@param playerFacing string
----@return table
+---@return table<string, unknown>
 function Bindings.backgroundTrigger(intent, scriptId, playerFacing)
   assert(intent.kind == "background", "background trigger requires a background intent")
   assert(intent.background ~= nil, "background intent identity required")
@@ -88,10 +88,10 @@ function Bindings.backgroundTrigger(intent, scriptId, playerFacing)
   }
 end
 
----@param intent table InteractionIntent
+---@param intent table<string, unknown> InteractionIntent
 ---@param scriptId string
 ---@param playerFacing string
----@return table
+---@return table<string, unknown>
 function Bindings.coordinateTrigger(intent, scriptId, playerFacing)
   assert(intent.kind == "coordinate", "coordinate trigger requires a coordinate intent")
   return {
@@ -112,9 +112,9 @@ end
 
 -- Resolve one interaction intent into a trigger descriptor plus its generated
 -- script id. Raw source script id zero is the noninteractive marker.
----@param intent table InteractionIntent
+---@param intent table<string, unknown> InteractionIntent
 ---@param playerFacing string
----@return table|nil { trigger, scriptId }
+---@return table<string, unknown>|nil { trigger, scriptId }
 function Bindings:resolveIntent(intent, playerFacing)
   local kind = intent.kind
   if kind ~= "object" and kind ~= "background" and kind ~= "coordinate" then

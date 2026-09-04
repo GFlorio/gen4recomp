@@ -254,7 +254,6 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     playerVisual = playerVisual,
     fieldEntranceIndicator = { updateFixed = function() end },
     actors = actors,
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     dialogue = {
       isModal = function()
         return false
@@ -263,7 +262,6 @@ function SceneLoaderFixture.newHarness(versionId, opts)
     interactions = { resolve = function() end },
     eventResolver = FieldEventResolver,
     eventState = FieldEventState.new(),
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,
       playerInputLocked = function()
@@ -282,9 +280,7 @@ function SceneLoaderFixture.newHarness(versionId, opts)
         return false
       end,
     },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptClient = { consume = function() end },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     menuHost = {
       isModal = function()
         return false
@@ -296,13 +292,11 @@ function SceneLoaderFixture.newHarness(versionId, opts)
         return false
       end,
     },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     signpost = {
       isModal = function()
         return false
       end,
     },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     applicationHost = {
       isActive = function()
         return false

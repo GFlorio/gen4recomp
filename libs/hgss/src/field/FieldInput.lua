@@ -100,7 +100,7 @@ local function requireUnitInterval(value, name)
   assert(value > 0 and value <= 1, name .. " must be in (0, 1]")
 end
 
----@param options table?
+---@param options table<string, unknown>?
 ---@return FieldInput
 function FieldInput.new(options)
   options = options or {}

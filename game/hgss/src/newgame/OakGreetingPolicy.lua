@@ -25,7 +25,7 @@ function OakGreetingPolicy.bandAt(hour, minute)
   error("Oak greeting range is incomplete", 0)
 end
 
----@param civilTime table
+---@param civilTime table<string, unknown>
 ---@return string
 function OakGreetingPolicy.messageKey(civilTime)
   assert(type(civilTime) == "table", "Oak greeting requires civil time")

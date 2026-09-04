@@ -19,24 +19,24 @@ local ScriptEnvironment = require("libs.script.src.ScriptEnvironment")
 local ScriptTask = require("libs.script.src.ScriptTask")
 
 ---@class SchedulerServices
----@field world table
----@field actors table
----@field player table
----@field dialogue table|nil
----@field audio table|nil
----@field camera table|nil
----@field maps table|nil
----@field screen table|nil
----@field events table|nil
+---@field world table<string, unknown>
+---@field actors table<string, unknown>
+---@field player table<string, unknown>
+---@field dialogue table<string, unknown>|nil
+---@field audio table<string, unknown>|nil
+---@field camera table<string, unknown>|nil
+---@field maps table<string, unknown>|nil
+---@field screen table<string, unknown>|nil
+---@field events table<string, unknown>|nil
 ---@field advanceAsync fun(tick: integer)|nil
----@field foreground table|nil { resolve(input) -> {trigger, composed}|nil }
+---@field foreground table<string, unknown>|nil { resolve(input) -> {trigger, composed}|nil }
 
 ---@class Scheduler
 ---@field private _services SchedulerServices
----@field private _semantics table|nil
+---@field private _semantics table<string, unknown>|nil
 ---@field private _taskRegistry TaskRegistry
----@field private _traceSink fun(record: table)|nil
----@field private _resolveComposition fun(scriptId: string): table|nil
+---@field private _traceSink fun(record: table<string, unknown>)|nil
+---@field private _resolveComposition fun(scriptId: string): table<string, unknown>|nil
 ---@field private _maxNodes integer
 ---@field private _environments table<string, ScriptEnvironment>
 ---@field private _backgrounds ScriptEnvironment[]
@@ -56,7 +56,7 @@ Scheduler.__index = Scheduler
 -- exhaustion into an implicit yield.
 Scheduler.MAX_NONBLOCKING_NODES_PER_TICK = 1024
 
----@param opts table
+---@param opts table<string, unknown>
 ---@return Scheduler
 function Scheduler.new(opts)
   assert(opts and opts.services, "scheduler services required")
@@ -107,7 +107,7 @@ end
 -- wires this to the registry/composition pair. Unknown ids resolve to
 -- nil and produce attributed call errors.
 ---@param scriptId string
----@return table|nil
+---@return table<string, unknown>|nil
 function Scheduler:resolveComposition(scriptId)
   if self._resolveComposition == nil then
     return nil
@@ -140,8 +140,8 @@ end
 
 -- Push the entry frame of a composed chain onto a fresh instance.
 ---@param instance ScriptInstance
----@param composed table
----@param args table
+---@param composed table<string, unknown>
+---@param args table<string, unknown>
 local function pushEntryFrame(instance, composed, args)
   local entries = composed.entries
   assert(#entries > 0, "composed script has no entries")
@@ -162,9 +162,9 @@ local function pushEntryFrame(instance, composed, args)
 end
 
 ---@param env ScriptEnvironment
----@param composed table
----@param trigger table|nil
----@param args table|nil
+---@param composed table<string, unknown>
+---@param trigger table<string, unknown>|nil
+---@param args table<string, unknown>|nil
 ---@param tick integer
 ---@return ScriptInstance
 function Scheduler:_createInstance(env, composed, trigger, args, tick)
@@ -203,8 +203,8 @@ end
 -- independent of explicit lock opcodes; it is never inferred from `trigger`
 -- and is ignored (always false) for a background environment.
 ---@param mode string
----@param composed table
----@param trigger table|nil
+---@param composed table<string, unknown>
+---@param trigger table<string, unknown>|nil
 ---@param tick integer
 ---@param interactionClaim boolean|nil
 ---@return string instanceId
@@ -237,8 +237,8 @@ end
 -- (default false/none) is the caller's explicit launch-origin ownership
 -- descriptor; callers that omit it start a non-owning root exactly like
 -- map initialization.
----@param composed table
----@param trigger table|nil
+---@param composed table<string, unknown>
+---@param trigger table<string, unknown>|nil
 ---@param tick integer
 ---@param interactionClaim boolean|nil
 ---@return string instanceId
@@ -250,8 +250,8 @@ end
 -- Start a project-native background environment.
 -- Background environments run after the foreground environment in creation
 -- order and may not use foreground-only operations.
----@param composed table
----@param trigger table|nil
+---@param composed table<string, unknown>
+---@param trigger table<string, unknown>|nil
 ---@param tick integer
 ---@return string instanceId
 function Scheduler:createBackground(composed, trigger, tick)
@@ -262,9 +262,9 @@ end
 -- caller's environment. The child is ready for the
 -- current tick; the dynamic slot loop decides whether it runs now. `args`
 -- are already evaluated call arguments.
----@param composed table
----@param args table
----@param run table
+---@param composed table<string, unknown>
+---@param args table<string, unknown>
+---@param run table<string, unknown>
 ---@param slot integer
 ---@return ScriptInstance
 function Scheduler:createChildInstance(composed, args, run, slot)
@@ -303,9 +303,9 @@ end
 -- Allocate the lowest free later slot, create the common child, and arm the
 -- caller signal. Shared by the call_common node and the
 -- raw `ctx.script:call` descriptor.
----@param composed table
----@param args table
----@param run table
+---@param composed table<string, unknown>
+---@param args table<string, unknown>
+---@param run table<string, unknown>
 ---@return ScriptInstance child, integer slot, integer parentSlot
 function Scheduler:createCommonChild(composed, args, run)
   local parentSlot = run.instance.contextSlot
@@ -334,8 +334,8 @@ end
 ---@param instance ScriptInstance
 ---@param environment ScriptEnvironment
 ---@param tick integer
----@param input table|nil
----@return table
+---@param input table<string, unknown>|nil
+---@return table<string, unknown>
 function Scheduler:_ctxFor(instance, environment, tick, input)
   return {
     scheduler = self,
@@ -352,10 +352,10 @@ end
 -- The record's first poll is always the next tick: a task created during
 -- this tick is never eligible in it.
 ---@param taskType string
----@param spec table
+---@param spec table<string, unknown>
 ---@param instance ScriptInstance
 ---@param tick integer
----@param input table|nil
+---@param input table<string, unknown>|nil
 ---@return string taskId
 function Scheduler:createTask(taskType, spec, instance, tick, input)
   local impl, resolveErr = self._taskRegistry:resolveCurrent(taskType)
@@ -427,7 +427,7 @@ end
 -- immutable fixed-tick input snapshot; it is shared by trigger resolution and
 -- input-wait tasks and never replayed.
 ---@param tick integer
----@param input table|nil
+---@param input table<string, unknown>|nil
 function Scheduler:step(tick, input)
   assert(self._currentTick == nil or tick > self._currentTick, "scheduler ticks must advance monotonically")
   self._currentTick = tick
@@ -543,7 +543,7 @@ end
 -- deferred until the caller's iteration of the task array finishes.
 ---@param kind string
 ---@param task ScriptTask
----@param ctx table
+---@param ctx table<string, unknown>
 ---@param err any
 function Scheduler:_deferTaskFault(kind, task, ctx, err)
   local fault
@@ -1123,8 +1123,8 @@ end
 -- descriptor -- it is never inferred from `trigger`. `ScriptInteractionClient`
 -- passes true from `consume()` (field/world interaction) and omits it from
 -- `startInitScript()` (map initialization).
----@param trigger table
----@param composed table
+---@param trigger table<string, unknown>
+---@param composed table<string, unknown>
 ---@param tick integer
 ---@param interactionClaim boolean|nil
 ---@return string|nil instanceId
@@ -1311,7 +1311,7 @@ end
 
 -- The immutable input snapshot of the current step (the game's dialogue host
 -- consumes it from the engine-owned async phase).
----@return table|nil
+---@return table<string, unknown>|nil
 function Scheduler:currentInput()
   return self._currentInput
 end
@@ -1348,7 +1348,7 @@ end
 -- restored environment, instance, and task as a fresh object and installs
 -- them only after the entire bucket has restored, so a raise anywhere in
 -- the stage leaves the scheduler idle.
----@param bucket table
+---@param bucket table<string, unknown>
 ---@param restoreTick integer
 function Scheduler:restoreScriptState(bucket, restoreTick)
   assert(self._foregroundEnvironmentId == nil and next(self._instances) == nil, "restore requires an idle scheduler")

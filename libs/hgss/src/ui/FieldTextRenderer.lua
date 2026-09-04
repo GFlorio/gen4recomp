@@ -53,7 +53,7 @@ local function defaultReadSource(path)
   error("cannot read shader source: " .. path)
 end
 
----@class FieldTextRenderer
+---@class FieldTextRenderer : FieldDialogueRenderer.TextRenderer, FieldSignpostRenderer.TextRenderer
 ---@field fontDef FieldFontDef
 ---@field _graphics love.Graphics|love.graphics
 ---@field _atlas love.Image?
@@ -73,7 +73,7 @@ FieldTextRenderer.__index = FieldTextRenderer
 -- allowed presentation-layer dependency (the atlas bytes still enter through
 -- love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: love.Graphics|love.graphics, readSource?: fun(path: string): string }
+---@param opts { cacheFs: CacheFs, fontId?: integer, graphics?: unknown, readSource?: fun(path: string): string }
 ---@return FieldTextRenderer
 function FieldTextRenderer.new(opts)
   assert(
@@ -86,6 +86,7 @@ function FieldTextRenderer.new(opts)
     graphics = love and love.graphics
   end
   assert(graphics and graphics.newImage and graphics.newQuad, "FieldTextRenderer requires love.graphics")
+  ---@cast graphics love.Graphics|love.graphics
   local readSource = opts.readSource or defaultReadSource
   local fontDef = FieldFontLoader.load(opts.cacheFs, fontId)
   local self = setmetatable({

@@ -21,9 +21,9 @@ local Sha256 = require("libs.script.src.Sha256")
 ---@field private _bases table<string, table<string, any>> id -> layer -> script
 ---@field private _version integer
 ---@field private _sealed boolean
----@field private _fingerprintCache table|nil { version: integer, value: string }
----@field private _hashCache table|nil { version: integer, values: table<string, table<string, string>> }
----@field private _loadResource fun(id: string, layer: string): table|nil, any?|nil
+---@field private _fingerprintCache table<string, unknown>|nil { version: integer, value: string }
+---@field private _hashCache table<string, unknown>|nil { version: integer, values: table<string, table<string, string>> }
+---@field private _loadResource fun(id: string, layer: string): table<string, unknown>|nil, any?|nil
 local Registry = {}
 Registry.__index = Registry
 
@@ -38,7 +38,7 @@ local BASE_LAYERS = { builtin = 1, generated = 2, override = 3 }
 
 local VANILLA_OWNER = { kind = "vanilla", id = "base", api = 1 }
 
----@param opts table|nil { loadResource: fun(id: string, layer: string): table|nil, any?|nil }
+---@param opts table<string, unknown>|nil { loadResource: fun(id: string, layer: string): table<string, unknown>|nil, any?|nil }
 ---@return Registry
 function Registry.new(opts)
   opts = opts or {}
@@ -80,9 +80,9 @@ end
 -- override wins over the generated transcript. Installing the same layer
 -- twice is a hard duplicate error.
 ---@param id string
----@param script table
+---@param script table<string, unknown>
 ---@param layer string
----@return table
+---@return table<string, unknown>
 function Registry:installBase(id, script, layer)
   self:_assertMutable(id)
   assert(type(id) == "string" and id ~= "", "script id required")
@@ -93,7 +93,7 @@ function Registry:installBase(id, script, layer)
 end
 
 ---@param id string
----@param script table
+---@param script table<string, unknown>
 function Registry:installBuiltin(id, script)
   self:_assertMutable(id)
   assert(type(id) == "string" and id ~= "", "script id required")
@@ -133,7 +133,7 @@ end
 -- fault, and a loader failure is a hard load error.
 ---@param id string
 ---@param layer string
----@return table
+---@return table<string, unknown>
 function Registry:_load(id, layer)
   local loader = assert(self._loadResource, "registry has no resource loader for deferred base " .. id)
   local resource, err = loader(id, layer)
@@ -146,7 +146,7 @@ function Registry:_load(id, layer)
       context
     )
   end
-  ---@cast resource table
+  ---@cast resource table<string, unknown>
   self._bases[id][layer] = resource
   return resource
 end
@@ -154,7 +154,7 @@ end
 -- The effective base resource: override over generated. A deferred layer
 -- decodes on first access and is memoized.
 ---@param id string
----@return table?
+---@return table<string, unknown>?
 function Registry:base(id)
   local layers = self._bases[id]
   if not layers then

@@ -14,7 +14,7 @@
 local AudioSample = {}
 
 ---@class AudioSample
----@field validate fun(metadata: table, pcm?: string): true
+---@field validate fun(metadata: table<string, unknown>, pcm?: string): true
 
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")

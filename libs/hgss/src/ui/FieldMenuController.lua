@@ -37,7 +37,7 @@ local function assertInteger(value, name)
   )
 end
 
----@param items table
+---@param items table<string, unknown>
 ---@return table<integer, FieldMenuController.Item>, integer
 local function copyItems(items)
   assert(type(items) == "table", "field menu requires an item list")

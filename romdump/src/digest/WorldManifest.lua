@@ -41,7 +41,7 @@ end
 
 ---@param version string
 ---@param transaction ArtifactPublisher
----@return table
+---@return table<string, unknown>
 local function newStagedWorld(version, transaction)
   local function publish()
     transaction:publish()

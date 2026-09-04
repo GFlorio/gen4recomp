@@ -12,8 +12,8 @@ local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 
 ---@class FieldDialogueController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
----@field _policy table
----@field _audio table?
+---@field _policy table<string, unknown>
+---@field _audio table<string, unknown>?
 ---@field _state "CLOSED"|"OPENING"|"REVEALING"|"WAITING_BOUNDARY"|"WAITING_CLOSE"|"SCROLLING"|"CLOSING"
 ---@field _request FieldDialogueController.Request?
 ---@field _handle FieldDialogueController.Handle?
@@ -111,7 +111,7 @@ end
 ---@field layout fun(message: FieldMessageProvider.FormattedMessage): DialogueLayout.Result
 ---@field policy { interGlyphDelay: integer, glyphBudget: integer, abAcceleration: boolean }?
 ---@field printerDelay integer?
----@field audio table? { play: function(self: table, soundRef: string) }
+---@field audio table<string, unknown>? { play: function(self: table<string, unknown>, soundRef: string) }
 ---@field continueCursor { cycle: integer[], framePrinterTicks: integer }?
 
 ---@param opts FieldDialogueControllerOptions
@@ -246,7 +246,7 @@ end
 -- (e.g. the layout error for the error path).
 
 ---@param kind string
----@param extra table?
+---@param extra table<string, unknown>?
 ---@return FieldDialogueController.Result
 function FieldDialogueController:_result(kind, extra)
   local request = assert(self._request)
@@ -269,7 +269,7 @@ end
 -- _dispatch, which runs only after the state machine finished mutating.
 
 ---@param kind string
----@param extra table?
+---@param extra table<string, unknown>?
 ---@return FieldDialogueController.Result
 function FieldDialogueController:_complete(kind, extra)
   assert(not self._terminal, "dialogue already reached a terminal state")
@@ -690,7 +690,7 @@ end
 ---@field id string
 ---@field message FieldMessageProvider.FormattedMessage
 ---@field allowCancel boolean
----@field metadata table?
+---@field metadata table<string, unknown>?
 ---@field frameIndex integer?
 
 -- The completion handle: exactly one of onComplete/onCancel/onError fires,
@@ -712,7 +712,7 @@ end
 ---@field requestId string
 ---@field bankId integer?
 ---@field messageId integer?
----@field metadata table?
+---@field metadata table<string, unknown>?
 ---@field error any?
 
 -- Fixed-tick input snapshot consumed by step(); produced by FieldInput.

@@ -19,7 +19,7 @@ local Errors = require("libs.errors.src.Errors")
 ---@field remove fun(self: ScopedFs.Backend, path: string): boolean, string?
 ---@field replace fun(self: ScopedFs.Backend, sourcePath: string, destinationPath: string): boolean?, string?
 ---@field getDirectoryItems fun(self: ScopedFs.Backend, path: string): string[], string?
----@field _filesystem table
+---@field _filesystem table<string, unknown>
 
 ---@alias ScopedFs.ErrorCodes table<string, string>
 
@@ -219,7 +219,7 @@ end
 ---@param relativePath string
 ---@param codes ScopedFs.ErrorCodes
 ---@param env table<string, function>?
----@return table?, Errors.Error?
+---@return table<string, unknown>?, Errors.Error?
 function ScopedFs.loadChunk(backend, fullPath, relativePath, codes, env)
   if not backend:getInfo(fullPath) then
     return nil, Errors.new(codes.FILE_MISSING, "no such file", { path = relativePath })

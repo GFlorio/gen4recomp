@@ -42,7 +42,7 @@ function StandardFade:updateSourceFrame()
   return self.coefficient
 end
 
----@return table
+---@return table<string, unknown>
 function StandardFade:status()
   return {
     coefficient = self.coefficient,

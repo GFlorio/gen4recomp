@@ -65,7 +65,7 @@ end
 ---@param nums number[]
 ---@param lineNo integer
 ---@param context Errors.Context|nil
----@return table
+---@return table<string, unknown>
 local function parseLight(nums, lineNo, context)
   local enabled, r, g, b, x, y, z = nums[1], nums[2], nums[3], nums[4], nums[5], nums[6], nums[7]
   checkRange(enabled, 0, 1, "FIELD_LIGHT_VALUE_OUT_OF_RANGE", lineNo, context)

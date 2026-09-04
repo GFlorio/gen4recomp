@@ -137,7 +137,7 @@ local PRESETS = {
 -- `WeatherManager_New` 14-entry limit HGSS itself enforces) -- an internal
 -- producer call, not an `Errors.raise` boundary.
 ---@param weatherId number 0-13, MapHeader's raw weather field
----@return table
+---@return table<string, unknown>
 function HgssFieldFog.resolve(weatherId)
   assert(
     type(weatherId) == "number" and weatherId == math.floor(weatherId) and weatherId >= 0 and weatherId <= 13,
@@ -154,8 +154,8 @@ end
 -- Takes the full resolved preset (not a weatherId) so a synthetic preset can
 -- exercise the blend-mode invariant directly; call sites that only have a
 -- weatherId should resolve it first.
----@param full table a preset as returned by `HgssFieldFog.resolve`
----@return table
+---@param full table<string, unknown> a preset as returned by `HgssFieldFog.resolve`
+---@return table<string, unknown>
 function HgssFieldFog.runtimePreset(full)
   assert(
     full.blendMode == 0,

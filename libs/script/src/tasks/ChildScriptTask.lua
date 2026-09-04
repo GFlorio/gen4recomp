@@ -15,9 +15,9 @@ local ChildScriptTask = {}
 ChildScriptTask.type = "child_script"
 ChildScriptTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function ChildScriptTask.create(spec, ctx)
   if spec.scriptId ~= nil then
     -- Raw `ctx.script:call` form: resolve the composed script, allocate the
@@ -51,9 +51,9 @@ end
 -- Completes when the caller's signal bit is cleared (the child called
 -- `signal_caller`) or the child context terminated. A faulted child yields a
 -- faulted result; the scheduler converts it into an attributed parent fault.
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function ChildScriptTask.poll(state, ctx)
   local child = ctx.scheduler:instance(state.childInstanceId)
   if child == nil or child.status == "cancelled" then
@@ -88,7 +88,7 @@ function ChildScriptTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function ChildScriptTask.validate(state)
   if type(state) ~= "table" or type(state.childInstanceId) ~= "string" then

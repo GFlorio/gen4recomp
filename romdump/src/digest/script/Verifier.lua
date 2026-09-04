@@ -98,7 +98,7 @@ local FOLD_OPS = { say = true, if_cond = true, call_if = true, ["if"] = true, go
 -- Whether a lowered node ends the run phase by blocking (native wait). The
 -- `message` op blocks only with waitForPrint; `lock_actor` blocks only with
 -- waitUntilPausable.
----@param node table
+---@param node table<string, unknown>
 ---@return boolean
 local function nodeBlocks(node)
   if node.op == "message" then
@@ -342,7 +342,7 @@ local CHECKERS = {
 
 -- Walk the lowered items collecting the covering node per source offset.
 ---@param items table[]
----@return table<integer, table> byOffset
+---@return table<integer, table<string, unknown>> byOffset
 local function coveredByOffset(items)
   local byOffset = {}
   local function walk(list)
@@ -363,17 +363,17 @@ local function coveredByOffset(items)
   return byOffset
 end
 
----@param context table
+---@param context table<string, unknown>
 ---@param message string
----@param details table
+---@param details table<string, unknown>
 local function addProblem(context, message, details)
   context.report.ok = false
   context.report.problems[#context.report.problems + 1] = { message = message, context = details }
 end
 
----@param context table
+---@param context table<string, unknown>
 ---@param message string
----@param details table
+---@param details table<string, unknown>
 local function addWarning(context, message, details)
   context.report.warnings[#context.report.warnings + 1] = { message = message, context = details }
 end
@@ -708,10 +708,10 @@ end
 -- actually emitted and executed; omissions are the lowering's documented
 -- erasures (the only instructions allowed to disappear).
 ---@param steps table[]
----@param script table raw script (instructions)
----@param memberIr table|nil
----@param omissions table|nil
----@return table report
+---@param script table<string, unknown> raw script (instructions)
+---@param memberIr table<string, unknown>|nil
+---@param omissions table<string, unknown>|nil
+---@return table<string, unknown> report
 function Verifier.verifyScript(steps, script, memberIr, omissions)
   local context = newVerificationContext(steps, script, memberIr, omissions)
   verifyCoverage(context)

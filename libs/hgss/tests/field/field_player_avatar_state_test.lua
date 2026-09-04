@@ -351,10 +351,8 @@ function T.snapshots_carry_no_logical_coordinates()
   Assert.isNil(snapshot.fieldX)
   Assert.isNil(snapshot.fieldZ)
   local presentation = state:presentationState()
-  ---@diagnostic disable-next-line: undefined-field -- absence of logical coordinates is the asserted contract
-  Assert.isNil(presentation.worldX)
-  ---@diagnostic disable-next-line: undefined-field -- absence of logical coordinates is the asserted contract
-  Assert.isNil(presentation.fieldX)
+  Assert.isNil(rawget(presentation, "worldX"))
+  Assert.isNil(rawget(presentation, "fieldX"))
 end
 
 return { tests = T }

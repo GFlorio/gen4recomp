@@ -32,19 +32,15 @@ end
 
 function T.tests.construction_requires_the_profile()
   throws(function()
-    ---@diagnostic disable-next-line: missing-fields -- intentionally malformed input
     TrainerCardController.new({})
   end)
   throws(function()
-    ---@diagnostic disable-next-line: missing-fields -- intentionally malformed input
     TrainerCardController.new({ profile = {} })
   end)
   throws(function()
-    ---@diagnostic disable-next-line: missing-fields -- intentionally malformed input
     TrainerCardController.new({ profile = { name = "GOLD" } })
   end)
   throws(function()
-    ---@diagnostic disable-next-line: missing-fields -- intentionally malformed input
     TrainerCardController.new({ profile = { gender = 0, trainerId = 0 } })
   end)
   -- Gender is not a card presentation field: a profile without it is a

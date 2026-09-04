@@ -57,7 +57,7 @@ TrainerCardRenderer.TRAINER_ID_DIGITS = 5
 -- calls; LÖVE itself remains an allowed presentation-layer dependency (the
 -- PNG bytes still enter through love.filesystem.newFileData).
 
----@param opts { cacheFs: CacheFs, manifest: table, text: FieldTextRenderer, graphics?: love.Graphics|love.graphics }
+---@param opts { cacheFs: CacheFs, manifest: table<string, unknown>, text: FieldTextRenderer, graphics?: love.Graphics|love.graphics }
 ---@return TrainerCardRenderer
 function TrainerCardRenderer.new(opts)
   assert(
@@ -131,7 +131,7 @@ end
 -- canvas, shader, scissor, blend, depth, wireframe, cull, and color
 -- afterwards.
 
----@param presentation table?
+---@param presentation table<string, unknown>?
 ---@param viewport { referenceFrame: FieldDialogueTheme.Rect }
 function TrainerCardRenderer:draw(presentation, viewport)
   if not presentation or not self._cardImage then

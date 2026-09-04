@@ -6,9 +6,9 @@ local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 
 local FieldTraversal = {}
 
----@param destination table
+---@param destination table<string, unknown>
 ---@param direction FieldDirection
----@return table
+---@return table<string, unknown>
 function FieldTraversal.classify(destination, direction)
   assert(type(destination) == "table", "destination permission record required")
   assert(type(direction) == "string", "traversal direction required")

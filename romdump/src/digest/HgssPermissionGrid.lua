@@ -39,7 +39,7 @@ end
 -- (grid | nil, err).
 ---@param bytes string
 ---@param context Errors.Context|nil
----@return table?, Errors.Error?
+---@return table<string, unknown>?, Errors.Error?
 function HgssPermissionGrid.decode(bytes, context)
   assert(type(bytes) == "string", "HgssPermissionGrid.decode requires a string")
   if #bytes ~= HgssPermissionGrid.SIZE then

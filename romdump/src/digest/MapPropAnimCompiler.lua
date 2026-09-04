@@ -119,9 +119,9 @@ end
 -- Compile one already-decoded Nitro animation resource. Field effects and
 -- placed models share this format dispatch so animation semantics cannot
 -- diverge between producers.
----@param decoded table
----@param opts table
----@return table
+---@param decoded table<string, unknown>
+---@param opts table<string, unknown>
+---@return table<string, unknown>
 function MapPropAnimCompiler.compileDecoded(decoded, opts)
   assert(type(decoded) == "table" and type(decoded.animations) == "table", "decoded animation is required")
   assert(type(decoded.bytes) == "string", "decoded animation bytes are required")
@@ -186,7 +186,7 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
   -- (MAP_PROP_ANIM_UNRESOLVED), and the decode either returns or raises.
   ---@param resourceId integer
   ---@param bytes string
-  ---@return table
+  ---@return table<string, unknown>
   local function decodeResource(resourceId, bytes)
     local decoded, err = NitroAnimation.decode(bytes, { alias = ANIM_ARCHIVE, memberId = resourceId })
     if not decoded then
@@ -202,7 +202,7 @@ function MapPropAnimCompiler.compile(listBytes, resNarc, opts)
       )
     end
     -- The raise above terminates; the cast narrows for LuaLS.
-    ---@cast decoded table
+    ---@cast decoded table<string, unknown>
     return decoded
   end
 

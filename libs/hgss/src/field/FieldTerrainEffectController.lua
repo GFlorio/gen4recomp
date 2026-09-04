@@ -3,7 +3,7 @@
 -- rebases only change their projected local coordinates.
 
 ---@class FieldTerrainEffectController
----@field effects table<string, table>
+---@field effects table<string, table<string, unknown>>
 ---@field instances table[]
 ---@field nextId integer
 local FieldTerrainEffectController = {}

@@ -12,8 +12,8 @@ local function invalid(message, context)
 end
 
 ---@param record any
----@param context table
----@return table|nil, Errors.Error?
+---@param context table<string, unknown>
+---@return table<string, unknown>|nil, Errors.Error?
 function FieldAudioSave.validate(record, context)
   if type(record) ~= "table" then
     return nil, invalid("audio save bucket must be a table")
@@ -37,7 +37,7 @@ function FieldAudioSave.validate(record, context)
 end
 
 ---@param audio any
----@return table
+---@return table<string, unknown>
 function FieldAudioSave.capture(audio)
   assert(audio == nil or type(audio) == "table", "audio service must be a table")
   return { fieldMusicOverride = audio and audio:musicOverride() or nil }

@@ -20,7 +20,7 @@
 -- 8px/tile).
 
 ---@class FieldWindowStyles
----@field _styles table<string, table> stored final records by id
+---@field _styles table<string, table<string, unknown>> stored final records by id
 local FieldWindowStyles = {}
 FieldWindowStyles.__index = FieldWindowStyles
 
@@ -57,8 +57,8 @@ local GRAPHIC_REGION = { x = 16, y = 152, width = 56, height = 32 }
 
 -- Deep copy: the stored records never alias the canonical geometry constants
 -- above, and resolve() hands out the stored record, never a copy.
----@param value table
----@return table
+---@param value table<string, unknown>
+---@return table<string, unknown>
 local function copy(value)
   local out = {}
   for key, item in pairs(value) do
@@ -74,7 +74,7 @@ end
 -- manifest gives a type a wayfinding map. The built-ins carry presentation
 -- fields only: the renderer loads the generated HGSS assets directly.
 ---@param self FieldWindowStyles
----@param manifest table the validated FieldUiAssetCache manifest
+---@param manifest table<string, unknown> the validated FieldUiAssetCache manifest
 local function registerBuiltins(self, manifest)
   local signposts = manifest.signposts
   assert(
@@ -120,7 +120,7 @@ end
 -- Constructs the immutable catalogue from the generated field-UI manifest
 -- (the strict class the runtime already validated): the two HGSS built-ins
 -- only, with no external descriptor input.
----@param uiManifest table the validated FieldUiAssetCache manifest
+---@param uiManifest table<string, unknown> the validated FieldUiAssetCache manifest
 ---@return FieldWindowStyles
 function FieldWindowStyles.new(uiManifest)
   assert(type(uiManifest) == "table", "FieldWindowStyles requires the generated field-UI manifest")
@@ -132,7 +132,7 @@ end
 -- Returns the stored record for a style id, or nil for an unknown id.
 -- Consumers must treat the returned record as immutable.
 ---@param id string
----@return table?
+---@return table<string, unknown>?
 function FieldWindowStyles:resolve(id)
   assert(type(id) == "string" and id ~= "", "window style id must be a non-empty string")
   return self._styles[id]

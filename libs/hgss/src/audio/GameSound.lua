@@ -44,15 +44,15 @@ local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 ---@field private _provider AudioAssetProvider
 ---@field private _player SequencePlayer
 ---@field private _completionAvailable boolean
----@field private _cry table?
+---@field private _cry table<string, unknown>?
 ---@field private _mapMusic fun(): integer|string|nil?
 ---@field private _currentMusic integer|nil
 ---@field private _queuedMusicReplacement GameSoundQueuedMusicReplacement|nil
----@field private _fanfare table|nil
+---@field private _fanfare table<string, unknown>|nil
 ---@field private _faders table<integer, GameSoundPlayerFader>
----@field private _handles table<integer, table>
+---@field private _handles table<integer, table<string, unknown>>
 ---@field private _cryActive boolean
----@field new fun(opts: { provider: AudioAssetProvider, player: SequencePlayer, completionAvailable: boolean?, cry: table?, mapMusic: fun(): integer|string|nil? }): GameSound
+---@field new fun(opts: { provider: AudioAssetProvider, player: SequencePlayer, completionAvailable: boolean?, cry: table<string, unknown>?, mapMusic: fun(): integer|string|nil? }): GameSound
 ---@field play fun(self: GameSound, idOrSymbol: integer|string)
 ---@field stop fun(self: GameSound, idOrSymbol: integer|string)
 ---@field isEffectPlaying fun(self: GameSound, idOrSymbol: integer|string): boolean
@@ -120,7 +120,7 @@ local SOURCE_FULL_RESTORE = 128
 -- iterate ascending over these ids, never in Lua table order.
 local NNS_PLAYER_COUNT = 32
 
----@param opts { provider: AudioAssetProvider, player: SequencePlayer, completionAvailable: boolean?, cry: table?, mapMusic: fun(): integer|string|nil? }
+---@param opts { provider: AudioAssetProvider, player: SequencePlayer, completionAvailable: boolean?, cry: table<string, unknown>?, mapMusic: fun(): integer|string|nil? }
 ---@return GameSound
 function GameSound.new(opts)
   assert(opts and opts.provider and opts.player, "GameSound requires a provider and a player")
@@ -151,7 +151,7 @@ end
 
 -- Starts a resolved sequence on the engine player and resets fader bookkeeping
 -- only when the engine attaches a fresh instance.
----@param sequence table
+---@param sequence table<string, unknown>
 ---@return boolean
 function GameSound:_startResolvedSequence(sequence)
   local bank = self._provider:bank(sequence.bankId)
@@ -165,7 +165,7 @@ end
 -- Resolves a sequence reference and starts it on the engine player, returning
 -- the resolved sequence for the caller's bookkeeping.
 ---@param idOrSymbol integer|string
----@return table, boolean
+---@return table<string, unknown>, boolean
 function GameSound:_startSequence(idOrSymbol)
   local sequence = self._provider:sequence(idOrSymbol)
   local accepted = self:_startResolvedSequence(sequence)
@@ -173,7 +173,7 @@ function GameSound:_startSequence(idOrSymbol)
 end
 
 ---@param playerId integer
----@return table
+---@return table<string, unknown>
 function GameSound:_handleForPlayer(playerId)
   local handle = self._handles[playerId]
   if handle == nil then

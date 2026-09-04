@@ -25,8 +25,8 @@ local HEX_DIGEST = "^[0-9a-f]+$"
 -- layers, so the same key implies the same registry content. nil when any
 -- input is unavailable: a broken cache or override tree can never be
 -- snapshotted.
----@param cacheFs table CacheFs-shaped
----@param overrideFs table read-shaped filesystem for data/scripts/overrides
+---@param cacheFs table<string, unknown> CacheFs-shaped
+---@param overrideFs table<string, unknown> read-shaped filesystem for data/scripts/overrides
 ---@param builtinContentHash? fun(): string|nil
 ---@return string|nil
 function RegistrySnapshot.key(cacheFs, overrideFs, builtinContentHash)
@@ -90,10 +90,10 @@ end
 -- exists. A missing marker returns nil; any other anomaly (no snapshot file,
 -- unknown schema, stale key, malformed content) is a miss the caller falls
 -- back from to the slow validated build. Never raises.
----@param cacheFs table CacheFs-shaped
----@param overrideFs table read-shaped filesystem for data/scripts/overrides
+---@param cacheFs table<string, unknown> CacheFs-shaped
+---@param overrideFs table<string, unknown> read-shaped filesystem for data/scripts/overrides
 ---@param builtinContentHash? fun(): string|nil
----@return table|nil { key: string, fingerprint: string|nil }
+---@return table<string, unknown>|nil { key: string, fingerprint: string|nil }
 function RegistrySnapshot.load(cacheFs, overrideFs, builtinContentHash)
   local key = RegistrySnapshot.key(cacheFs, overrideFs, builtinContentHash)
   if key == nil then
@@ -127,8 +127,8 @@ end
 -- stored digest invalid, so the write is skipped and the next boot rebuilds
 -- slowly. The snapshot is optional cache state; callers receive false when
 -- publication is skipped or the cache write fails.
----@param cacheFs table CacheFs-shaped
----@param overrideFs table read-shaped filesystem for data/scripts/overrides
+---@param cacheFs table<string, unknown> CacheFs-shaped
+---@param overrideFs table<string, unknown> read-shaped filesystem for data/scripts/overrides
 ---@param fingerprint string
 ---@param expectedKey string|nil key the fingerprint was computed under
 ---@param builtinContentHash? fun(): string|nil

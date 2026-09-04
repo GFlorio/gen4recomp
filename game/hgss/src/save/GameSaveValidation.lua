@@ -16,15 +16,15 @@ local Errors = require("libs.errors.src.Errors")
 local FieldScriptCompatibility = require("game.hgss.src.field.FieldScriptCompatibility")
 
 ---@class GameSaveValidation
----@field contexts table<string, table>
----@field contextLoader (fun(versionId: string): table)?
----@field overrideFs table|nil repository override filesystem for default contexts
+---@field contexts table<string, table<string, unknown>>
+---@field contextLoader (fun(versionId: string): table<string, unknown>)?
+---@field overrideFs table<string, unknown>|nil repository override filesystem for default contexts
 local GameSaveValidation = {}
 GameSaveValidation.__index = GameSaveValidation
 
 ---@param cacheFs CacheFs
----@param overrideFs table
----@return table
+---@param overrideFs table<string, unknown>
+---@return table<string, unknown>
 local function contextForCache(cacheFs, overrideFs)
   local fontDef = FieldFontLoader.load(cacheFs)
   local manifest, loadError = cacheFs:loadLua(FieldUiAssetCache.manifestPath())
@@ -55,7 +55,7 @@ local function contextForCache(cacheFs, overrideFs)
   }
 end
 
----@param options table?
+---@param options table<string, unknown>?
 ---@return GameSaveValidation
 function GameSaveValidation.new(options)
   options = options or {}
@@ -80,9 +80,9 @@ function GameSaveValidation:_context(versionId)
   return context
 end
 
----@param record table
----@param context table?
----@return table|nil, Errors.Error?
+---@param record table<string, unknown>
+---@param context table<string, unknown>?
+---@return table<string, unknown>|nil, Errors.Error?
 function GameSaveValidation:validate(record, context)
   local ok, result, err = pcall(function()
     if context == nil and (type(record) ~= "table" or type(record.versionId) ~= "string") then

@@ -12,7 +12,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field tick fun(self: OakIntroStateController, frames: integer)
 ---@field confirmHandoffPresented fun(self: OakIntroStateController): boolean
 ---@field view fun(self: OakIntroStateController): OakIntroControllerView
----@field result fun(self: OakIntroStateController): table?
+---@field result fun(self: OakIntroStateController): table<string, unknown>?
 ---@field press fun(self: OakIntroStateController, action: string): boolean
 ---@field deleteGlyph fun(self: OakIntroStateController): boolean
 ---@field inputText fun(self: OakIntroStateController, text: string): boolean
@@ -50,9 +50,9 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field revealCanvas { scale: number, origin: { x: number, y: number } }?
 ---@field reveal OakIntroStateSubjectRectangle?
 ---@field stage OakIntroStateRectangle
----@field genderButtons table?
----@field confirmationButtons table?
----@field selectedProfileButton table?
+---@field genderButtons table<string, unknown>?
+---@field confirmationButtons table<string, unknown>?
+---@field selectedProfileButton table<string, unknown>?
 ---@field virtualKeyColumns integer?
 ---@field genderFocus integer
 ---@field subject OakIntroStateSubjectRectangle?
@@ -63,11 +63,11 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 
 ---@class OakIntroStateView: OakIntroControllerView
 ---@field phase string
----@field message string|table|nil
+---@field message string|table<string, unknown>|nil
 ---@field messageKey string?
----@field dialogueStatus table?
+---@field dialogueStatus table<string, unknown>?
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
----@field dialogue table?
+---@field dialogue table<string, unknown>?
 ---@field visual string
 ---@field genderFocus integer
 ---@field name string
@@ -80,7 +80,7 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 
 ---@class OakIntroStateOptions
 ---@field controller OakIntroController
----@field manifest table
+---@field manifest table<string, unknown>
 ---@field renderer OakIntroStateRenderer?
 ---@field graphics any?
 ---@field imageLoader (fun(path: string): any)?
@@ -88,16 +88,16 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field glyphs string[]?
 ---@field width number?
 ---@field height number?
----@field onComplete fun(result: table)?
+---@field onComplete fun(result: table<string, unknown>)?
 ---@field audioSink OakIntroStateAudioSink?
----@field audioLifetime table?
----@field textRenderer table
----@field choiceText table
----@field dialogueController table?
----@field dialogueRenderer table?
----@field dialogueText table?
----@field dialogueMessages table?
----@field dialogueFormatter table?
+---@field audioLifetime table<string, unknown>?
+---@field textRenderer table<string, unknown>
+---@field choiceText table<string, unknown>
+---@field dialogueController table<string, unknown>?
+---@field dialogueRenderer table<string, unknown>?
+---@field dialogueText table<string, unknown>?
+---@field dialogueMessages table<string, unknown>?
+---@field dialogueFormatter table<string, unknown>?
 ---@field dialogueMessageKey string?
 ---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 
@@ -112,27 +112,27 @@ local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentatio
 ---@field accumulator number
 ---@field textInputEnabled boolean?
 ---@field completed boolean
----@field onComplete fun(result: table)?
+---@field onComplete fun(result: table<string, unknown>)?
 ---@field audioSink OakIntroStateAudioSink?
----@field audioLifetime table?
----@field manifest table
----@field dialogueController table?
----@field dialogueRenderer table?
----@field dialogueMessages table?
----@field dialogueFormatter table?
+---@field audioLifetime table<string, unknown>?
+---@field manifest table<string, unknown>
+---@field dialogueController table<string, unknown>?
+---@field dialogueRenderer table<string, unknown>?
+---@field dialogueMessages table<string, unknown>?
+---@field dialogueFormatter table<string, unknown>?
 ---@field choiceLabels table<integer, string>?
----@field dialogueText table?
----@field choiceText table
+---@field dialogueText table<string, unknown>?
+---@field choiceText table<string, unknown>
 ---@field dialoguePresentation DialoguePresentationLayout.Presentation?
 ---@field dialogueCursorPlacement { x: number, y: number, width: number, height: number }?
 ---@field disposed boolean
 ---@field _blackHandoffPresented boolean
----@field _frozenStatus table?
----@field _frozenAdapter table?
+---@field _frozenStatus table<string, unknown>?
+---@field _frozenAdapter table<string, unknown>?
 ---@field _setTextInput fun(self: OakIntroState, enabled: boolean)
 ---@field _acknowledgePresentedHandoff fun(self: OakIntroState)
 ---@field _clearFrozen fun(self: OakIntroState)
----@field _stepDialogue fun(self: OakIntroState, snapshot: table?): table?
+---@field _stepDialogue fun(self: OakIntroState, snapshot: table<string, unknown>?): table<string, unknown>?
 ---@field _sync fun(self: OakIntroState): OakIntroStateView
 ---@field update fun(self: OakIntroState, dt: number)
 ---@field tick fun(self: OakIntroState, frames: integer)
@@ -211,8 +211,8 @@ local function textInputHost(host)
   }
 end
 
----@param status table
----@return table
+---@param status table<string, unknown>
+---@return table<string, unknown>
 local function copyFrozenStatus(status)
   assert(type(status) == "table", "dialogue status is required for frozen presentation")
   local frozen = {}

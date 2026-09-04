@@ -58,7 +58,7 @@ end
 
 -- Sort keys deterministically: numbers ascending, then strings alphabetically.
 ---@param t table<LuaWriter.Key, LuaWriter.Value>
----@return table
+---@return table<string, unknown>
 local function sortedKeys(t)
   local numeric = {} ---@type number[]
   local strings = {} ---@type string[]

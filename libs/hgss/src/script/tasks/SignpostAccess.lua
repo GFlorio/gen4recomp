@@ -11,7 +11,7 @@ local SignpostAccess = {}
 -- service is unavailable. The scheduler always injects the service into
 -- task contexts; a missing one is a composition failure, never a silent
 -- skip.
----@param ctx table
+---@param ctx table<string, unknown>
 ---@return ScriptSignpostHost
 function SignpostAccess.requireSignpost(ctx)
   local host = ctx.services.signpost
@@ -29,9 +29,9 @@ end
 -- records the cancellation reason and closes the signpost the task owns
 -- when the live task context still carries the service (the scheduler
 -- injects it into live contexts; a nil context is a teardown path).
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function SignpostAccess.closeOnCancel(state, reason, ctx)
   state.cancelled = reason
   if ctx ~= nil and ctx.services ~= nil and ctx.services.signpost ~= nil then

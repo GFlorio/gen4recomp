@@ -103,7 +103,7 @@ local TEXTURE_FORMATS = {
 ---@field textureFormat number?
 ---@field width number?
 ---@field height number?
----@field alphaUsage table?
+---@field alphaUsage table<string, unknown>?
 
 ---@class ModelAsset.Batch
 ---@field id string|integer
@@ -134,9 +134,9 @@ local function isInteger(value)
   return type(value) == "number" and value % 1 == 0
 end
 
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkWrap(m, where, desc)
   local wrap = m.wrap
   if type(wrap) ~= "table" or not WRAP_MODES[wrap.x] or not WRAP_MODES[wrap.y] then
@@ -144,9 +144,9 @@ local function checkWrap(m, where, desc)
   end
 end
 
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkFlip(m, where, desc)
   local flip = m.flip
   if type(flip) ~= "table" or type(flip.x) ~= "boolean" or type(flip.y) ~= "boolean" then
@@ -157,7 +157,7 @@ end
 -- The texture binding metadata: a bound texture carries its format (both
 -- paths) and, for dynamic materials, its alpha usage; untextured dynamic
 -- materials carry none (the compiler emits the trio together).
----@param alphaUsage table
+---@param alphaUsage table<string, unknown>
 ---@param where string
 ---@param desc unknown
 local function checkAlphaUsage(alphaUsage, where, desc)
@@ -173,16 +173,16 @@ end
 
 ---@param textureFormat number
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkTextureFormat(textureFormat, where, desc)
   if not (isInteger(textureFormat) and TEXTURE_FORMATS[textureFormat]) then
     invalid(where .. " texture carries an unsupported textureFormat", desc.key)
   end
 end
 
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 ---@param requireAlphaUsage boolean
 local function checkTextureBinding(m, where, desc, requireAlphaUsage)
   if m.texture ~= nil then
@@ -203,9 +203,9 @@ local function checkTextureBinding(m, where, desc, requireAlphaUsage)
   end
 end
 
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkSrt(m, where, desc)
   local srt = m.srt ---@type table
   if type(srt) ~= "table" then
@@ -227,9 +227,9 @@ local function checkSrt(m, where, desc)
   end
 end
 
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkVariants(m, where, desc)
   if m.variants ~= nil then
     if not Validate.isArray(m.variants) then
@@ -272,9 +272,9 @@ end
 -- The optional four-channel colors block: {diffuse|ambient|specular|
 -- emission} -> { r, g, b } integers in 0..255, the shape the dynamic
 -- compiler emits from the DS base-material registers.
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 ---@param required boolean
 local function checkColors(m, where, desc, required)
   local colors = m.colors ---@type table<string, table>
@@ -308,9 +308,9 @@ end
 -- The scene-form material record the static path emits: id/name, the sampler
 -- state, and the bound-texture metadata. The dynamic path's records add the
 -- DS register block and the render fields (see checkDynamicMaterial).
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkStaticMaterial(m, where, desc)
   if type(m) ~= "table" then
     invalid(where .. " material is not a record", desc.key)
@@ -338,9 +338,9 @@ end
 -- The dynamic material record: the DS base-material registers (baseColor +
 -- the per-channel colors block), the render classification fields, and the
 -- sampler state. Every field is required -- the runtime never defaults them.
----@param m table
+---@param m table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkDynamicMaterial(m, where, desc)
   checkStaticMaterial(m, where, desc)
   local base = m.baseColor ---@type table
@@ -418,10 +418,10 @@ local SOURCE_LISTS = {
 -- keys }. `pairKeys` allows scale-pair tables ({ scale, inverse }) in the
 -- key array; `limitIsFrameCount` requires limit == the clip's frameCount
 -- (the NSBCA/NSBTA corpus invariant).
----@param channel table
+---@param channel table<string, unknown>
 ---@param where string
----@param desc table
----@param opts table
+---@param desc table<string, unknown>
+---@param opts table<string, unknown>
 local function checkCurve(channel, where, desc, opts)
   opts = opts or {}
   if not CURVE_RATES[channel.rate] then
@@ -451,11 +451,11 @@ local function checkCurve(channel, where, desc, opts)
   end
 end
 
----@param channel table
+---@param channel table<string, unknown>
 ---@param where string
----@param desc table
----@param sources table
----@param curveOpts table
+---@param desc table<string, unknown>
+---@param sources table<string, unknown>
+---@param curveOpts table<string, unknown>
 local function checkChannel(channel, where, desc, sources, curveOpts)
   if type(channel) ~= "table" or not sources[channel.source] then
     invalid(where .. " channel source must be one of " .. table.concat(curveOpts.sources, "/"), desc.key)
@@ -473,9 +473,9 @@ end
 -- NSBCA (trs): anmFlags, the pivot/compressed rotation tables, and one
 -- target per clip track; each channel is model/constant/curve, and the
 -- rotation keys must fall inside the compiled tables.
----@param compiled table
----@param clip table
----@param desc table
+---@param compiled table<string, unknown>
+---@param clip table<string, unknown>
+---@param desc table<string, unknown>
 local function checkTrsComponents(compiled, clip, desc)
   local where = "animation " .. clip.id ---@type string
   if not isInteger(compiled.anmFlags) then
@@ -511,10 +511,10 @@ local function checkTrsComponents(compiled, clip, desc)
   end
 end
 
----@param target table
+---@param target table<string, unknown>
 ---@param whereT string
----@param clip table
----@param desc table
+---@param clip table<string, unknown>
+---@param desc table<string, unknown>
 local function checkTrsTarget(target, whereT, clip, desc)
   if not Validate.isNonNegativeInteger(target.nodeIndex) then
     invalid(whereT .. " requires a nodeIndex", desc.key)
@@ -557,9 +557,9 @@ local function checkTrsTarget(target, whereT, clip, desc)
   end
 end
 
----@param compiled table
----@param clip table
----@param desc table
+---@param compiled table<string, unknown>
+---@param clip table<string, unknown>
+---@param desc table<string, unknown>
 ---@return ModelAsset.AnimationTarget[]
 local function checkTrsTargets(compiled, clip, desc)
   local where = "animation " .. clip.id ---@type string
@@ -624,9 +624,9 @@ local function checkTrsFrameCoverage(target, clip, where, desc)
   end
 end
 
----@param compiled table
----@param clip table
----@param desc table
+---@param compiled table<string, unknown>
+---@param clip table<string, unknown>
+---@param desc table<string, unknown>
 local function checkTrsPayload(compiled, clip, desc)
   checkTrsComponents(compiled, clip, desc)
   local targets = checkTrsTargets(compiled, clip, desc)
@@ -649,9 +649,9 @@ end
 
 -- NSBMA (color): one target per track, each carrying the five material
 -- registers (diffuse/ambient/specular/emission/alpha).
----@param compiled table
----@param clip table
----@param desc table
+---@param compiled table<string, unknown>
+---@param clip table<string, unknown>
+---@param desc table<string, unknown>
 local function checkColorPayload(compiled, clip, desc)
   local where = "animation " .. clip.id ---@type string
   if not Validate.isArray(compiled.targets) or #compiled.targets ~= #clip.tracks then
@@ -678,9 +678,9 @@ end
 -- NSBTP (pattern): the texture/palette name tables and one target per track,
 -- whose keys index them. The payload trusts its arrays: no redundant
 -- keyCount/numTextures/numPalettes counts are carried.
----@param compiled table
----@param clip table
----@param desc table
+---@param compiled table<string, unknown>
+---@param clip table<string, unknown>
+---@param desc table<string, unknown>
 local function checkPatternPayload(compiled, clip, desc)
   local where = "animation " .. clip.id ---@type string
   if not Validate.isArray(compiled.textureNames) or #compiled.textureNames == 0 then
@@ -745,8 +745,8 @@ end
 -- kind vocabularies are the animation contract's (libs/assets owns them), and
 -- the payload shape follows the kind, so a clip whose payload does not match
 -- its kind is malformed generated data.
----@param clip table
----@param desc table
+---@param clip table<string, unknown>
+---@param desc table<string, unknown>
 local function checkAnimation(clip, desc)
   local where = "animation " .. tostring(clip.id) ---@type string
   if
@@ -789,9 +789,9 @@ local function checkAnimation(clip, desc)
   end
 end
 
----@param b table
+---@param b table<string, unknown>
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkBatch(b, where, desc)
   if type(b) ~= "table" or type(b.geometry) ~= "string" then
     invalid(where .. " batch does not reference a geometry path", desc.key)
@@ -807,8 +807,8 @@ local function checkBatch(b, where, desc)
   end
 end
 
----@param b table
----@param desc table
+---@param b table<string, unknown>
+---@param desc table<string, unknown>
 local function checkDynamicBatch(b, desc)
   checkBatch(b, "dynamic", desc)
   if type(b.id) ~= "string" or #b.id == 0 then
@@ -827,7 +827,7 @@ end
 
 ---@param materials ModelAsset.Material[]
 ---@param where string
----@param desc table
+---@param desc table<string, unknown>
 local function checkMaterialIndices(materials, where, desc)
   for i, m in ipairs(materials) do
     if m.id ~= i - 1 then
@@ -927,8 +927,8 @@ end
 -- shape (both batch kinds carry the full polygon draw-state field set) must
 -- validate -- a malformed variant is diagnosed here, never defaulted at the
 -- load boundary.
----@param desc table
----@return table
+---@param desc table<string, unknown>
+---@return table<string, unknown>
 function ModelAsset.validate(desc)
   if type(desc) ~= "table" then
     invalid("descriptor is not a table")
@@ -953,16 +953,16 @@ end
 -- material textures, and pattern-variant textures (a variant PNG is a
 -- referenced asset just like the base texture; readiness must cover it).
 -- Raises ModelAsset.ERROR_INVALID on a malformed descriptor.
----@param desc table
+---@param desc table<string, unknown>
 ---@return string[]
 function ModelAsset.referencedPaths(desc)
   ModelAsset.validate(desc)
   local paths = {} ---@type string[]
-  ---@param b table
+  ---@param b table<string, unknown>
   local function addBatch(b)
     paths[#paths + 1] = b.geometry
   end
-  ---@param m table
+  ---@param m table<string, unknown>
   local function addMaterial(m)
     if m.texture then
       paths[#paths + 1] = m.texture

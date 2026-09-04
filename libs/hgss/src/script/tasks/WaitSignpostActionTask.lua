@@ -18,7 +18,7 @@ local WaitSignpostActionTask = {}
 WaitSignpostActionTask.type = "wait_signpost_action"
 WaitSignpostActionTask.version = 1
 
----@return table state
+---@return table<string, unknown> state
 function WaitSignpostActionTask.create()
   return {}
 end
@@ -27,9 +27,9 @@ end
 -- service is required: a missing service is an attributed fault, never a
 -- silent completion. The idle spelling is the controller's own protocol; the
 -- task asks the semantic query.
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function WaitSignpostActionTask.poll(state, ctx)
   local host = SignpostAccess.requireSignpost(ctx)
   if host:isCommandIdle() then
@@ -41,14 +41,14 @@ end
 -- Fault/cancellation cleanup: the task owns the presented signpost window it
 -- blocks on, so closing the host releases the window, printer, command, and
 -- style exactly once. A task that already completed owns nothing.
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function WaitSignpostActionTask.cancel(state, reason, ctx)
   SignpostAccess.closeOnCancel(state, reason, ctx)
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function WaitSignpostActionTask.validate(state)
   if type(state) ~= "table" then

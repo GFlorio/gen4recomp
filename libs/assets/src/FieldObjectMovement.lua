@@ -173,7 +173,7 @@ end
 assert(profileCount == 57, "movement profile catalog is incomplete")
 
 ---@param typeName string
----@return table
+---@return table<string, unknown>
 function FieldObjectMovement.require(typeName)
   local profile = PROFILES[typeName]
   assert(profile ~= nil, "unknown field object movement type " .. tostring(typeName))

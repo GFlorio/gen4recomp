@@ -1,13 +1,13 @@
 -- Owns one running game's state lifecycle and LÖVE-shaped event dispatch.
 
 ---@class GameOptions
----@field onExit fun(result: table|nil)
+---@field onExit fun(result: table<string, unknown>|nil)
 
 ---@class Game
----@field state table|nil
+---@field state table<string, unknown>|nil
 ---@field drawableWidth number
 ---@field drawableHeight number
----@field onExit fun(result: table|nil)
+---@field onExit fun(result: table<string, unknown>|nil)
 ---@field terminal boolean
 local Game = {}
 Game.__index = Game
@@ -26,7 +26,7 @@ function Game.new(options)
   }, Game)
 end
 
----@param nextState table|nil
+---@param nextState table<string, unknown>|nil
 function Game:setState(nextState)
   assert(not self.terminal, "cannot set a state after Game disposal")
   local previous = self.state
@@ -160,7 +160,7 @@ function Game:focus(focused)
   end
 end
 
----@param result table|nil
+---@param result table<string, unknown>|nil
 function Game:exit(result)
   if self.terminal then
     return

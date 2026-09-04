@@ -149,7 +149,7 @@ end
 -- Draws one active menu from an immutable presentation snapshot. The renderer
 -- does not resolve text, reconstruct interaction state, or mutate the snapshot.
 
----@param presentation { status: { selectedIndex: integer }, layout: table }
+---@param presentation { status: { selectedIndex: integer }, layout: table<string, unknown> }
 function FieldMenuRenderer:draw(presentation)
   local status, layout = assertPresentation(presentation)
   local graphics = self._graphics

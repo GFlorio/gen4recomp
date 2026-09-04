@@ -16,7 +16,7 @@ local function clamp(value, low, high)
   return math.max(low, math.min(high, value))
 end
 
----@param rect table
+---@param rect table<string, unknown>
 ---@param x number
 ---@param y number
 ---@return boolean
@@ -29,9 +29,9 @@ end
 ---@param width number
 ---@param height number
 ---@param previousOffset number
----@param dialog table|nil
+---@param dialog table<string, unknown>|nil
 ---@param hasCatalogError boolean|nil
----@return table
+---@return table<string, unknown>
 function MainMenuLayout.compute(items, focusedIndex, width, height, previousOffset, dialog, hasCatalogError)
   assert(type(items) == "table" and #items > 0, "Main Menu layout needs items")
   assert(

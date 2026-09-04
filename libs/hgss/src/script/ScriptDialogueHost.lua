@@ -12,14 +12,14 @@ local ScriptErrors = require("libs.script.src.errors")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 
 ---@class ScriptDialogueHost
----@field private _controller table FieldDialogueController-shaped
+---@field private _controller table<string, unknown> FieldDialogueController-shaped
 ---@field private _provider FieldMessageProvider
----@field private _layout fun(formatted: table): table
----@field private _fontDef table
----@field private _player table|nil
----@field private _world table|nil world state { getVar(id) -> any }
+---@field private _layout fun(formatted: table<string, unknown>): table<string, unknown>
+---@field private _fontDef table<string, unknown>
+---@field private _player table<string, unknown>|nil
+---@field private _world table<string, unknown>|nil world state { getVar(id) -> any }
 ---@field private _frameIndex integer|nil player-selected user-frame index, captured at open
----@field private _pendingNode table|nil
+---@field private _pendingNode table<string, unknown>|nil
 local ScriptDialogueHost = {}
 ScriptDialogueHost.__index = ScriptDialogueHost
 
@@ -42,8 +42,8 @@ local FRIEND_NAME_BANK_ID = 445
 ---@param provider FieldMessageProvider
 ---@param bankId integer
 ---@param messageId integer
----@param fontDef table
----@return table replacementTokens glyph-kind tokens without a terminal marker
+---@param fontDef table<string, unknown>
+---@return table<string, unknown> replacementTokens glyph-kind tokens without a terminal marker
 local function scopedNameGlyphs(provider, bankId, messageId, fontDef)
   local acquired, acquireErr = provider:acquireBank(bankId)
   if not acquired then
@@ -63,12 +63,12 @@ local function scopedNameGlyphs(provider, bankId, messageId, fontDef)
   return tokens
 end
 
----@param descriptor table
----@param player table
----@param fontDef table
----@param world table|nil
+---@param descriptor table<string, unknown>
+---@param player table<string, unknown>
+---@param fontDef table<string, unknown>
+---@param world table<string, unknown>|nil
 ---@param provider FieldMessageProvider
----@return table|nil replacementTokens
+---@return table<string, unknown>|nil replacementTokens
 local function resolveTextValue(descriptor, player, fontDef, world, provider)
   if type(descriptor) ~= "table" or descriptor.text == nil then
     return nil
@@ -99,7 +99,7 @@ local function resolveTextValue(descriptor, player, fontDef, world, provider)
   )
 end
 
----@param opts table { controller, provider, layout, fontDef, player, world, frameIndex? }
+---@param opts table<string, unknown> { controller, provider, layout, fontDef, player, world, frameIndex? }
 ---@return ScriptDialogueHost
 function ScriptDialogueHost.new(opts)
   assert(
@@ -134,8 +134,8 @@ end
 
 -- Resolve a message reference to a controller-ready formatted message.
 ---@param message any string reference or external descriptor
----@param bindings table slot -> text value
----@param textArgs table slot -> text value
+---@param bindings table<string, unknown> slot -> text value
+---@param textArgs table<string, unknown> slot -> text value
 ---@return FieldMessageProvider.FormattedMessage formatted { tokens, ... }
 function ScriptDialogueHost:resolveMessage(message, bindings, textArgs)
   local bankId, messageId
@@ -206,15 +206,15 @@ end
 -- Open: called with the graph node; the controller request
 -- opens on the following startPrint so a failed resolve cannot leave a
 -- half-open box.
----@param node table
+---@param node table<string, unknown>
 function ScriptDialogueHost:openMessage(node)
   self._pendingNode = node
 end
 
 -- Open the controller as a script-owned request and start revealing.
 ---@param message any
----@param bindings table|nil
----@param textArgs table|nil
+---@param bindings table<string, unknown>|nil
+---@param textArgs table<string, unknown>|nil
 function ScriptDialogueHost:startPrint(message, bindings, textArgs)
   local node = self._pendingNode or {}
   self._pendingNode = nil
@@ -240,7 +240,7 @@ end
 -- Typing progress for the dialogue task: page and glyph within the current
 -- page, plus completion of the whole reveal (the controller reached its
 -- final wait).
----@return table|nil { pageIndex, glyphIndex, done }
+---@return table<string, unknown>|nil { pageIndex, glyphIndex, done }
 function ScriptDialogueHost:printProgress()
   if not self:isOpen() then
     return { pageIndex = 0, glyphIndex = 0, done = true }
@@ -283,7 +283,7 @@ end
 -- Advance an open script-owned box by one fixed tick. The scheduler calls
 -- this from its engine-owned async phase with the immutable input snapshot;
 -- the session's modal gate never steps script-owned requests.
----@param input table|nil
+---@param input table<string, unknown>|nil
 function ScriptDialogueHost:advance(input)
   if not self:isOpen() then
     return

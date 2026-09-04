@@ -44,12 +44,12 @@ local CYCLING_SOUND = "SEQ_SE_DP_JITENSYA"
 
 ---@class FieldPlayerAvatarState.Options
 ---@field capability { id: string, gender: integer, states: table<string, integer> }
----@field surfPresentation table normalized surf presentation definition
+---@field surfPresentation table<string, unknown> normalized surf presentation definition
 ---@field initialState string? durable boot state, defaults to walking
 
 ---@class FieldPlayerAvatarState
----@field _capability table
----@field _surf table
+---@field _capability table<string, unknown>
+---@field _surf table<string, unknown>
 ---@field _durable string
 ---@field _visual string
 ---@field _pending table<string, boolean>
@@ -294,7 +294,7 @@ function FieldPlayerAvatarState:capture()
 end
 
 -- Semantic snapshot for tests and debugging. Carries no logical coordinates.
----@return table
+---@return table<string, unknown>
 function FieldPlayerAvatarState:status()
   local pending = {}
   for name in pairs(self._pending) do

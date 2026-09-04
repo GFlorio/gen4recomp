@@ -70,7 +70,6 @@ end
 
 function T.rejects_a_missing_graphics_namespace()
   local err = Assert.throws(function()
-    ---@diagnostic disable: assign-type-mismatch
     StartMenuRenderer.new({ cacheFs = menuCache(), manifest = MANIFEST, graphics = false })
   end)
   Assert.isTrue(tostring(err):find("StartMenuRenderer requires love.graphics", 1, true) ~= nil)

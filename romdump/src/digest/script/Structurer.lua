@@ -14,8 +14,8 @@ local Structurer = {}
 
 -- Negate a condition for the structured if (the fallthrough of a GoToIf
 -- runs when the branch condition does not hold).
----@param condition table
----@return table
+---@param condition table<string, unknown>
+---@return table<string, unknown>
 local function negate(condition)
   if condition.condition == "compare" then
     local flipped = { lt = "ge", ge = "lt", gt = "le", le = "gt", eq = "ne", ne = "eq" }
@@ -81,7 +81,7 @@ end
 ---@param positions table<string, integer>
 ---@param entry integer
 ---@param exit integer|nil
----@return table|nil { join: integer, terminal: integer }
+---@return table<string, unknown>|nil { join: integer, terminal: integer }
 local function findJoin(items, positions, entry, exit)
   -- entry is an if_cond item; the join is the target of the fallthrough
   -- chain's terminal goto, and the conditional target must lie between.
@@ -240,9 +240,9 @@ function structure(items, entry, exit, positions, refCounts)
 end
 
 -- Structure a lowered script into a steps array.
----@param lowered table
+---@param lowered table<string, unknown>
 ---@param _ integer
----@return table steps
+---@return table<string, unknown> steps
 function Structurer.structure(lowered, _)
   local items = lowered.items
   -- Label markers are inserted where if_cond/goto targets land.

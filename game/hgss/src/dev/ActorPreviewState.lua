@@ -60,7 +60,7 @@ end
 -- Select the displayed frame of a looping pose from the fixed tick, exactly as
 -- the runtime pose clock will: walk the per-frame durations the compiler
 -- recovered rather than assuming a uniform frame length.
----@param pose table
+---@param pose table<string, unknown>
 ---@param tick integer
 ---@return integer
 local function frameIndexAt(pose, tick)

@@ -68,7 +68,7 @@ local function validateCursorPlacement(placement)
 end
 
 ---@param bounds { x: number, y: number, width: number, height: number }
----@param options { scale?: number, maxScale?: number, cursorPlacement: { x: number, y: number, width: number, height: number } }
+---@param options { scale?: number, maxScale?: number, cursorPlacement: { x: number, y: number, width: number, height: number } }?
 ---@return DialoguePresentationLayout.Presentation
 function Layout.compute(bounds, options)
   validateBounds(bounds)

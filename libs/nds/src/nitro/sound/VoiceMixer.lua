@@ -66,14 +66,14 @@ local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
 
 ---@class VoiceMixer
 ---@field private _outputRate integer
----@field private _channels table<integer, table>
+---@field private _channels table<integer, table<string, unknown>>
 ---@field private _channelGeneration table<integer, integer>
----@field new fun(opts: { sampleRate: integer, observer: table? }): VoiceMixer
----@field noteOn fun(self: VoiceMixer, spec: table): { channel: integer, generation: integer } | nil
+---@field new fun(opts: { sampleRate: integer, observer: table<string, unknown>? }): VoiceMixer
+---@field noteOn fun(self: VoiceMixer, spec: table<string, unknown>): { channel: integer, generation: integer } | nil
 ---@field noteOff fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, releaseOverride: integer?)
----@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table)
+---@field updateVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, partial: table<string, unknown>)
 ---@field advanceTrackTick fun(self: VoiceMixer, handle: { channel: integer, generation: integer })
----@field retargetTiedVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, spec: table)
+---@field retargetTiedVoice fun(self: VoiceMixer, handle: { channel: integer, generation: integer }, spec: table<string, unknown>)
 ---@field isVoiceAlive fun(self: VoiceMixer, handle: { channel: integer, generation: integer }): boolean
 ---@field controlStep fun(self: VoiceMixer)
 ---@field renderInto fun(self: VoiceMixer, out: integer[], frames: integer)
@@ -166,8 +166,8 @@ end
 -- volume register (mantissa<<4 >> sSampleDataShiftTable[divider]); a free
 -- channel has a zero register. Returns 1 when a is quieter, -1 when louder,
 -- 0 on a tie.
----@param a table?
----@param b table?
+---@param a table<string, unknown>?
+---@param b table<string, unknown>?
 ---@return integer
 local function volumeCmp(a, b)
   local va = a and a.volume or 0
@@ -193,7 +193,7 @@ end
 ---@param kind string
 ---@param channelMask integer
 ---@param priority integer
----@return integer?, table?
+---@return integer?, table<string, unknown>?
 local function allocateChannel(self, kind, channelMask, priority)
   local allowed = bit.band(GENERATOR_MASK[kind], channelMask)
   local chosenChannel, chosenVoice
@@ -265,8 +265,8 @@ end
 
 -- The per-note voice state: the SDK channel fields, the track-pushed user
 -- values pending the next control step, and the generator playback state.
----@param spec table
----@return table
+---@param spec table<string, unknown>
+---@return table<string, unknown>
 local function newVoice(spec)
   local generator = spec.generator
   assert(spec.originalKey ~= nil, "voice spec requires the original key")
@@ -338,7 +338,7 @@ end
 -- TrackUpdateChannel: the track-level values become the channel's user
 -- values (the dB sum is clamped at -0x8000; the pan offset is scaled by
 -- the panRange when it is not 127).
----@param voice table
+---@param voice table<string, unknown>
 local function applyPending(voice)
   local pending = voice.pending
   local vol = NnsSoundMath.decibelSquare(pending.trackVolume)
@@ -377,7 +377,7 @@ end
 -- The LFO value for the current counter state (SND_GetLfoValue), scaled by
 -- the target (SND_exChannel.c ExChannelLfoUpdate): 0 while the delay
 -- counter runs or the depth is zero.
----@param voice table
+---@param voice table<string, unknown>
 ---@return integer
 local function lfoValue(voice)
   local param = voice.lfoParam
@@ -399,7 +399,7 @@ end
 -- SND_UpdateLfo: the delay counter advances first; once the delay is
 -- exhausted the 8.8 fixed-point counter advances by speed<<6 with the high
 -- byte wrapped at 0x80.
----@param voice table
+---@param voice table<string, unknown>
 local function advanceLfo(voice)
   local param = voice.lfoParam
   if voice.lfoDelayCounter < param.delay then
@@ -417,7 +417,7 @@ end
 -- boundary through the DS sample clock for every generator (the source
 -- hardware path SND_CalcTimer -> sound timer -> sample clock; at a
 -- DS-rate mixer the translation is exactly 1/timer).
----@param voice table
+---@param voice table<string, unknown>
 ---@return number
 local function voiceRatio(voice)
   return DS_SAMPLE_CLOCK / (voice.timer * voice._outputRate)
@@ -428,7 +428,7 @@ end
 -- state machines). The release stops when the current pre-register dB sum
 -- crosses SND_VOL_DB_MIN (the SDK's death moment; the -0x8000 volume-LFO
 -- guard lives here); the PSG timer is masked with 0xFFFC.
----@param voice table
+---@param voice table<string, unknown>
 ---@return boolean -- false when the voice hit the release stop threshold
 local function syncRegisters(voice)
   local param = voice.lfoParam
@@ -475,7 +475,7 @@ end
 -- advance (only at regular steps, never at the noteOn step itself), the
 -- LFO advance, and the register sync (a release voice whose pre-register
 -- dB sum reaches the SND_VOL_DB_MIN threshold is stopped by the sync).
----@param voice table
+---@param voice table<string, unknown>
 ---@param advanceSweep boolean
 local function controlStep(voice, advanceSweep)
   applyPending(voice)
@@ -512,7 +512,7 @@ end
 -- Reads the generator's sample at the current position and advances the
 -- playback state by one frame (read-then-advance). One-shot waves stop at
 -- the window end (the boundary sample still sounds).
----@param voice table
+---@param voice table<string, unknown>
 ---@return integer
 local function sampleAt(voice)
   if voice.generator.kind == "sample" then
@@ -574,7 +574,7 @@ end
 -- Starts a voice for `spec` (the NNS spec: trackVolume/trackPriority,
 -- {channel, generation} handle). Returns nil when the note is rejected (no
 -- allowed channel or priority below the chosen occupied channel's).
----@param spec table
+---@param spec table<string, unknown>
 ---@return { channel: integer, generation: integer } | nil
 function VoiceMixer:noteOn(spec)
   assert(spec and spec.generator and spec.envelope, "voice spec requires a generator and envelope")
@@ -653,7 +653,7 @@ end
 -- touching the envelope or the release/attack status; `velocity` updates
 -- the velocity in the volume dB sum. A stale handle is harmless.
 ---@param handle { channel: integer, generation: integer }
----@param partial table
+---@param partial table<string, unknown>
 function VoiceMixer:updateVoice(handle, partial)
   local voice = self._channels[handle.channel]
   if voice == nil or voice.generation ~= handle.generation then
@@ -696,7 +696,7 @@ end
 -- counter can never reach a zero length). A stale/dead handle is a
 -- harmless no-op.
 ---@param handle { channel: integer, generation: integer }
----@param spec table
+---@param spec table<string, unknown>
 function VoiceMixer:retargetTiedVoice(handle, spec)
   local voice = self._channels[handle.channel]
   if voice == nil or voice.generation ~= handle.generation then

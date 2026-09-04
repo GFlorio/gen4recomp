@@ -17,7 +17,7 @@ local FieldWindowStyles = require("libs.hgss.src.field.FieldWindowStyles")
 
 ---@class FieldSignpostController
 ---@field _layout fun(message: FieldMessageProvider.FormattedMessage): { lines: { tokens: MessageToken[] }[] }
----@field _policy table
+---@field _policy table<string, unknown>
 ---@field _defaultStyleId string the construction style id setStyleId(nil) restores
 ---@field _styleId string
 ---@field _command "nop"|"show"|"wipe_out"|"wipe_in"|"hide"
@@ -228,7 +228,7 @@ end
 -- never interpolates from the prior rest 0 down to -48; wipes move one 16px step, hold the command on
 -- the update that reaches the endpoint, and complete on the following
 -- endpoint-check update.
----@param input table|nil
+---@param input table<string, unknown>|nil
 function FieldSignpostController:updateFixed(input)
   self._previousOffset = self._offset
   local command = self._command

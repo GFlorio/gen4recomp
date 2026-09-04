@@ -51,7 +51,7 @@ local function stageBundle(tx, bundle)
 end
 
 ---@param cacheFs CacheFs
----@param bundle table
+---@param bundle table<string, unknown>
 ---@return boolean
 function IntroAssetCacheWriter.write(cacheFs, bundle)
   assert(cacheFs and bundle and bundle.marker and bundle.manifest and bundle.dependencies and bundle.assets)

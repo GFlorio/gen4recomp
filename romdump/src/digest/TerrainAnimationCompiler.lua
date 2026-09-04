@@ -208,7 +208,7 @@ end
 -- 0xFFFF emits false and reads no member. The clip envelope comes from the
 -- shared NsbtaClipCompiler, the single NSBTA clip authority; the clip
 -- carries no physical source/archive provenance.
----@return table|false
+---@return table<string, unknown>|false
 function TerrainAnimationCompiler:compileTextureSrt()
   if self.dynamicTextureType == NO_SRT then
     return false

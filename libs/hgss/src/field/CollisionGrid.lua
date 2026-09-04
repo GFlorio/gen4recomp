@@ -18,7 +18,7 @@ CollisionGrid.__index = CollisionGrid
 ---@field height integer
 ---@field localToGlobal fun(self: CollisionGrid, localX: number, localZ: number): number, number
 ---@field globalToLocal fun(self: CollisionGrid, globalX: number, globalZ: number): number, number
----@field getLocal fun(self: CollisionGrid, localX: integer, localZ: integer): table
+---@field getLocal fun(self: CollisionGrid, localX: integer, localZ: integer): table<string, unknown>
 ---@field containsLocal fun(self: CollisionGrid, localX: number, localZ: number): boolean
 ---@field isBlockedLocal fun(self: CollisionGrid, localX: number, localZ: number): boolean
 ---@field isBlockedGlobal fun(self: CollisionGrid, globalX: number, globalZ: number): boolean

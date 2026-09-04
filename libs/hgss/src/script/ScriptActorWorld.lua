@@ -8,20 +8,20 @@
 -- attributed errors. Pure domain module: no love dependency.
 
 ---@class ScriptActorManager
----@field getActor fun(self: ScriptActorManager, actorId: string): table|nil
+---@field getActor fun(self: ScriptActorManager, actorId: string): table<string, unknown>|nil
 ---@field show fun(self: ScriptActorManager, actorId: string)
 ---@field hide fun(self: ScriptActorManager, actorId: string)
----@field setPosition fun(self: ScriptActorManager, actorId: string, position: table, options: { scripted: boolean }?)
+---@field setPosition fun(self: ScriptActorManager, actorId: string, position: table<string, unknown>, options: { scripted: boolean }?)
 ---@field setFacing fun(self: ScriptActorManager, actorId: string, direction: string)
 ---@field setMovementType fun(self: ScriptActorManager, actorId: string, movementType: string)
 ---@field setAnimationPaused fun(self: ScriptActorManager, actorId: string, paused: boolean)
----@field getPosition fun(self: ScriptActorManager, actorId: string): table
+---@field getPosition fun(self: ScriptActorManager, actorId: string): table<string, unknown>
 ---@field getFacing fun(self: ScriptActorManager, actorId: string): string
 ---@field numericId fun(self: ScriptActorManager, actorId: string): integer|nil
 ---@field actorIdForMapIndex fun(self: ScriptActorManager, index: integer): string|nil
 ---@field cameraTargetId fun(self: ScriptActorManager): string|nil
 ---@field partnerId fun(self: ScriptActorManager): string|nil
----@field beginScriptedAction fun(self: ScriptActorManager, actorId: string, action: table)
+---@field beginScriptedAction fun(self: ScriptActorManager, actorId: string, action: table<string, unknown>)
 ---@field advanceScriptedAction fun(self: ScriptActorManager, actorId: string, progressTicks: integer, durationTicks: integer)
 ---@field commitScriptedAction fun(self: ScriptActorManager, actorId: string)
 ---@field cancelScriptedMovement fun(self: ScriptActorManager, actorId: string)
@@ -60,12 +60,12 @@ local ScriptErrors = require("libs.script.src.errors")
 
 ---@class ScriptActorWorld
 ---@field private _manager ScriptActorManager
----@field private _player table player facade { position, facing, gender, name }
+---@field private _player table<string, unknown> player facade { position, facing, gender, name }
 local ScriptActorWorld = {}
 ScriptActorWorld.__index = ScriptActorWorld
 
 ---@param manager ScriptActorManager
----@param player table player facade { position, facing, gender, name }
+---@param player table<string, unknown> player facade { position, facing, gender, name }
 ---@return ScriptActorWorld
 function ScriptActorWorld.new(manager, player)
   assert(manager and type(manager) == "table", "actor world requires an actor manager")
@@ -117,7 +117,7 @@ end
 -- Serializable read-only snapshot of one actor; nil when
 -- the actor is not live.
 ---@param actorId string
----@return table|nil
+---@return table<string, unknown>|nil
 function ScriptActorWorld:snapshot(actorId)
   if actorId == "player" then
     local player = self._player
@@ -169,7 +169,7 @@ end
 -- checks inter-object collision during scripted movement, so the manager is
 -- told to skip its hard occupancy-conflict check for these calls.
 ---@param actorId string
----@param position table { fieldX, fieldZ, worldY? }
+---@param position table<string, unknown> { fieldX, fieldZ, worldY? }
 function ScriptActorWorld:setPosition(actorId, position)
   if actorId == "player" then
     if self._player.setPosition ~= nil then
@@ -211,7 +211,7 @@ function ScriptActorWorld:setAnimationPaused(actorId, paused)
 end
 
 ---@param actorId string
----@return table
+---@return table<string, unknown>
 function ScriptActorWorld:getPosition(actorId)
   if actorId == "player" then
     assert(self._player, "no player facade for the script actor world")

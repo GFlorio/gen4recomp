@@ -24,8 +24,8 @@ ScriptSave.SCHEMA_NAME = "g4-script-save-v1"
 
 ---@param scheduler Scheduler
 ---@param tick integer
----@param opts table
----@return table bucket
+---@param opts table<string, unknown>
+---@return table<string, unknown> bucket
 function ScriptSave.capture(scheduler, tick, opts)
   assert(opts and type(opts.registryFingerprint) == "string", "registry fingerprint required for capture")
   for _, instance in ipairs(scheduler:liveInstances()) do
@@ -65,7 +65,7 @@ local ENVIRONMENT_MODES = { foreground = true, background = true }
 local INSTANCE_MODES = { foreground = true, background = true }
 
 ---@param message string
----@param context table
+---@param context table<string, unknown>
 ---@return Errors.Error
 local function invalid(message, context)
   return Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, message, context)
@@ -247,7 +247,7 @@ end
 
 -- The whole-bucket checks: id counters, record shapes, and every
 -- cross-record reference.
----@param bucket table
+---@param bucket table<string, unknown>
 ---@return Errors.Error|nil
 local function validateBucket(bucket)
   for _, counter in ipairs({ "nextEnvironmentId", "nextInstanceId", "nextTaskId" }) do
@@ -377,7 +377,7 @@ end
 -- the task-registry resolution and the scheduler adds the graph-revision
 -- checks against current compositions.
 ---@param bucket any
----@param opts table
+---@param opts table<string, unknown>
 ---@return Errors.Error|nil
 function ScriptSave.validate(bucket, opts)
   opts = opts or {}
@@ -480,10 +480,10 @@ end
 -- every restored object and installs it only after the whole bucket has
 -- restored. Raises on fingerprint mismatch, unknown task types or versions,
 -- invalid task state, or unknown graph revisions.
----@param bucket table
+---@param bucket table<string, unknown>
 ---@param scheduler Scheduler
 ---@param restoreTick integer
----@param opts table
+---@param opts table<string, unknown>
 function ScriptSave.restore(bucket, scheduler, restoreTick, opts)
   opts = opts or {}
   local function resolveTask(taskType, version)

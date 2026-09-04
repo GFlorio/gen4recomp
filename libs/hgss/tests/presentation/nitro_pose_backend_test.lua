@@ -471,8 +471,7 @@ function T.dormant_straddle_source_is_not_resolved()
   -- The mesh's own source resolves the draw matrix (node 0: 16,0,0 -> 1,0,0
   -- tiles).
   Assert.equal(draw.position[13], 1)
-  ---@diagnostic disable-next-line: undefined-field -- evaluated pose omits dormant provenance
-  Assert.isNil(draw.straddle)
+  Assert.isNil(rawget(draw, "straddle"))
   Assert.isTrue(def.backend.meshes.m.straddle ~= nil, "compiled provenance remains")
   local items = instance:drawItems({ m = {} })
   Assert.equal(items[1].transform[13], 1)
@@ -487,8 +486,7 @@ function T.dormant_straddle_source_is_not_resolved()
   validInstance:evaluatePose()
   local validDraw = validInstance.poseState.drawMatrices["m"]
   Assert.equal(validDraw.position[13], 1)
-  ---@diagnostic disable-next-line: undefined-field -- evaluated pose omits dormant provenance
-  Assert.isNil(validDraw.straddle)
+  Assert.isNil(rawget(validDraw, "straddle"))
   Assert.isTrue(def.backend.meshes.m.straddle ~= nil, "compiled provenance remains")
 end
 

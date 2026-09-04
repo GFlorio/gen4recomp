@@ -14,7 +14,7 @@ local DoorTiles = {}
 -- getLocal(x, z) -> { behavior }), in enumeration order (x-major, z-major).
 -- The grid must be the scene's 32x32 cell; the tiles are local indices, the
 -- space MapProps keys its precomputed door index with.
----@param grid table -- CollisionGrid-shaped: getLocal(x, z) -> { behavior: integer|nil }
+---@param grid table<string, unknown> -- CollisionGrid-shaped: getLocal(x, z) -> { behavior: integer|nil }
 ---@return { x: integer, z: integer }[]
 function DoorTiles.fromGrid(grid)
   local out = {}

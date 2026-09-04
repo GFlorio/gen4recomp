@@ -14,9 +14,9 @@ local WaitInputOrTicksTask = {}
 WaitInputOrTicksTask.type = "wait_input_or_ticks"
 WaitInputOrTicksTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function WaitInputOrTicksTask.create(spec, ctx)
   local node = assert(spec.node, "wait_input_or_ticks requires its graph node")
   if type(node.ticks) ~= "number" or node.ticks < 1 then

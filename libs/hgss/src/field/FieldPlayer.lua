@@ -34,19 +34,19 @@ local FieldTraversal = require("libs.hgss.src.field.FieldTraversal")
 ---@field durationTicks integer
 ---@field animationPaused boolean
 ---@field bufferedDirection FieldDirection?
----@field from table?
----@field to table?
+---@field from table<string, unknown>?
+---@field to table<string, unknown>?
 ---@field committedSourceCellKey string?
 ---@field committedSourceSurfaceId integer?
 ---@field transitionKind "ladder_exit"|"ladder_down_exit"|"vertical_return"|"held_stair"|nil
 ---@field transitionFacing FieldDirection?
----@field transitionFrom table?
----@field transitionTo table?
+---@field transitionFrom table<string, unknown>?
+---@field transitionTo table<string, unknown>?
 ---@field transitionProgress number?
 ---@field private _gesturePose string?
 ---@field private _gestureTick integer?
 ---@field private _gestureOffsetY number
----@field private _scriptedMotion table?
+---@field private _scriptedMotion table<string, unknown>?
 local FieldPlayer = {}
 FieldPlayer.__index = FieldPlayer
 
@@ -370,7 +370,7 @@ end
 -- `tryStep` and the non-mutating `resolveStep` query must agree on this, or
 -- one accepts a step the other rejects.
 ---@param direction FieldDirection
----@return table
+---@return table<string, unknown>
 function FieldPlayer:_stepDecision(direction)
   local delta = assert(DELTAS[direction], "unknown field direction " .. tostring(direction))
   local destinationX, destinationZ = self.fieldX + delta.x, self.fieldZ + delta.z

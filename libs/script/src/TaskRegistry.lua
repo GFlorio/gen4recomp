@@ -21,11 +21,11 @@ local Sha256 = require("libs.script.src.Sha256")
 ---@class TaskImplementation
 ---@field type string
 ---@field version integer
----@field create fun(spec: table, ctx: table): any
----@field poll fun(state: any, ctx: table): table
+---@field create fun(spec: table<string, unknown>, ctx: table<string, unknown>): any
+---@field poll fun(state: any, ctx: table<string, unknown>): table<string, unknown>
 ---@field validate fun(state: any): Errors.Error|nil
----@field cancel fun(state: any, reason: string, ctx: table|nil)|nil
----@field onComplete fun(state: any, ctx: table)|nil
+---@field cancel fun(state: any, reason: string, ctx: table<string, unknown>|nil)|nil
+---@field onComplete fun(state: any, ctx: table<string, unknown>)|nil
 
 ---@class TaskRegistry
 ---@field private _byType table<string, table<integer, TaskImplementation>>

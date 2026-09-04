@@ -26,7 +26,7 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 ---@field textWidth integer
 ---@field textHeight integer
 ---@field frameTilePlacements fun(box: FieldDialogueTheme.Rect): { tile: integer, x: integer, y: integer, spanX?: integer, spanY?: integer }[]
----@field layout fun(referenceFrame: FieldDialogueTheme.Rect, fieldScale: number, cursorPlacement?: FieldDialogueTheme.Rect): FieldDialogueTheme.Layout
+---@field layout fun(referenceFrame: unknown, fieldScale: number, cursorPlacement?: FieldDialogueTheme.Rect): FieldDialogueTheme.Layout
 ---@field fontMetrics fun(fontDef: FieldFontDef): FieldDialogueTheme.Metrics
 ---@field measureText fun(fontDef: FieldFontDef): fun(text: string): number
 local FieldDialogueTheme = {}
@@ -106,7 +106,7 @@ end
 -- Never return screen-mapped rects here: draw() applies the transform, and
 -- double mapping pushes the box off-screen.
 
----@param referenceFrame FieldDialogueTheme.Rect
+---@param referenceFrame unknown
 ---@param fieldScale number field logical pixel scale (viewport:logicalPixelScale(camera.zoom)), must be finite > 0
 ---@param cursorPlacement? FieldDialogueTheme.Rect generated source cursor placement for dialogue rendering
 ---@return FieldDialogueTheme.Layout
@@ -121,6 +121,7 @@ function FieldDialogueTheme.layout(referenceFrame, fieldScale, cursorPlacement)
       and referenceFrame.height > 0,
     "FieldDialogueTheme.layout requires a reference frame"
   )
+  ---@cast referenceFrame FieldDialogueTheme.Rect
   assert(
     type(fieldScale) == "number"
       and fieldScale > 0

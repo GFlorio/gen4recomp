@@ -21,7 +21,6 @@ local T = {
 
 local function hostStatus(game)
   local host = game.runtime.applicationHost
-  ---@diagnostic disable-next-line: undefined-field -- the runtime application-host surface is the contract under test
   return host:status()
 end
 
@@ -63,7 +62,6 @@ function T.tests.production_factory_registers_the_card_and_resume_drives_the_pre
   game:waitForFieldEntry()
   local ok, err = xpcall(function()
     local runtime = game.runtime
-    ---@diagnostic disable-next-line: undefined-field -- the runtime application-registry surface is the contract under test
     local applications = runtime.applications
     Assert.isTrue(type(applications) == "table", "the runtime must expose the application registry")
     Assert.equal(

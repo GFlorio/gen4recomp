@@ -21,7 +21,7 @@ local FieldUiAssetCache = {}
 ---@class FieldUiAssetCache.Manifest
 ---@field schema string
 ---@field assets table<string, FieldUiAssetCache.Asset>
----@field [string] table
+---@field [string] table<string, unknown>
 
 FieldUiAssetCache.FORMAT = Contract.fieldUi.cacheFormat
 FieldUiAssetCache.SCHEMA = Contract.fieldUi.schema
@@ -88,7 +88,7 @@ end
 -- rectangle/size/index finite, integral, non-negative, and inside its
 -- atlas. Returns nil, err on the first violation.
 
----@param manifest table
+---@param manifest table<string, unknown>
 ---@return boolean, Errors.Error?
 function FieldUiAssetCache.validateManifest(manifest)
   if type(manifest) ~= "table" then

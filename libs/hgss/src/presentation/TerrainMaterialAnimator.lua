@@ -36,10 +36,10 @@ local CompiledNsbtaSampler = require("libs.nds.src.nitro.g3d.CompiledNsbtaSample
 local TextureSrtEvaluator = require("libs.hgss.src.presentation.TextureSrtEvaluator")
 
 ---@class TerrainMaterialAnimator
----@field groups { steps: table, scheduleIndex: integer, ticksInScheduleEntry: integer, members: table[] }[]
----@field srtBindings { record: table, runtime: table, targetIndex: integer }[]
----@field clip table|false
----@field player table|nil
+---@field groups { steps: table<string, unknown>, scheduleIndex: integer, ticksInScheduleEntry: integer, members: table[] }[]
+---@field srtBindings { record: table<string, unknown>, runtime: table<string, unknown>, targetIndex: integer }[]
+---@field clip table<string, unknown>|false
+---@field player table<string, unknown>|nil
 local TerrainMaterialAnimator = {}
 TerrainMaterialAnimator.__index = TerrainMaterialAnimator
 
@@ -49,8 +49,8 @@ TerrainMaterialAnimator.__index = TerrainMaterialAnimator
 -- here. `clip` is the compiled texsrt clip or false for no area animation.
 -- The base material image stays outside the replacement schedule: the loader
 -- bound material.texture, the schedule entries only supply alternate frames.
----@param bindings { record: table, runtime: table }[] scene material record + live runtime material table
----@param clip table|false the compiled texsrt clip or false for no area animation
+---@param bindings { record: table<string, unknown>, runtime: table<string, unknown> }[] scene material record + live runtime material table<string, unknown>
+---@param clip table<string, unknown>|false the compiled texsrt clip or false for no area animation
 ---@param resolveImage fun(path: string, wrapX: string, wrapY: string): any the pool-backed image resolver
 ---@param checkpoint fun()? optional safe boundary after an image acquisition
 ---@return TerrainMaterialAnimator

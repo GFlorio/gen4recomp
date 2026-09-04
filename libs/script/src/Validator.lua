@@ -41,11 +41,11 @@ end
 -- close over it.
 local CHECKERS = {}
 
----@param context table
+---@param context table<string, unknown>
 ---@param code string
 ---@param path string
 ---@param message string
----@param extra table|nil
+---@param extra table<string, unknown>|nil
 local function fail(context, code, path, message, extra)
   local ctx = { path = path }
   if context.scriptId then

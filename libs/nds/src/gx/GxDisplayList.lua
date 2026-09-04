@@ -243,7 +243,7 @@ end
 -- A fresh segment record; `positionSource` describes how the runtime
 -- resolves the segment's draw matrix.
 ---@param positionSource DrawSource
----@return table
+---@return table<string, unknown>
 local function newSegment(positionSource)
   return {
     vertices = {},

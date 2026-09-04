@@ -58,7 +58,6 @@ end
 -- A missing material list is malformed scene data, not an empty map.
 function T.materials_requires_a_list()
   throwsCode("SCENE_DESC_BAD_MATERIALS", function()
-    ---@diagnostic disable: param-type-mismatch
     SceneDescriptor.materials(nil)
   end)
 end

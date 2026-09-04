@@ -37,7 +37,7 @@ end
 
 ---@param scene { x: number, y: number, width: number, height: number }
 ---@param reference { width: number, height: number }
----@return { scale: number, origin: { x: number, y: number }, scene: table, reference: table }
+---@return { scale: number, origin: { x: number, y: number }, scene: table<string, unknown>, reference: table<string, unknown> }
 local function sourceCanvas(scene, reference)
   local canvas = canvasForRegion(scene, reference)
   canvas.scene = scene
@@ -147,7 +147,7 @@ local function mappedRect(canvas, source)
   }
 end
 
----@param widgetValue table
+---@param widgetValue table<string, unknown>
 ---@param canvas { scale: number, origin: { x: number, y: number } }
 ---@return { x: number, y: number, width: number, height: number, scale: number }
 local function sourceCenteredWidget(widgetValue, canvas)
@@ -285,9 +285,9 @@ end
 
 ---@param width number
 ---@param height number
----@param view table
+---@param view table<string, unknown>
 ---@param glyphs string[]
----@param manifest table
+---@param manifest table<string, unknown>
 ---@return OakIntroStateLayout
 function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   assert(type(width) == "number" and width == width and width > 0, "Oak viewport width is invalid")
@@ -544,7 +544,7 @@ function OakIntroLayout.compute(width, height, view, glyphs, manifest)
   return result
 end
 
----@param region table?
+---@param region table<string, unknown>?
 ---@param x number
 ---@param y number
 ---@return boolean

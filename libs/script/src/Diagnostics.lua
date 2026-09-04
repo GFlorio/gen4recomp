@@ -21,7 +21,7 @@ function Diagnostics.newTraceRecorder()
 end
 
 -- The sink the scheduler accepts: records one immutable trace record.
----@param record table
+---@param record table<string, unknown>
 function TraceRecorder:record(record)
   assert(type(record) == "table", "trace record must be a table")
   self._records[#self._records + 1] = record

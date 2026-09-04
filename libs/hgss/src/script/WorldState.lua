@@ -16,8 +16,8 @@ local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 
 ---@class WorldState
 ---@field private _events FieldEventState
----@field private _catalogs table|nil
----@field rng table
+---@field private _catalogs table<string, unknown>|nil
+---@field rng table<string, unknown>
 local WorldState = {}
 WorldState.__index = WorldState
 
@@ -26,8 +26,8 @@ WorldState.SCHEMA_NAME = "g4-world-state-v1"
 local WORLD_FIELDS = { flags = true, variables = true, objects = true, rng = true }
 
 ---@param record any
----@param opts table|nil { objectsValidate?: fun(value: table): table|nil, Errors.Error? }
----@return table|nil, Errors.Error?
+---@param opts table<string, unknown>|nil { objectsValidate?: fun(value: table<string, unknown>): table<string, unknown>|nil, Errors.Error? }
+---@return table<string, unknown>|nil, Errors.Error?
 function WorldState.validate(record, opts)
   if type(record) ~= "table" then
     return nil, Errors.new(ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE, "world bucket must be a table", {})
@@ -75,7 +75,7 @@ end
 -- reference errors so typos fail loudly.
 ---@param id any
 ---@param kind string
----@param catalogs table|nil
+---@param catalogs table<string, unknown>|nil
 ---@param hint string
 ---@return any resolved id
 local function resolveId(id, kind, catalogs, hint)
@@ -99,7 +99,7 @@ end
 
 -- `opts.eventState` injects a live FieldEventState (the game's authoritative
 -- store); otherwise `opts.events` seeds a fresh one ({flags, vars} maps).
----@param opts table|nil { eventState?, events?, catalogs?, rng?, seed? }
+---@param opts table<string, unknown>|nil { eventState?, events?, catalogs?, rng?, seed? }
 ---@return WorldState
 function WorldState.new(opts)
   opts = opts or {}
@@ -151,8 +151,8 @@ end
 -- Captured world bucket for the save schema (g4-field-save-v4). The flag
 -- and variable maps are numeric (the FieldEventState shape); the RNG state
 -- rides along so determinism survives a save/load cycle.
----@param objects table?
----@return table
+---@param objects table<string, unknown>?
+---@return table<string, unknown>
 function WorldState:capture(objects)
   local events = self._events:serialize()
   return {
@@ -167,7 +167,7 @@ end
 -- restored by the game layer (it owns the save's authoritative flags). A
 -- present rng value must be valid serialized state: silently dropping it
 -- would break determinism across the load.
----@param world table
+---@param world table<string, unknown>
 function WorldState:restoreRng(world)
   assert(type(world) == "table", "world bucket must be a table")
   if world.rng ~= nil then
@@ -179,8 +179,8 @@ function WorldState:restoreRng(world)
   end
 end
 
----@param record table
----@param opts table|nil
+---@param record table<string, unknown>
+---@param opts table<string, unknown>|nil
 ---@return WorldState
 function WorldState.restore(record, opts)
   local valid, err = WorldState.validate(record, opts)

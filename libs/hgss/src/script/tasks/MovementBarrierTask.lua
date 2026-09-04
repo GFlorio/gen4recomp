@@ -18,9 +18,9 @@ local MovementBarrierTask = {}
 MovementBarrierTask.type = "movement_barrier"
 MovementBarrierTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function MovementBarrierTask.create(spec, ctx)
   local node = spec.node or {}
   local scope = node.scope or "environment"
@@ -62,9 +62,9 @@ function MovementBarrierTask.create(spec, ctx)
   return state
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function MovementBarrierTask.poll(state, ctx)
   local done
   if state.scope == "environment" then
@@ -88,21 +88,21 @@ end
 -- The environment advances to the next movement generation when the barrier
 -- completes during task polling, so movements launched later in the same
 -- tick belong to the new generation.
----@param state table
----@param ctx table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
 function MovementBarrierTask.onComplete(state, ctx)
   if state.scope == "environment" then
     ctx.environment:advanceMovementGeneration()
   end
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function MovementBarrierTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function MovementBarrierTask.validate(state)
   if type(state) ~= "table" or (state.scope ~= "environment" and state.scope ~= "actors") then

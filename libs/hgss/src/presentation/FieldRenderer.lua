@@ -7,7 +7,7 @@ local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 
 ---@class FieldRenderer
 ---@field gxRenderer GxRenderer
----@field stats table
+---@field stats table<string, unknown>
 ---@field sceneColor GxRenderer.Canvas?
 ---@field renderState GxRenderer.Canvas?
 ---@field _ownsRenderer boolean
@@ -87,7 +87,7 @@ local function selectedLighting(sceneRuntime)
   return FieldLightProfile.select(profile, sceneRuntime.fieldTimeSeconds or FieldLightProfile.DEFAULT_TIME_SECONDS)
 end
 
----@param opts table?
+---@param opts table<string, unknown>?
 ---@return FieldRenderer
 function FieldRenderer.new(opts)
   opts = opts or {}
@@ -110,11 +110,11 @@ function FieldRenderer.new(opts)
   }, FieldRenderer)
 end
 
----@param sceneRuntime table
----@param camera table
+---@param sceneRuntime table<string, unknown>
+---@param camera table<string, unknown>
 ---@param worldParts table[][]?
 ---@param spriteItems table[]?
----@param viewport table
+---@param viewport table<string, unknown>
 ---@param alpha number
 function FieldRenderer:draw(sceneRuntime, camera, worldParts, spriteItems, viewport, alpha)
   assert(type(sceneRuntime) == "table", "field scene presentation is required")

@@ -22,7 +22,7 @@ local AudioRuntime = {}
 
 ---@class HgssAudioRuntimeComposition
 ---@field sound GameSound
----@field renderer { render: fun(self: table, frames: integer): integer[] }
+---@field renderer { render: fun(self: table<string, unknown>, frames: integer): integer[] }
 ---@field fieldService FieldAudioController?
 
 ---@param opts HgssAudioRuntimeOptions

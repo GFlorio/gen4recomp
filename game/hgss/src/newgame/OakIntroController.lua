@@ -9,11 +9,11 @@ local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 
 ---@class OakIntroControllerOptions
----@field candidate table partial New Game candidate finalized only after profile confirmation
+---@field candidate table<string, unknown> partial New Game candidate finalized only after profile confirmation
 ---@field clock { nowLocal: fun(): LocalCivilTime }
 ---@field audio GameSound
----@field messages table<string, string|table>
----@field assets table?
+---@field messages table<string, string|table<string, unknown>>
+---@field assets table<string, unknown>?
 ---@field playerDataContext { charmap: table<string, integer>, frameIndexes: table<integer, boolean> }
 ---@field randomU32 fun(): number
 ---@field virtualGlyphs string[]
@@ -26,7 +26,7 @@ local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 
 ---@class OakIntroControllerView
 ---@field phase string
----@field message string|table|nil
+---@field message string|table<string, unknown>|nil
 ---@field visual string
 ---@field visualFrameIndex integer
 ---@field primaryWidget string|nil
@@ -36,7 +36,7 @@ local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 ---@field nameCompositionProgress number normalized host composition progress
 ---@field messageKey string|nil
 ---@field confirmationChoice { kind: "gender"|"name", selected: integer }?
----@field dialogue { message: string|table|nil, messageKey: string? }?
+---@field dialogue { message: string|table<string, unknown>|nil, messageKey: string? }?
 ---@field revealFrameIndex integer|nil
 ---@field sceneBrightness number
 ---@field revealBrightness number
@@ -55,11 +55,11 @@ local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 
 ---@class OakIntroController
 ---@field new fun(options: OakIntroControllerOptions): OakIntroController
----@field private _candidate table
+---@field private _candidate table<string, unknown>
 ---@field private _clock LocalClock
 ---@field private _audio GameSound
----@field private _messages table<string, string|table>
----@field private _assets table
+---@field private _messages table<string, string|table<string, unknown>>
+---@field private _assets table<string, unknown>
 ---@field private _playerDataContext { charmap: table<string, integer>, frameIndexes: table<integer, boolean> }
 ---@field private _randomU32 fun(): number
 ---@field private _virtualGlyphs string[]
@@ -70,7 +70,7 @@ local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 ---@field private _started boolean
 ---@field private _disposed boolean
 ---@field private _sourceFrames integer
----@field private _message string|table|nil
+---@field private _message string|table<string, unknown>|nil
 ---@field private _messageKey string|nil
 ---@field private _confirmationChoice { kind: "gender"|"name", selected: integer }?
 ---@field private _visual string
@@ -91,7 +91,7 @@ local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 ---@field private _genderCompositionTimer integer
 ---@field private _nameCompositionProgress number normalized host composition progress
 ---@field private _nameCompositionTimer integer
----@field private _result table|nil
+---@field private _result table<string, unknown>|nil
 ---@field private _events OakIntroEvent[]
 ---@field tick fun(self: OakIntroController, frames: integer)
 ---@field confirmHandoffPresented fun(self: OakIntroController): boolean
@@ -100,8 +100,8 @@ local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 ---@field inputText fun(self: OakIntroController, text: string): boolean
 ---@field deleteGlyph fun(self: OakIntroController): boolean
 ---@field view fun(self: OakIntroController): OakIntroControllerView
----@field candidate fun(self: OakIntroController): table
----@field result fun(self: OakIntroController): table|nil
+---@field candidate fun(self: OakIntroController): table<string, unknown>
+---@field result fun(self: OakIntroController): table<string, unknown>|nil
 ---@field dispose fun(self: OakIntroController)
 ---@field messageCompleted fun(self: OakIntroController, key: string): boolean
 local OakIntroController = {}
@@ -200,7 +200,7 @@ local function appendGlyphs(text)
   return glyphs
 end
 
----@param options table
+---@param options table<string, unknown>
 ---@return OakIntroController
 function OakIntroController.new(options)
   assert(type(options) == "table", "OakIntroController requires options")
@@ -828,7 +828,7 @@ function OakIntroController:deleteGlyph()
   return true
 end
 
----@return table
+---@return table<string, unknown>
 function OakIntroController:view()
   local virtualKeys = self:_virtualKeys()
   local primaryWidget ---@type string|nil

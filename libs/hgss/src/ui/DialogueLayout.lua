@@ -26,13 +26,13 @@ local BREAK_KINDS = {
 -- Returns { pages = { { lines = { { tokens, width } }, breakKind } }, warnings }.
 -- breakKind is "prompt", "page", "line", "overflow", or "eos".
 
----@param state table
----@return table
+---@param state table<string, unknown>
+---@return table<string, unknown>
 local function currentLine(state)
   return state.lines[#state.lines]
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return boolean
 local function hasContent(state)
   for _, line in ipairs(state.lines) do
@@ -43,12 +43,12 @@ local function hasContent(state)
   return false
 end
 
----@param state table
+---@param state table<string, unknown>
 local function beginLine(state)
   state.lines[#state.lines + 1] = { tokens = {}, width = 0 }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param breakKind string
 local function pushPage(state, breakKind)
   state.pages[#state.pages + 1] = { lines = state.lines, breakKind = breakKind }
@@ -57,7 +57,7 @@ end
 
 -- Ends the current page, then starts a fresh line for subsequent content
 -- (except at EOS, which is terminal).
----@param state table
+---@param state table<string, unknown>
 ---@param breakKind string
 local function endPage(state, breakKind)
   if hasContent(state) then
@@ -84,7 +84,7 @@ end
 -- Finds the trailing breakable space on the current line; returns its token
 -- index and the width of the tokens before it (space excluded). Every token
 -- width uses the same tokenWidth rule, so wrap points stay exact.
----@param state table
+---@param state table<string, unknown>
 ---@param metrics FieldDialogueTheme.Metrics
 ---@return integer?, integer?
 local function lastBreakableSpace(state, metrics)
@@ -102,7 +102,7 @@ local function lastBreakableSpace(state, metrics)
   return breakIndex, keptWidth
 end
 
----@param line table
+---@param line table<string, unknown>
 ---@param token MessageToken
 ---@param width integer
 local function appendToken(line, token, width)
@@ -110,7 +110,7 @@ local function appendToken(line, token, width)
   line.width = line.width + width
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param token MessageToken
 local function carryAfterBreak(state, token)
   local line = currentLine(state)
@@ -118,7 +118,7 @@ local function carryAfterBreak(state, token)
   appendToken(line, token, advance)
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param token MessageToken
 local function placeGlyph(state, token)
   local advance = tokenWidth(token, state.metrics)
@@ -180,7 +180,7 @@ local function placeGlyph(state, token)
   end
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param token MessageToken
 ---@return boolean
 local function processControlToken(state, token)
@@ -200,7 +200,7 @@ local function processControlToken(state, token)
   return false
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param token MessageToken
 local function processToken(state, token)
   if token.kind == "eos" then

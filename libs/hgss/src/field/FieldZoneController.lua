@@ -13,8 +13,8 @@ FieldZoneController.__index = FieldZoneController
 ---@field rebindScripts fun(runtimeMap: RuntimeFieldMap, player: FieldZonePlayer)
 ---@field applyWeather fun(runtimeMap: RuntimeFieldMap)
 ---@field enterAudio fun(runtimeMap: RuntimeFieldMap)
----@field lastChange table?
----@field onChange fun(change: table)?
+---@field lastChange table<string, unknown>?
+---@field onChange fun(change: table<string, unknown>)?
 
 ---@class FieldZoneCoverage
 ---@field mapHeaderAt fun(self: FieldZoneCoverage, fieldX: integer, fieldZ: integer): integer?
@@ -30,7 +30,7 @@ FieldZoneController.__index = FieldZoneController
 ---@field newMapSection string
 ---@field mapSectionChanged boolean
 
----@param options table
+---@param options table<string, unknown>
 ---@return FieldZoneController
 function FieldZoneController.new(options)
   assert(type(options) == "table", "field zone controller options required")

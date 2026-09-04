@@ -29,11 +29,15 @@ local T = {}
 ---@field music { current: string|nil }
 ---@field calls table[]
 ---@field fadeActive boolean|nil
+---@field processSoundplate fun(self: FakeAudioBackend)|nil
 local FakeAudioBackend = {}
 FakeAudioBackend.__index = FakeAudioBackend
 
 function FakeAudioBackend.new()
-  return setmetatable({ playing = {}, music = {}, calls = {}, fadeActive = nil }, FakeAudioBackend)
+  return setmetatable(
+    { playing = {}, music = {}, calls = {}, fadeActive = nil, processSoundplate = nil },
+    FakeAudioBackend
+  )
 end
 
 function FakeAudioBackend:play(id)
@@ -951,7 +955,6 @@ end
 T["process soundplate calls forced processing once and continues same tick"] = function()
   local h = harness({ audio = true })
   local processCalls = 0
-  ---@diagnostic disable-next-line: inject-field -- test records forced processing
   h.audio.processSoundplate = function(_)
     processCalls = processCalls + 1
   end
@@ -971,7 +974,6 @@ end
 T["consecutive process soundplate calls run twice in one tick"] = function()
   local h = harness({ audio = true })
   local processCalls = 0
-  ---@diagnostic disable-next-line: inject-field -- test records forced processing
   h.audio.processSoundplate = function(_)
     processCalls = processCalls + 1
   end
@@ -1001,7 +1003,6 @@ end
 T["process soundplate after flag change sees updated event state"] = function()
   local h = harness({ audio = true })
   local seenFlag = nil
-  ---@diagnostic disable-next-line: inject-field -- test observes flag through forced processing
   h.audio.processSoundplate = function(_)
     seenFlag = h.services.world:isFlagSet("FLAG_WATERFALL_DONE")
   end

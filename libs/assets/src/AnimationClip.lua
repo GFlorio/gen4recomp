@@ -41,8 +41,8 @@ local AnimationClip = {}
 ---@field frameCount integer
 ---@field tracks AnimationClip.Track[]
 ---@field semanticNames string[]?
----@field source table?
----@field compiled table
+---@field source table<string, unknown>?
+---@field compiled table<string, unknown>
 
 -- Fixed-point frame unit: one frame is FRAME_UNIT, shared by every player
 -- and sampler in the animation runtime (DS fixed point is 1.M.12, the same

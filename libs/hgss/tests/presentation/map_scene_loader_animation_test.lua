@@ -1231,7 +1231,6 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
     actors = actors,
     input = input,
     dialogue = inactiveDialogue,
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptScheduler = {
       step = function() end,
       playerInputLocked = function()
@@ -1250,7 +1249,6 @@ function T.ambient_clip_advances_once_per_session_tick_and_through_dialogue()
         return false
       end,
     },
-    ---@diagnostic disable-next-line: missing-fields -- focused FieldSession test double
     scriptClient = { consume = function() end },
     eventResolver = FieldEventResolver,
     eventState = FieldEventState.new(),

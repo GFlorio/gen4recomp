@@ -17,7 +17,7 @@ Graph.SCHEMA_NAME = "g4-script-graph-v1"
 
 -- Deterministic full-graph print for diagnostics and golden tests: the graph
 -- serializes with sorted keys, so identical graphs produce identical output.
----@param graph table
+---@param graph table<string, unknown>
 ---@return string
 function Graph.inspect(graph)
   assert(graph ~= nil and graph.graphSchema == Graph.SCHEMA_NAME, "expected a compiled script graph")
@@ -29,7 +29,7 @@ end
 -- non-nil values, so an absent first successor can never leave a hole that
 -- stops traversal of later successors. The compiler guarantees every
 -- returned target exists in the graph's node map.
----@param node table
+---@param node table<string, unknown>
 ---@return string[]
 function Graph.collectEdges(node)
   local out = {}
@@ -82,7 +82,7 @@ end
 -- Deterministic depth-first visit order from the entry node, following
 -- Graph.collectEdges. `return` and `next` have no static edges: their
 -- continuations live in instance frames and are resolved by the scheduler.
----@param graph table
+---@param graph table<string, unknown>
 ---@return string[]
 function Graph.reachableNodes(graph)
   local visited = {}

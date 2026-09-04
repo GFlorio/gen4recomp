@@ -116,9 +116,9 @@ local function validate(record, context)
   }
 end
 
----@param record table
----@param context table { charmap: table, frameIndexes: table<integer, true> }
----@return table|nil, Errors.Error?
+---@param record table<string, unknown>
+---@param context table<string, unknown> { charmap: table<string, unknown>, frameIndexes: table<integer, true> }
+---@return table<string, unknown>|nil, Errors.Error?
 function PlayerData.validate(record, context)
   assert(
     type(context) == "table" and type(context.charmap) == "table" and type(context.frameIndexes) == "table",

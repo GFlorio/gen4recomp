@@ -234,9 +234,9 @@ function GameSave.validateSaveId(saveId)
   error(result)
 end
 
----@param record table
----@param opts table?
----@return table|nil, Errors.Error?
+---@param record table<string, unknown>
+---@param opts table<string, unknown>?
+---@return table<string, unknown>|nil, Errors.Error?
 function GameSave.validate(record, opts)
   local ok, result = pcall(validate, record, opts)
   if ok then

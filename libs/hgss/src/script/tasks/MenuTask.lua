@@ -53,9 +53,9 @@ local function close(state, ctx)
   state.closed = true
 end
 
----@param spec table { menu: FieldMenuController.Spec }
----@param ctx table
----@return table state
+---@param spec table<string, unknown> { menu: FieldMenuController.Spec }
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function MenuTask.create(spec, ctx)
   assert(type(spec) == "table" and type(spec.menu) == "table", "menu task requires a menu definition")
   local controller = FieldMenuController.new(spec.menu)
@@ -89,9 +89,9 @@ local function applyEvent(controller, state, event)
   end
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function MenuTask.poll(state, ctx)
   local controller = menuController(state)
   local input = ctx.input or {}
@@ -112,9 +112,9 @@ function MenuTask.poll(state, ctx)
   return { complete = true, state = state, result = status.result }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function MenuTask.cancel(state, reason, ctx)
   state.cancelled = reason
   pointerCaptures[state] = nil

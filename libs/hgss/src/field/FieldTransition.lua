@@ -52,19 +52,19 @@ local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 
 ---@class FieldTransition
 ---@field loader FieldMapLoader
----@field prepare fun(resolution: table, facing: FieldDirection): table
----@field commit fun(resolution: table, facing: FieldDirection, prepared: table)
----@field disposePrepared fun(resolution: table?, prepared: table?)? -- releases resources owned before commit
+---@field prepare fun(resolution: table<string, unknown>, facing: FieldDirection): table<string, unknown>
+---@field commit fun(resolution: table<string, unknown>, facing: FieldDirection, prepared: table<string, unknown>)
+---@field disposePrepared fun(resolution: table<string, unknown>?, prepared: table<string, unknown>?)? -- releases resources owned before commit
 ---@field resolveDestination function
----@field doorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table|nil -- nil = no door choreography
+---@field doorAt fun(runtimeMap: table<string, unknown>, fieldX: integer, fieldZ: integer): table<string, unknown>|nil -- nil = no door choreography
 ---@field playSound fun(soundId: string)?
 ---@field stopSound fun(soundId: string)?
----@field onStart fun(sourceMap: table, trigger: table, facing: FieldDirection)? -- invoked once per transition start, before ownership changes
+---@field onStart fun(sourceMap: table<string, unknown>, trigger: table<string, unknown>, facing: FieldDirection)? -- invoked once per transition start, before ownership changes
 ---@field onProfile fun(profile: integer, phase: "exit"|"enter", family: string)? -- source-specific semantic hook
 ---@field cameraAdjust fun(...: any)?
----@field escalatorAt fun(runtimeMap: table, fieldX: integer, fieldZ: integer): table?
+---@field escalatorAt fun(runtimeMap: table<string, unknown>, fieldX: integer, fieldZ: integer): table<string, unknown>?
 ---@field onPanel fun(...: any)?
----@field player table|nil -- FieldPlayer, bound by the owner across the swap
+---@field player table<string, unknown>|nil -- FieldPlayer, bound by the owner across the swap
 ---@field phase "idle"|"fade_out"|"load_destination"|"swap_map"|"fade_in"|"choreo_hold"
 ---@field fadeAlpha number
 ---@field fade FieldTransitionFade|nil
@@ -75,23 +75,23 @@ local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 ---@field destinationFacing FieldDirection
 ---@field locked boolean
 ---@field sourceKind "door"|"stairs"|"directional"|"generic"|nil -- the trigger classification passed down
----@field sourceDoor table|nil -- the resolved source door, when the source kind is a door
----@field destinationDoor table|nil -- the resolved destination door, when the destination resolves one
+---@field sourceDoor table<string, unknown>|nil -- the resolved source door, when the source kind is a door
+---@field destinationDoor table<string, unknown>|nil -- the resolved destination door, when the destination resolves one
 ---@field sourceChoreo "wait_open"|"wait_step"|"profile_motion"|"done"|nil -- the source-side choreography state
 ---@field destinationChoreo "wait_open"|"wait_step"|"wait_close"|"profile_motion"|"done"|nil -- the destination-side choreography state
 ---@field activeProfileSound string|nil
 ---@field ownsPlayerAnimationPause boolean
----@field completed table?
+---@field completed table<string, unknown>?
 ---@field error any?
----@field warpContext table?
----@field suppression table?
+---@field warpContext table<string, unknown>?
+---@field suppression table<string, unknown>?
 ---@field destinationAnchorY number?
----@field destinationStairPresentationStart table?
----@field prepared table?
+---@field destinationStairPresentationStart table<string, unknown>?
+---@field prepared table<string, unknown>?
 ---@field sourceMap RuntimeFieldMap?
----@field sourceWarp table?
+---@field sourceWarp table<string, unknown>?
 ---@field coveredSwap boolean -- true while a covered scripted swap owns the lifecycle: destination resolution/commit run, but no FieldTransitionFade is created or advanced because an external screen cover already owns visibility
----@field escalator table?
+---@field escalator table<string, unknown>?
 ---@field destinationWarpX integer?
 ---@field destinationWarpZ integer?
 local FieldTransition = {}
@@ -749,7 +749,7 @@ end
 -- centralized; it skips straight to `load_destination` and finishes at the
 -- swap tick instead of running a fade-in phase.
 ---@param sourceMap RuntimeFieldMap
----@param trigger table { warp: table } -- scripted warps carry no trigger classification
+---@param trigger table<string, unknown> { warp: table<string, unknown> } -- scripted warps carry no trigger classification
 ---@param facing FieldDirection
 function FieldTransition:startCoveredSwap(sourceMap, trigger, facing)
   beginTransition(self, sourceMap, trigger, facing)

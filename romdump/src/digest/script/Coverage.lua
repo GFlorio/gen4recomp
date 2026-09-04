@@ -10,10 +10,10 @@ local CommandCatalog = require("romdump.src.digest.script.CommandCatalog")
 local Coverage = {}
 
 -- Build the JSON-shaped coverage record for one member.
----@param memberIr table
----@param results table script index -> { script, lowered, report, resource }
----@param source table { repository, romSha1 }
----@return table record
+---@param memberIr table<string, unknown>
+---@param results table<string, unknown> script index -> { script, lowered, report, resource }
+---@param source table<string, unknown> { repository, romSha1 }
+---@return table<string, unknown> record
 function Coverage.record(memberIr, results, source)
   local totals = {
     members = 1,
@@ -119,7 +119,7 @@ end
 
 -- Aggregate per-member records into one corpus record.
 ---@param records table[]
----@return table record
+---@return table<string, unknown> record
 function Coverage.aggregate(records)
   local totals = {
     members = 0,
@@ -172,7 +172,7 @@ function Coverage.aggregate(records)
 end
 
 -- Deterministic Markdown summary.
----@param record table
+---@param record table<string, unknown>
 ---@return string
 function Coverage.markdown(record)
   local lines = {}

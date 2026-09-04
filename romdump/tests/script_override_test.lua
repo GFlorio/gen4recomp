@@ -159,7 +159,6 @@ function T.tests.generated_unsupported_node_is_a_scheduler_fault()
   local registry = ScriptLoader.buildRegistry(cache, productionFs())
   local composition = Composition.new(registry)
   local services = FakeServices.new()
-  ---@diagnostic disable-next-line: missing-fields -- focused scheduler test double
   services.signpost = {
     setSourceAppearance = function() end,
     setCommand = function() end,

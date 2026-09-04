@@ -73,8 +73,8 @@ end
 local FIXED_TYPES = { [2] = "on_transition", [3] = "on_resume", [4] = "on_load" }
 
 ---@param bytes string
----@param opts table|nil { mapId: integer, memberId: integer, scriptBankId: integer }
----@return table
+---@param opts table<string, unknown>|nil { mapId: integer, memberId: integer, scriptBankId: integer }
+---@return table<string, unknown>
 function ScriptHeader.parse(bytes, opts)
   assert(type(bytes) == "string", "script header bytes must be a string")
   opts = opts or {}

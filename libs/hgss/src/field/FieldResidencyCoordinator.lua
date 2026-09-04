@@ -79,7 +79,7 @@ function FieldResidencyCoordinator:_desiredIds(descriptors)
   return result
 end
 
----@param options table
+---@param options table<string, unknown>
 ---@return FieldResidencyCoordinator
 function FieldResidencyCoordinator.new(options)
   assert(type(options) == "table", "field residency coordinator options required")
@@ -198,7 +198,8 @@ function FieldResidencyCoordinator:initialize()
 end
 
 ---@return integer
-function FieldResidencyCoordinator:updatePrefetch()
+---@param _ integer? legacy caller budget, intentionally ignored
+function FieldResidencyCoordinator:updatePrefetch(_)
   assert(not self.disposed and self.initialized, "field residency coordinator is not ready")
   local completed = 0
   if self.coverage then
@@ -413,8 +414,8 @@ function FieldResidencyCoordinator:commitTransition(transaction)
 end
 
 ---@param player FieldResidencyPlayer
----@param context table?
----@return FieldZoneChange|table
+---@param context table<string, unknown>?
+---@return FieldZoneChange|table<string, unknown>
 function FieldResidencyCoordinator:afterCommittedMove(player, context)
   assert(not self.disposed and self.initialized, "field residency coordinator is not ready")
   context = context or {}
@@ -455,7 +456,7 @@ function FieldResidencyCoordinator:afterCommittedMove(player, context)
   return result or self:status()
 end
 
----@return table
+---@return table<string, unknown>
 function FieldResidencyCoordinator:status()
   local residentMapIds = {}
   for mapId in pairs(self.residents) do

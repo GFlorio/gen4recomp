@@ -14,9 +14,9 @@ local FadeTask = {}
 FadeTask.type = "fade"
 FadeTask.version = 1
 
----@param _ table
----@param ctx table
----@return table state
+---@param _ table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function FadeTask.create(_, ctx)
   local screen = ctx.services.screen
   if screen == nil then
@@ -37,9 +37,9 @@ function FadeTask.create(_, ctx)
   return {}
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function FadeTask.poll(state, ctx)
   local screen = ctx.services.screen
   if screen == nil then
@@ -56,13 +56,13 @@ function FadeTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function FadeTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function FadeTask.validate(state)
   if type(state) ~= "table" then

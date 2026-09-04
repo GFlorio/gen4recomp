@@ -133,7 +133,7 @@ end
 ---@param waveId integer
 ---@param bankId integer
 ---@param slot integer
----@return table
+---@return table<string, unknown>
 function WaveCache:swarFor(waveId, bankId, slot)
   local swar = self.swars[waveId]
   if swar ~= nil then
@@ -415,10 +415,10 @@ local function _compile(romFs, sha1hex, hashLua)
   }
 end
 
----@param romFs table
+---@param romFs table<string, unknown>
 ---@param sha1hex? fun(bytes: string): string
 ---@param hashLua? fun(value: any): string
----@return table?|nil
+---@return table<string, unknown>?|nil
 ---@return Errors.Error?|nil
 function AudioCompiler.compile(romFs, sha1hex, hashLua)
   local ok, result = pcall(_compile, romFs, sha1hex, hashLua)

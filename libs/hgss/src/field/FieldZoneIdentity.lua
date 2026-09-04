@@ -27,7 +27,7 @@ end
 -- active map, and a coordinate with no physical header resolves to nil so
 -- callers preserve their existing out-of-coverage behavior. Resolving
 -- identity reads coverage only and never acquires a logical map.
----@param coverage table coverage exposing mapHeaderAt(fieldX, fieldZ)
+---@param coverage table<string, unknown> coverage exposing mapHeaderAt(fieldX, fieldZ)
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@param currentMapId integer

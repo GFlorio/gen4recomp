@@ -127,7 +127,6 @@ end
 local function recordingSound(provider, player)
   ---@class RecordingSound : GameSound
   ---@field _spy { moves: table[], stops: table[], fades: table[], plays: table[], playWithBankCalls: table[] }
-  ---@diagnostic disable-next-line: missing-fields -- test double wraps real GameSound
   local sound = GameSound.new({ provider = provider, player = player }) --[[@as RecordingSound]]
   local spy = { moves = {}, stops = {}, fades = {}, plays = {}, playWithBankCalls = {} }
   local origPlayMusic = sound.playMusic
@@ -197,10 +196,9 @@ local function gameplayPlayer(fieldX, fieldZ)
 end
 
 ---@param fieldData table
----@return RuntimeFieldMap
+---@return FieldAudioController.RuntimeMap
 local function runtimeMap(fieldData)
-  ---@diagnostic disable-next-line: missing-fields -- focused audio runtime-map fixture
-  return { fieldData = fieldData } --[[@as RuntimeFieldMap]]
+  return { fieldData = fieldData }
 end
 
 local function prewarmProvider()
@@ -593,7 +591,6 @@ function T.prepared_map_music_loads_only_sequence_and_bank_metadata()
   controller._environment = { sequence = 30 }
   controller._pendingFieldMusicPolicy = pending
 
-  ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
   local prewarmMapMusic = controller.prewarmMapMusic
   Assert.isTrue(
     type(prewarmMapMusic) == "function",
@@ -632,7 +629,6 @@ function T.prewarming_does_not_decode_samples_or_pin_stale_music_policy()
     traversalOverrides = {},
   })
 
-  ---@diagnostic disable-next-line: undefined-field -- acceptance contract is authored before production implementation
   local prewarmMapMusic = controller.prewarmMapMusic
   Assert.isTrue(
     type(prewarmMapMusic) == "function",
@@ -1203,8 +1199,10 @@ function T.audio_owned_traversal_mutation_is_not_a_supported_operation()
       return fd
     end,
   })
-  ---@diagnostic disable-next-line: undefined-field -- negative test: traversal setter must not exist
-  Assert.isTrue(controller.setTraversalMode == nil, "controller must not expose an audio-owned traversal setter")
+  Assert.isTrue(
+    rawget(controller, "setTraversalMode") == nil,
+    "controller must not expose an audio-owned traversal setter"
+  )
 end
 
 return { tests = T }

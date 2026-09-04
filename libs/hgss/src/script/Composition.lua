@@ -46,12 +46,12 @@ function Composition.registerTasks(registry)
   return registry
 end
 
----@return table
+---@return table<string, unknown>
 function Composition.builtins()
   return BuiltinScripts
 end
 
----@return table
+---@return table<string, unknown>
 function Composition.semantics()
   return RuntimeValues
 end

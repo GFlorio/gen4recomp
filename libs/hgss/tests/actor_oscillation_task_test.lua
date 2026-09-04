@@ -21,9 +21,9 @@ local function harness()
   local registry = Registry.new()
   local composition = Composition.new(registry)
   local taskRegistry = TaskRegistry.new()
-  ---@diagnostic disable-next-line: param-type-mismatch
+  ---@diagnostic disable-next-line: param-type-mismatch -- test deliberately exercises an invalid call
   taskRegistry:register(ActorOscillationTask.type, ActorOscillationTask.version, ActorOscillationTask)
-  ---@diagnostic disable-next-line: param-type-mismatch
+  ---@diagnostic disable-next-line: param-type-mismatch -- test deliberately exercises an invalid call
   taskRegistry:register("wait_ticks", 1, WaitTicksTask)
   local recorder = Diagnostics.newTraceRecorder()
   local scheduler = Scheduler.new({
@@ -82,7 +82,6 @@ T["Burned Tower oscillation matches source"] = function()
   local offsets = {}
   for i = 1, 8 do
     h.scheduler:step(100 + i, nil)
-    ---@diagnostic disable-next-line: undefined-field
     local off = h.services.actors.actors.suicune.presentationOffset
     -- while active, offset is stored; after completion it should be zero
     if task.status == "active" or i < 8 then
@@ -211,9 +210,7 @@ end
 T["oscillation writes and clears shared actor presentation offsets"] = function()
   local h = harness()
   h.services.actors:add("dancer", { fieldX = 0, fieldZ = 0, facing = "south" })
-  ---@diagnostic disable-next-line: undefined-field
   local initial =
-    ---@diagnostic disable-next-line: undefined-field
     assert(h.services.actors.actors.dancer.presentationOffset, "the shared fake owns a presentation offset")
   Assert.deepEqual(initial, { x = 0, y = 0, z = 0 })
   local resource = script("test.shared_offset_complete", { S.waitTicks({ ticks = 20 }) })
@@ -233,13 +230,11 @@ T["oscillation writes and clears shared actor presentation offsets"] = function(
   local task = assert(h.scheduler:taskById(taskId))
   h.scheduler:step(101, nil)
   h.scheduler:step(102, nil)
-  ---@diagnostic disable-next-line: undefined-field
   Assert.near(h.services.actors.actors.dancer.presentationOffset.x, 0.125, 1e-9)
   for tick = 103, 108 do
     h.scheduler:step(tick, nil)
   end
   Assert.equal(task.status, "completed")
-  ---@diagnostic disable-next-line: undefined-field
   Assert.deepEqual(h.services.actors.actors.dancer.presentationOffset, { x = 0, y = 0, z = 0 })
 
   local c = harness()
@@ -260,10 +255,8 @@ T["oscillation writes and clears shared actor presentation offsets"] = function(
   }, instance2, 200, nil)
   c.scheduler:step(201, nil)
   c.scheduler:step(202, nil)
-  ---@diagnostic disable-next-line: undefined-field
   Assert.near(c.services.actors.actors.spinner.presentationOffset.x, 0.125, 1e-9)
   c.scheduler:cancelEnvironment(assert(c.scheduler:foregroundEnvironmentId()), "test cancel")
-  ---@diagnostic disable-next-line: undefined-field
   Assert.deepEqual(c.services.actors.actors.spinner.presentationOffset, { x = 0, y = 0, z = 0 })
 end
 
@@ -280,7 +273,6 @@ T["literal and referenced amplitudes share the same displacement unit"] = functi
     h.scheduler:step(100, nil)
     h.scheduler:step(101, nil)
     h.scheduler:step(102, nil)
-    ---@diagnostic disable-next-line: undefined-field
     return h.services.actors.actors[actorId].presentationOffset.x
   end
   local literalPeak = peakFor("test.osc_literal_unit", "literal_dancer", {

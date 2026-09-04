@@ -35,7 +35,7 @@ end
 
 ---@param mapRecord { scriptsMemberId: integer }
 ---@param coordinateEvent { scriptId: integer }
----@return string|nil, table|nil
+---@return string|nil, table<string, unknown>|nil
 function VanillaBindingIdentity.expectedCoordinateTarget(mapRecord, coordinateEvent)
   assert(type(mapRecord) == "table", "mapRecord must be a table")
   assert(type(coordinateEvent) == "table", "coordinateEvent must be a table")
@@ -52,7 +52,7 @@ end
 ---@param target string
 ---@param mapRecord { scriptsMemberId: integer }
 ---@param coordinateEvent { scriptId: integer }
----@return boolean|nil, table|nil
+---@return boolean|nil, table<string, unknown>|nil
 function VanillaBindingIdentity.validateCoordinateTarget(mapId, eventIndex, target, mapRecord, coordinateEvent)
   if VanillaBindingIdentity.parseCanonicalTarget(target) == nil then
     return true

@@ -121,7 +121,7 @@ end
 ---@param source { archive: RomFs.Narc, archiveInfo: RomFs.NarcInfo, archiveSha1: string }
 ---@param glyphMemberId integer
 ---@param sha1hex fun(bytes: string): string
----@return table
+---@return table<string, unknown>
 local function decodeFontSource(source, glyphMemberId, sha1hex)
   local glyphMember = must(source.archive:readMember(glyphMemberId))
   local focusMember = must(source.archive:readMember(manifest.fontFocusIndicatorMember))
@@ -169,7 +169,7 @@ local function decodeFontSource(source, glyphMemberId, sha1hex)
   }
 end
 
----@param font table
+---@param font table<string, unknown>
 ---@param palette { r: integer, g: integer, b: integer }[]
 ---@return string atlasBytes
 ---@return string maskAtlasBytes
@@ -238,7 +238,7 @@ end
 ---@param focusChars { depth: integer, tiles: string }
 ---@param palette { r: integer, g: integer, b: integer }[]
 ---@param fontId integer
----@return table indicators
+---@return table<string, unknown> indicators
 ---@return string imageBytes
 local function buildFocusIndicators(focusChars, palette, fontId)
   local function focusPixel(field, x, y)
@@ -297,9 +297,9 @@ local function buildFocusIndicators(focusChars, palette, fontId)
   return indicators, PngWriter.encode(focusImageWidth, FOCUS_FRAME_HEIGHT, concatRgba(focusRgba))
 end
 
----@param font table
+---@param font table<string, unknown>
 ---@param perRow integer
----@return table
+---@return table<string, unknown>
 local function buildGlyphDefinitions(font, perRow)
   local function glyphQuad(glyphIndex)
     local col = glyphIndex % perRow
@@ -349,7 +349,7 @@ end
 ---@param fontId integer
 ---@param glyphMemberId integer
 ---@param sha1hex fun(bytes: string): string
----@return table, table
+---@return table<string, unknown>, table<string, unknown>
 local function compileFont(source, fontId, glyphMemberId, sha1hex)
   local data = decodeFontSource(source, glyphMemberId, sha1hex)
   local font, palette = data.font, data.palette
@@ -477,7 +477,7 @@ end
 ---@class FieldFontCompiler.Bundle
 ---@field marker string
 ---@field fonts table<integer, { fontId: integer, font: FieldFontDef, atlas: string, maskAtlas: string, focusIndicators: string }>
----@field dependencies table
+---@field dependencies table<string, unknown>
 
 -- The g4-field-font-v3 runtime definition consumed by the dialogue layout and
 -- renderer: geometry, per-code glyph quads/advances, the stacked color-band
@@ -501,6 +501,6 @@ end
 ---@field glyphs table<integer, { x: integer, y: integer, w: integer, h: integer, advance: integer, bearingX: integer, bearingY: integer }>
 ---@field charmap table<string, integer>
 ---@field palette { r: integer, g: integer, b: integer }[]
----@field source table
+---@field source table<string, unknown>
 
 return FieldFontCompiler

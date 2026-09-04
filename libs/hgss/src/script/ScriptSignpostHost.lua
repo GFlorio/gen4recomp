@@ -10,7 +10,7 @@
 
 ---@class ScriptSignpostHost
 ---@field private _controller FieldSignpostController
----@field private _resolveMessage fun(message: any, bindings: table, textArgs: table): FieldMessageProvider.FormattedMessage
+---@field private _resolveMessage fun(message: any, bindings: table<string, unknown>, textArgs: table<string, unknown>): FieldMessageProvider.FormattedMessage
 local ScriptSignpostHost = {}
 ScriptSignpostHost.__index = ScriptSignpostHost
 
@@ -20,8 +20,8 @@ ScriptSignpostHost.__index = ScriptSignpostHost
 -- propagates. A successful print leaves normal signpost/task ownership
 -- untouched.
 ---@param message any
----@param bindings table
----@param textArgs table
+---@param bindings table<string, unknown>
+---@param textArgs table<string, unknown>
 ---@param printStart fun(formatted: FieldMessageProvider.FormattedMessage)
 function ScriptSignpostHost:_startPrintTransaction(message, bindings, textArgs, printStart)
   local ok, err = pcall(function()
@@ -36,7 +36,7 @@ function ScriptSignpostHost:_startPrintTransaction(message, bindings, textArgs, 
   end
 end
 
----@param opts table { controller, resolveMessage }
+---@param opts table<string, unknown> { controller, resolveMessage }
 ---@return ScriptSignpostHost
 function ScriptSignpostHost.new(opts)
   assert(
@@ -89,8 +89,8 @@ end
 -- direction-signpost path): resolve and expand, then print. The request is
 -- presentation-neutral; text colors are the style's, never the host's.
 ---@param message any
----@param bindings table|nil
----@param textArgs table|nil
+---@param bindings table<string, unknown>|nil
+---@param textArgs table<string, unknown>|nil
 function ScriptSignpostHost:printInstant(message, bindings, textArgs)
   local controller = self._controller
   self:_startPrintTransaction(message, bindings or {}, textArgs or {}, function(formatted)
@@ -102,8 +102,8 @@ end
 -- cadence is injected into the controller at construction from the single
 -- PlayerData authority; the host never chooses one.
 ---@param message any
----@param bindings table|nil
----@param textArgs table|nil
+---@param bindings table<string, unknown>|nil
+---@param textArgs table<string, unknown>|nil
 function ScriptSignpostHost:printTyped(message, bindings, textArgs)
   local controller = self._controller
   self:_startPrintTransaction(message, bindings or {}, textArgs or {}, function(formatted)
@@ -141,7 +141,7 @@ end
 -- One fixed scheduler tick: the controller executes its current command and
 -- advances its printer. The scheduler calls this from its engine-owned
 -- advanceAsync callback once per tick.
----@param input table|nil
+---@param input table<string, unknown>|nil
 function ScriptSignpostHost:advance(input)
   self._controller:updateFixed(input)
 end

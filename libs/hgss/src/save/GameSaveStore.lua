@@ -144,19 +144,19 @@ local function emptyCatalog()
 end
 
 ---@class GameSaveStoreModule
----@field new fun(saveFs: SaveFs, opts: table?): GameSaveStore
+---@field new fun(saveFs: SaveFs, opts: table<string, unknown>?): GameSaveStore
 ---@class GameSaveStore
 ---@field saveFs SaveFs
----@field opts table
+---@field opts table<string, unknown>
 ---@field private _busy boolean
 ---@field reserve fun(self: GameSaveStore): string
 ---@field list fun(self: GameSaveStore): table[]
----@field load fun(self: GameSaveStore, saveId: string): table?, Errors.Error?
----@field publishFirst fun(self: GameSaveStore, record: table): boolean
----@field save fun(self: GameSaveStore, record: table): boolean
+---@field load fun(self: GameSaveStore, saveId: string): table<string, unknown>?, Errors.Error?
+---@field publishFirst fun(self: GameSaveStore, record: table<string, unknown>): boolean
+---@field save fun(self: GameSaveStore, record: table<string, unknown>): boolean
 ---@field delete fun(self: GameSaveStore, saveId: string): boolean
 ---@param saveFs SaveFs
----@param opts table?
+---@param opts table<string, unknown>?
 ---@return GameSaveStore
 function GameSaveStore.new(saveFs, opts)
   assert(
@@ -315,7 +315,7 @@ function GameSaveStore:list()
 end
 
 ---@param saveId string
----@return table|nil, Errors.Error?
+---@return table<string, unknown>|nil, Errors.Error?
 function GameSaveStore:load(saveId)
   local valid, idErr = GameSave.validateSaveId(saveId)
   if not valid then
@@ -334,7 +334,7 @@ function GameSaveStore:load(saveId)
   error(recordOrError)
 end
 
----@param record table
+---@param record table<string, unknown>
 ---@return boolean
 function GameSaveStore:publishFirst(record)
   return self:_mutate(function()
@@ -396,7 +396,7 @@ function GameSaveStore:publishFirst(record)
   end)
 end
 
----@param record table
+---@param record table<string, unknown>
 ---@return boolean
 function GameSaveStore:save(record)
   return self:_mutate(function()

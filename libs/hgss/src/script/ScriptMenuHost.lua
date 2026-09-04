@@ -8,7 +8,7 @@ local MenuProtocol = require("libs.assets.src.MenuProtocol")
 
 ---@class ScriptMenuHost
 ---@field _provider FieldMessageProvider
----@field _resolveText fun(message: any): table|nil
+---@field _resolveText fun(message: any): table<string, unknown>|nil
 local ScriptMenuHost = {}
 ScriptMenuHost.__index = ScriptMenuHost
 
@@ -39,7 +39,7 @@ end
 ---@param self ScriptMenuHost
 ---@param source any
 ---@param messageId integer
----@return table
+---@return table<string, unknown>
 local function resolveMessage(self, source, messageId)
   local bankId = messageBank(source)
   local acquired, bankErr = self._provider:acquireBank(bankId)
@@ -75,7 +75,7 @@ local function resolveSemanticText(self, message)
         context
       )
     end
-    ---@cast resolveText fun(message: any): table|nil
+    ---@cast resolveText fun(message: any): table<string, unknown>|nil
     local text = resolveText(message)
     if type(text) ~= "table" or type(text.text) ~= "string" then
       local context = { message = message }
@@ -91,7 +91,7 @@ local function resolveSemanticText(self, message)
   return { text = message }
 end
 
----@param opts table { provider, resolveText?: fun(message: any): table }
+---@param opts table<string, unknown> { provider, resolveText?: fun(message: any): table<string, unknown> }
 ---@return ScriptMenuHost
 function ScriptMenuHost.new(opts)
   assert(type(opts) == "table" and opts.provider, "script menu host requires a message provider")
@@ -108,7 +108,7 @@ end
 -- Publishes one semantic mod menu without entering the imported-HGSS builder
 -- state. A project may supply its dialogue resolver; bare strings remain
 -- useful as local text in isolated tools and tests.
----@param spec table
+---@param spec table<string, unknown>
 ---@return any menuController
 function ScriptMenuHost:choose(spec)
   assert(type(spec) == "table" and type(spec.items) == "table", "semantic menu specification is invalid")
@@ -135,8 +135,8 @@ end
 
 -- Starts one source-faithful builder. `messageSource` deliberately retains
 -- the distinction between standard/global and current-script message banks.
----@param spec table
----@return table builder
+---@param spec table<string, unknown>
+---@return table<string, unknown> builder
 function ScriptMenuHost:beginMenu(spec)
   assert(type(spec) == "table", "script menu specification must be a table")
   messageBank(spec.messageSource)
@@ -176,13 +176,13 @@ function ScriptMenuHost:beginMenu(spec)
   }
 end
 
----@param builder table|nil imported HGSS menu builder owned by a ScriptInstance
----@param item table { messageId, vanillaMetadata, value }
+---@param builder table<string, unknown>|nil imported HGSS menu builder owned by a ScriptInstance
+---@param item table<string, unknown> { messageId, vanillaMetadata, value }
 function ScriptMenuHost:addItem(builder, item)
   if builder == nil then
     Errors.raise(ScriptErrors.SCRIPT_MENU_NOT_INITIALIZED, "script menu item added without a menu builder")
   end
-  ---@cast builder table
+  ---@cast builder table<string, unknown>
   assert(type(item) == "table", "script menu item must be a table")
   assertInteger(item.messageId, "script menu message id")
   assert(item.vanillaMetadata ~= nil, "script menu vanilla metadata is required")
@@ -197,13 +197,13 @@ end
 -- Resolves every builder entry before publication. Bank acquisitions are
 -- released after each lookup; on any failure no controller request is made
 -- and the builder remains available for diagnostic inspection by its caller.
----@param builder table|nil imported HGSS menu builder owned by a ScriptInstance
+---@param builder table<string, unknown>|nil imported HGSS menu builder owned by a ScriptInstance
 ---@return any menuController
 function ScriptMenuHost:execute(builder)
   if builder == nil then
     Errors.raise(ScriptErrors.SCRIPT_MENU_NOT_INITIALIZED, "script menu executed without a menu builder")
   end
-  ---@cast builder table
+  ---@cast builder table<string, unknown>
   if #builder.items == 0 then
     Errors.raise(ScriptErrors.SCRIPT_MENU_EMPTY, "script menu has no items")
   end

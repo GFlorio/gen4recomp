@@ -226,7 +226,7 @@ end
 -- Resolve the tick duration of one movement action. The
 -- speed/distance enums are schema-constrained, so an unknown value is a
 -- programming invariant violation, never a silent default.
----@param action table
+---@param action table<string, unknown>
 ---@return integer
 function MovementCalibration.actionTicks(action)
   local kind = action.action

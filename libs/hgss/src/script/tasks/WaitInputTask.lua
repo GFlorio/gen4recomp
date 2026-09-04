@@ -14,9 +14,9 @@ local WaitInputTask = {}
 WaitInputTask.type = "wait_input"
 WaitInputTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function WaitInputTask.create(spec, ctx)
   local node = spec.node or {}
   local buttons = node.buttons or { "a", "b" }
@@ -38,8 +38,8 @@ end
 -- Read one immutable input edge: the action/cancel buttons (the fixed-tick
 -- snapshot's pressedAction/pressedCancel) and optionally the pressed
 -- direction.
----@param state table
----@param ctx table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
 ---@return string|nil a|b|direction
 local function readEdge(state, ctx)
   local input = ctx.input or {}
@@ -61,9 +61,9 @@ local function readEdge(state, ctx)
   return nil
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function WaitInputTask.poll(state, ctx)
   local edge = readEdge(state, ctx)
   if edge ~= nil then
@@ -81,13 +81,13 @@ function WaitInputTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function WaitInputTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function WaitInputTask.validate(state)
   if type(state) ~= "table" or type(state.buttons) ~= "table" then

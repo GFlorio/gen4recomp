@@ -58,7 +58,7 @@ local function validateColor(value, name)
 end
 
 ---@param spec { rect: {x:number,y:number,width:number,height:number}, scale: number }
----@return table
+---@return table<string, unknown>
 function ImageButton.resolve(spec)
   assert(type(spec) == "table", "image button specification is required")
   local rectValue = rectangle(spec.rect, "image button rectangle")
@@ -78,9 +78,9 @@ function ImageButton.resolve(spec)
   return resolved
 end
 
----@param graphics table
----@param button table
----@param spec { selected: boolean, colors: {face:number[], border?:number[], rim?:number[], selectedRim?:number[], innerBorder?:number[]}, imageRect: {x:number,y:number,width:number,height:number}, drawImage: fun(rect:table)}
+---@param graphics table<string, unknown>
+---@param button table<string, unknown>
+---@param spec { selected: boolean, colors: {face:number[], border?:number[], rim?:number[], selectedRim?:number[], innerBorder?:number[]}, imageRect: {x:number,y:number,width:number,height:number}, drawImage: fun(rect:table<string, unknown>)}
 function ImageButton.draw(graphics, button, spec)
   assert(type(graphics) == "table", "image button graphics is required")
   assert(type(graphics.setColor) == "function", "image button graphics setColor is required")

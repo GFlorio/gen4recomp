@@ -56,7 +56,6 @@ function T.generated_cursor_placement_maps_to_the_local_strip_without_a_fallback
 
   Assert.isFalse(
     pcall(function()
-      ---@diagnostic disable-next-line: missing-parameter
       DialoguePresentationLayout.compute({ x = 0, y = 0, width = 640, height = 480 })
     end),
     "missing generated cursor placement must not select a layout fallback"

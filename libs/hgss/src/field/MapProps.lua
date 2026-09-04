@@ -70,9 +70,9 @@ local DoorSound = require("libs.hgss.src.field.DoorSound")
 local ANIMATION_CATEGORIES = { AnimationClip.CATEGORIES.joint, AnimationClip.CATEGORIES.material }
 
 ---@class MapProps
----@field placements table -- scene placement records (read only after assembly)
----@field placementIndex table -- [placementIndex] = { modelKey }
----@field doorIndex table -- ["localX:localZ"] = { placementIndex, modelKey, doorSoundType, roles, animation }
+---@field placements table<string, unknown> -- scene placement records (read only after assembly)
+---@field placementIndex table<string, unknown> -- [placementIndex] = { modelKey }
+---@field doorIndex table<string, unknown> -- ["localX:localZ"] = { placementIndex, modelKey, doorSoundType, roles, animation }
 ---@field instances { [integer]: ModelInstance|nil }
 local MapProps = {}
 MapProps.__index = MapProps
@@ -191,7 +191,7 @@ end
 -- within DOOR_TIE_EPSILON_SQ) and missing coverage (a door tile with no
 -- placement at all, or none within MAX_DOOR_PIVOT_DISTANCE_TILES) raise
 -- here, once, as generated-data failures rather than per-lookup surprises.
----@param opts { placements: table, instances: { [integer]: table|nil }, doorTiles: { x: integer, z: integer }[] }
+---@param opts { placements: table<string, unknown>, instances: { [integer]: table<string, unknown>|nil }, doorTiles: { x: integer, z: integer }[] }
 ---@return MapProps
 function MapProps.new(opts)
   assert(opts and opts.placements and opts.instances and opts.doorTiles, "map props options required")
@@ -242,12 +242,12 @@ end
 ---@class MapDoor
 ---@field x integer
 ---@field z integer
----@field warp table -- the warp record at the door tile
+---@field warp table<string, unknown> -- the warp record at the door tile
 ---@field placementIndex integer
 ---@field modelKey string
 ---@field doorSoundType integer|nil
----@field instance table|nil
----@field entry table -- the retained index record ({ animation = handle|nil, roles = ... })
+---@field instance table<string, unknown>|nil
+---@field entry table<string, unknown> -- the retained index record ({ animation = handle|nil, roles = ... })
 local MapDoor = {}
 MapDoor.__index = MapDoor
 
@@ -355,7 +355,7 @@ end
 -- does not cover it. `instance` is read live from the current instance
 -- table, so a door whose model loses its animated instance after assembly
 -- resolves statically.
----@param runtimeMap table
+---@param runtimeMap table<string, unknown>
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@return MapDoor?
@@ -401,7 +401,7 @@ end
 ---@class SceneProp
 ---@field placementIndex integer
 ---@field modelKey string
----@field instance table|nil
+---@field instance table<string, unknown>|nil
 ---@field pause nil -- deliberately absent: no production caller
 ---@field resume nil
 ---@field setDirection nil

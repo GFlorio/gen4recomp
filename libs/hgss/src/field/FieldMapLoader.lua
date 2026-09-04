@@ -18,13 +18,13 @@ local FieldCellCache = require("libs.assets.src.FieldCellCache")
 
 ---@class FieldMapLoader
 ---@field cacheFs CacheFs
----@field world table
+---@field world table<string, unknown>
 ---@field capacity integer
----@field sceneLoader table|nil presentation-only visual scene loader
----@field neighborLoader table|nil presentation-only finite neighbor-ring loader
----@field sceneOptions table|nil options passed to physical-cell presentation loading
----@field fieldCellIndex table?
----@field entries table<integer, table>
+---@field sceneLoader table<string, unknown>|nil presentation-only visual scene loader
+---@field neighborLoader table<string, unknown>|nil presentation-only finite neighbor-ring loader
+---@field sceneOptions table<string, unknown>|nil options passed to physical-cell presentation loading
+---@field fieldCellIndex table<string, unknown>?
+---@field entries table<integer, table<string, unknown>>
 ---@field protectedMaps table<integer, boolean>
 ---@field clock integer
 ---@field released boolean
@@ -35,27 +35,27 @@ FieldMapLoader.__index = FieldMapLoader
 ---@field mapId integer
 ---@field mapSymbol string
 ---@field mapSection string
----@field sceneRuntime table|nil presentation-only visual scene runtime
+---@field sceneRuntime table<string, unknown>|nil presentation-only visual scene runtime
 ---@field mapProps MapProps? semantic door/prop resolver; present for logical (non-outdoor) maps, which load an eager central collision regardless of presentation
----@field scene table
----@field fieldData table
----@field collision table?
+---@field scene table<string, unknown>
+---@field fieldData table<string, unknown>
+---@field collision table<string, unknown>?
 ---@field terrain TerrainSurface?
 ---@field terrainDependencyHash string?
----@field fieldRegion table?
+---@field fieldRegion table<string, unknown>?
 ---@field cameraType integer
 ---@field coordinateOrigin { x: integer, z: integer }
 ---@field physicalOrigin { x: number, y: number, z: number }?
----@field neighborRuntime table?
+---@field neighborRuntime table<string, unknown>?
 ---@field coverage FieldCoverage? only on a session-owned composed field view
----@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer, context: PhysicalProbeContext?): table?|nil
+---@field probePhysicalCell fun(self: RuntimeFieldMap, fieldX: integer, fieldZ: integer, context: PhysicalProbeContext?): table<string, unknown>?|nil
 ---@field release fun(self: RuntimeFieldMap)
 ---@field updateAnimated fun(self: RuntimeFieldMap)
 ---@field syncPhysicalFields fun(self: RuntimeFieldMap)|nil
 
----@param world table
+---@param world table<string, unknown>
 ---@param idOrSymbol string|integer
----@return table?
+---@return table<string, unknown>?
 local function findRecord(world, idOrSymbol)
   local mapId
   if type(idOrSymbol) == "string" then
@@ -75,9 +75,9 @@ local function findRecord(world, idOrSymbol)
   return index and world.maps[index] or nil
 end
 
----@param world table
+---@param world table<string, unknown>
 ---@param idOrSymbol string|integer
----@return table
+---@return table<string, unknown>
 local function worldRecord(world, idOrSymbol)
   local record = findRecord(world, idOrSymbol)
   if not record then
@@ -89,7 +89,7 @@ end
 ---@param cacheFs CacheFs
 ---@param path string
 ---@param code string
----@return table
+---@return table<string, unknown>
 local function loadRequired(cacheFs, path, code)
   local value, err = cacheFs:loadLua(path)
   if value == nil then
@@ -102,7 +102,7 @@ local function loadRequired(cacheFs, path, code)
 end
 
 ---@param cacheFs CacheFs
----@return table
+---@return table<string, unknown>
 local function loadFieldCellIndex(cacheFs)
   local path = FieldCellCache.indexPath()
   local index, err = cacheFs:loadLua(path)
@@ -228,9 +228,9 @@ end
 -- live ModelInstances into the SAME resolver instead of building a second
 -- one (MapSceneLoader:attachInstances).
 ---@param cacheFs CacheFs
----@param scene table
----@param fieldData table
----@param centralCollision table
+---@param scene table<string, unknown>
+---@param fieldData table<string, unknown>
+---@param centralCollision table<string, unknown>
 ---@return MapProps
 local function buildMapProps(cacheFs, scene, fieldData, centralCollision)
   local doorTiles = warpBearingDoorTiles(

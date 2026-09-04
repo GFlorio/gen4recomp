@@ -23,9 +23,9 @@ local TrainerTipsTask = {}
 TrainerTipsTask.type = "trainer_tips_print"
 TrainerTipsTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function TrainerTipsTask.create(spec, ctx)
   local node = assert(spec.node, "trainer tips requires its graph node")
   local host = SignpostAccess.requireSignpost(ctx)
@@ -33,9 +33,9 @@ function TrainerTipsTask.create(spec, ctx)
   return {}
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function TrainerTipsTask.poll(state, ctx)
   local host = SignpostAccess.requireSignpost(ctx)
   -- Completion wins: an edge in the tick the print finished is after the
@@ -60,14 +60,14 @@ end
 -- closing the signpost clears the printer and window, returns the command
 -- to idle, and releases modal ownership exactly once. A task that
 -- already completed owns nothing.
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function TrainerTipsTask.cancel(state, reason, ctx)
   SignpostAccess.closeOnCancel(state, reason, ctx)
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function TrainerTipsTask.validate(state)
   if type(state) ~= "table" then

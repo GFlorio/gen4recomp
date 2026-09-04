@@ -22,23 +22,23 @@ local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 ---@field fromFieldZ integer
 ---@class FieldCoverage
 ---@field cacheFs CacheFs?
----@field index table
+---@field index table<string, unknown>
 ---@field matrixMemberId integer
----@field loadCell fun(descriptor: table): table
----@field presentationLoader fun(runtime: table, descriptor: table): table?
----@field presentationTaskFactory fun(runtime: table, descriptor: table): table?
----@field cells table<string, table>
----@field prefetched table<string, table>
+---@field loadCell fun(descriptor: table<string, unknown>): table<string, unknown>
+---@field presentationLoader fun(runtime: table<string, unknown>, descriptor: table<string, unknown>): table<string, unknown>?
+---@field presentationTaskFactory fun(runtime: table<string, unknown>, descriptor: table<string, unknown>): table<string, unknown>?
+---@field cells table<string, table<string, unknown>>
+---@field prefetched table<string, table<string, unknown>>
 ---@field prefetchQueue table[]
 ---@field prefetchError unknown?
 ---@field synchronousPhysicalFallbackLoads integer
 ---@field anchorX integer
 ---@field anchorZ integer
 ---@field origin { x: number, y: number, z: number }
----@field region table
+---@field region table<string, unknown>
 ---@field terrainDependencyHash string
 ---@field released boolean
----@field pendingPrefetch table?
+---@field pendingPrefetch table<string, unknown>?
 local FieldCoverage = {}
 FieldCoverage.__index = FieldCoverage
 
@@ -892,7 +892,7 @@ end
 ---@param fieldX integer
 ---@param fieldZ integer
 ---@param context PhysicalProbeContext?
----@return table?
+---@return table<string, unknown>?
 function FieldCoverage:probe(fieldX, fieldZ, context)
   assert(type(fieldX) == "number" and fieldX % 1 == 0, "probed fieldX must be an integer")
   assert(type(fieldZ) == "number" and fieldZ % 1 == 0, "probed fieldZ must be an integer")

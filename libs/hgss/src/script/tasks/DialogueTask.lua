@@ -31,7 +31,7 @@ local PHASES = {
 -- Resolve a gendered message descriptor against the player's gender:
 -- male for gender 0, female otherwise.
 ---@param message any
----@param ctx table
+---@param ctx table<string, unknown>
 ---@return any
 local function resolveMessage(message, ctx)
   if type(message) == "table" and message.text == "gendered_message" then
@@ -41,9 +41,9 @@ local function resolveMessage(message, ctx)
   return message
 end
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function DialogueTask.create(spec, ctx)
   local node = assert(spec.node, "dialogue task requires its graph node")
   local message = resolveMessage(node.message, ctx)
@@ -61,9 +61,9 @@ function DialogueTask.create(spec, ctx)
 end
 
 -- Advance one tick of the phase machine; returns a completion record or nil.
----@param state table
----@param ctx table
----@return table|nil
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>|nil
 function DialogueTask._advance(state, ctx)
   local host = assert(ctx.services.dialogue, "dialogue task requires the dialogue host")
   local phase = state.phase
@@ -106,9 +106,9 @@ function DialogueTask._advance(state, ctx)
   )
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function DialogueTask.poll(state, ctx)
   local result = DialogueTask._advance(state, ctx)
   if result ~= nil then
@@ -117,9 +117,9 @@ function DialogueTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
----@param ctx table|nil
+---@param ctx table<string, unknown>|nil
 function DialogueTask.cancel(state, reason, ctx)
   state.cancelled = reason
   -- The host owns the engine window; leave no box open when the task is
@@ -129,7 +129,7 @@ function DialogueTask.cancel(state, reason, ctx)
   end
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function DialogueTask.validate(state)
   if type(state) ~= "table" or PHASES[state.phase] ~= true then

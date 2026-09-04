@@ -16,7 +16,7 @@ local Validate = require("libs.assets.src.Validate")
 local CompiledNsbtaClip = {}
 
 ---@class CompiledNsbtaClip
----@field validate fun(clip: table, invalid: fun(reason: string))
+---@field validate fun(clip: table<string, unknown>, invalid: fun(reason: string))
 
 local CURVE_RATES = { [1] = true, [2] = true, [4] = true }
 local STORAGES = { fx16 = true, fx32 = true }
@@ -54,9 +54,9 @@ end
 -- One compiled channel: a constant integer or a curve with a Nitro rate,
 -- limit == frameCount, an fx16/fx32 storage, and integer keys covering
 -- every reachable frame.
----@param channel table
+---@param channel table<string, unknown>
 ---@param where string
----@param clip table
+---@param clip table<string, unknown>
 ---@param invalid fun(reason: string)
 local function checkChannel(channel, where, clip, invalid)
   if type(channel) ~= "table" then
@@ -98,7 +98,7 @@ end
 -- Validate the full compiled clip contract. Raises nothing itself: every
 -- violation calls `invalid(reason)`, supplied by the owning descriptor
 -- validator so the error reports under the owner's code.
----@param clip table the compiled texture-SRT clip record
+---@param clip table<string, unknown> the compiled texture-SRT clip record
 ---@param invalid fun(reason: string) the owning validator's failure sink
 function CompiledNsbtaClip.validate(clip, invalid)
   local where = "clip " .. tostring(clip and clip.id) .. " " ---@type string

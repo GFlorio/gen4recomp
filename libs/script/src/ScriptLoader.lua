@@ -36,7 +36,7 @@ end
 ---@param content string
 ---@param chunkName string
 ---@param requireFn function
----@return table resource
+---@return table<string, unknown> resource
 local function loadResourceChunk(content, chunkName, requireFn)
   local chunk, loadErr = loadstring(content, chunkName)
   if not chunk then
@@ -67,11 +67,11 @@ end
 -- execute the restricted chunk, check the resource id against the entry, and
 -- optionally validate the schema. Returns the resource, or nil plus an Errors
 -- object on any failure.
----@param cacheFs table CacheFs-shaped
+---@param cacheFs table<string, unknown> CacheFs-shaped
 ---@param id string
 ---@param requireFn fun(name: string): any|nil defaults to the restricted gen4.script-only require
----@param opts table|nil { validate: boolean? }
----@return table|nil, Errors.Error?
+---@param opts table<string, unknown>|nil { validate: boolean? }
+---@return table<string, unknown>|nil, Errors.Error?
 function ScriptLoader.loadGenerated(cacheFs, id, requireFn, opts)
   requireFn = requireFn or defaultRequire
   opts = opts or {}
@@ -115,10 +115,10 @@ end
 -- through the build's resource loader on first access, and
 -- `opts.validateGenerated` (default true) gates per-load validation on that
 -- path; the eager path validates every loaded resource under the same flag.
----@param registry table Registry
----@param cacheFs table CacheFs-shaped
+---@param registry table<string, unknown> Registry
+---@param cacheFs table<string, unknown> CacheFs-shaped
 ---@param requireFn? fun(name: string): any
----@param opts table|nil { lazy: boolean?, validateGenerated: boolean?, builtins: table|nil }
+---@param opts table<string, unknown>|nil { lazy: boolean?, validateGenerated: boolean?, builtins: table<string, unknown>|nil }
 function ScriptLoader.installGenerated(registry, cacheFs, requireFn, opts)
   requireFn = requireFn or defaultRequire
   opts = opts or {}
@@ -177,7 +177,7 @@ end
 ---@param id string
 ---@param content string
 ---@param requireFn function
----@return table resource
+---@return table<string, unknown> resource
 function ScriptLoader.loadOverride(id, content, requireFn)
   local resource = loadResourceChunk(content, ScriptOverrides.DIR .. "/" .. id .. ".lua", requireFn)
   if resource.id ~= id then
@@ -205,8 +205,8 @@ end
 -- regenerated with the overrides, so no directory enumeration happens at
 -- runtime). The manifest is evaluated in the same restricted environment as
 -- resource chunks. Returns the ids installed, sorted.
----@param registry table Registry
----@param fs table { read(path): string? }
+---@param registry table<string, unknown> Registry
+---@param fs table<string, unknown> { read(path): string? }
 ---@param requireFn? fun(name: string): any
 ---@return string[]
 function ScriptLoader.installOverrides(registry, fs, requireFn)
@@ -245,10 +245,10 @@ end
 -- lazy path and per-file validation on the eager path. The override layer is
 -- always loaded and validated eagerly. The finished registry is sealed:
 -- installs after load finish are rejected.
----@param cacheFs table CacheFs-shaped
----@param fs table directory-shaped filesystem for data/scripts/overrides
+---@param cacheFs table<string, unknown> CacheFs-shaped
+---@param fs table<string, unknown> directory-shaped filesystem for data/scripts/overrides
 ---@param requireFn function|nil defaults to the restricted gen4.script-only require
----@param opts table|nil { lazy: boolean?, validateGenerated: boolean?, builtins: table|nil }
+---@param opts table<string, unknown>|nil { lazy: boolean?, validateGenerated: boolean?, builtins: table<string, unknown>|nil }
 ---@return Registry registry
 function ScriptLoader.buildRegistry(cacheFs, fs, requireFn, opts)
   opts = opts or {}

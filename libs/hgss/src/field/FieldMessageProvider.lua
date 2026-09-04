@@ -11,9 +11,9 @@ local FieldMessageText = require("libs.assets.src.FieldMessageText")
 ---@class FieldMessageProvider
 ---@field private _cacheFs CacheFs
 ---@field private _maxCachedBanks integer
----@field private _banks table<integer, table>
+---@field private _banks table<integer, table<string, unknown>>
 ---@field private _order integer[]
----@field private _stats table
+---@field private _stats table<string, unknown>
 local FieldMessageProvider = {}
 FieldMessageProvider.__index = FieldMessageProvider
 
@@ -57,8 +57,8 @@ local DEFAULT_MAX_CACHED_BANKS = 4
 local COLOR_SAVE_BASE = 100
 local COLOR_SWAP = 0xFF
 
----@param cacheFs table CacheFs-shaped
----@param opts table|nil
+---@param cacheFs table<string, unknown> CacheFs-shaped
+---@param opts table<string, unknown>|nil
 ---@return FieldMessageProvider
 function FieldMessageProvider.new(cacheFs, opts)
   opts = opts or {}

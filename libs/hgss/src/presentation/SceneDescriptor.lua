@@ -67,12 +67,13 @@ end
 -- records are read-only, and the loaders construct separate mutable runtime
 -- tables (image, texMatrix) before any mutation. The srt and textureSwap
 -- tables are referenced, not copied -- the runtime treats them as immutable.
----@param list table[]
----@return table<number, table>
+---@param list unknown
+---@return table<number, table<string, unknown>>
 function SceneDescriptor.materials(list)
   if type(list) ~= "table" then
     Errors.raise(ErrorCodes.SCENE_DESC_BAD_MATERIALS, "a material list is required", {})
   end
+  ---@cast list table[]
   local byId = {}
   for _, record in ipairs(list) do
     SceneDescriptor.wrap(record)

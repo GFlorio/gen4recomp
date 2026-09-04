@@ -49,7 +49,6 @@ function T.tests.weather_and_map_music_use_the_injected_local_clock()
       },
     }, { localClock = clock })
     Assert.deepEqual(runtime.weatherClock:today(), { month = 2, day = 29 })
-    ---@diagnostic disable-next-line: missing-fields -- the test only exercises the injected world loader
     runtime:_composeAudio({
       loadLua = function()
         return {}

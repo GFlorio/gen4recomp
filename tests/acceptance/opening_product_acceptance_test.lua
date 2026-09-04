@@ -293,7 +293,6 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     App.state = nil
     App._bootMainMenu({ AcceptanceHarness.defaultVersion() })
     Assert.equal(App.state.state:view().kind, "main_menu")
-    ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 0)
     press("a")
     withDrawRecorder(handoffDraws, function()
@@ -339,7 +338,6 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
       tick(1)
     end
     Assert.equal(runtime.runtimeMap.mapSymbol, "MAP_NEW_BARK_PLAYER_HOUSE_2F")
-    ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 0)
     reachFirstFloor(runtime)
     waitForMom(runtime)
@@ -351,10 +349,8 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     openMenu(runtime)
     choose(runtime, "vanilla.save")
     tick(3)
-    ---@diagnostic disable-next-line: undefined-field
     local entries = saveStore:list()
     Assert.equal(#entries, 1)
-    ---@diagnostic disable-next-line: undefined-field
     local checkpoint = assert(saveStore:load(entries[1].saveId))
     local savedMap = checkpoint.mapId
     App.setState(nil)
@@ -369,7 +365,6 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     tick(4)
     App.draw()
     Assert.isTrue(continuedRuntime:destinationWorldPresentable(), "field remains presentable after entry draw")
-    ---@diagnostic disable-next-line: undefined-field
     Assert.equal(#saveStore:list(), 1)
   end, debug.traceback)
   App.setState(nil)

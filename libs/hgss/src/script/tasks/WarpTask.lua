@@ -16,9 +16,9 @@ local WarpTask = {}
 WarpTask.type = "warp"
 WarpTask.version = 1
 
----@param spec table
----@param ctx table
----@return table state
+---@param spec table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown> state
 function WarpTask.create(spec, ctx)
   local node = assert(spec.node, "warp task requires its graph node")
   local maps = assert(ctx.services.maps, "warp task requires the maps service")
@@ -34,9 +34,9 @@ function WarpTask.create(spec, ctx)
   return { target = target }
 end
 
----@param state table
----@param ctx table
----@return table
+---@param state table<string, unknown>
+---@param ctx table<string, unknown>
+---@return table<string, unknown>
 function WarpTask.poll(state, ctx)
   local maps = assert(ctx.services.maps, "warp task requires the maps service")
   if maps:warpDone() then
@@ -66,13 +66,13 @@ function WarpTask.poll(state, ctx)
   return { complete = false, state = state }
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@param reason string
 function WarpTask.cancel(state, reason)
   state.cancelled = reason
 end
 
----@param state table
+---@param state table<string, unknown>
 ---@return Errors.Error|nil
 function WarpTask.validate(state)
   if type(state) ~= "table" or type(state.target) ~= "table" then
