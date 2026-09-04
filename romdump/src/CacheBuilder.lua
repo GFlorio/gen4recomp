@@ -396,6 +396,8 @@ function CacheBuilder.buildVersions(versionIds, options)
               symbol = bundle.scene.mapSymbol,
               mapCode = result.mapCode,
               mapSection = result.mapSection,
+              mapSectionNativeId = result.mapSectionNativeId,
+              followMode = result.followMode,
               width = bundle.scene.matrix.width,
               height = bundle.scene.matrix.height,
               matrix = {
