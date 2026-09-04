@@ -582,6 +582,13 @@ function FieldState:draw()
     assert(self.menuRenderer, "field menu renderer is unavailable"):draw(presentation)
   end
   self:_drawEntryCoverIfNeeded(width, height)
+  -- The script-owned starter modal draws over the restored field while the
+  -- blocking choice owns it. Portraits load once on first presentation;
+  -- headless compositions never reach this path.
+  local starter = self.runtime.starterChoice
+  if starter ~= nil and starter:isActive() then
+    starter:drawPresentation(assert(self.textRenderer, "field text renderer is unavailable"), width, height)
+  end
   if self.development then
     self:_drawHud()
   end

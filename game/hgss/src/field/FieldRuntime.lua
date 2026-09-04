@@ -195,6 +195,8 @@ end
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (script-owned via ScriptSignpostHost)
 ---@field auxiliaryFieldUi AuxiliaryFieldUi?
 ---@field contextChoiceProvider ContextChoiceProvider?
+---@field starterProvider table the hand-editable default starter roster, injected into the starter task
+---@field starterChoice StarterChoiceState? the modal starter-choice surface the blocking task opens and closes
 ---@field menuHost FieldMenuHost?
 ---@field actionKeys table<string, boolean>?
 ---@field cancelKeys table<string, boolean>?
@@ -903,6 +905,15 @@ function FieldRuntime:_load()
     })
     self.auxiliaryFieldUi = loadedGame and AuxiliaryFieldUi.restore(loadedGame.auxiliaryUi) or AuxiliaryFieldUi.new()
     self.contextChoiceProvider = ContextChoiceProvider.new()
+    -- The starter composition: the hand-editable default roster provider
+    -- and the modal choice surface. The blocking starter task receives both
+    -- through scheduler services; no starter code requires the concrete
+    -- provider module after this composition step.
+    self.starterProvider = require("game.hgss.src.starters.VanillaStarterProvider")
+    self.starterChoice = require("game.hgss.src.starters.StarterChoiceState").new({
+      catalog = self.monCatalog,
+      cacheFs = cacheFs,
+    })
     self.actionKeys = actionBindings()
     self.cancelKeys = cancelBindings()
     self.menuKeys = menuBindings()
@@ -1068,6 +1079,8 @@ function FieldRuntime:_load()
       menu = self.menuHost,
       startMenuReopen = { request = requestStartMenuReopen },
       mons = self.monService,
+      starterProvider = self.starterProvider,
+      starterChoice = self.starterChoice,
     })
     -- A loaded game carries strict world and script buckets, so restore is
     -- unconditional after GameSave validation.
@@ -1158,6 +1171,7 @@ function FieldRuntime:_load()
       initController = self.scripts.initController,
       menuHost = self.menuHost,
       contextChoice = self.contextChoiceProvider,
+      starterChoice = self.starterChoice,
       signpost = self.signpost,
       applicationHost = self.applicationHost,
       -- The session's fixed-tick audio collaborator is the production
@@ -1874,6 +1888,7 @@ function FieldRuntime:_releaseAll()
   self.playerAvatar = nil
   self.windowStyles, self.uiManifest, self.weatherCatalog = nil, nil, nil
   self.monCatalog, self.monLanguage, self.monService = nil, nil, nil
+  self.starterProvider, self.starterChoice = nil, nil
 end
 
 -- End the state's lifetime: persist the field session if one is live, then
@@ -1898,6 +1913,12 @@ function FieldRuntime:dispose()
   -- application fade, or a child application).
   if self.applicationHost then
     self.applicationHost:dispose()
+  end
+  -- The starter choice is the script-owned transient modal: an open choice
+  -- releases its controller and portrait resources, never the candidates
+  -- the task owns.
+  if self.starterChoice then
+    self.starterChoice:dispose()
   end
   self:_releaseAll()
 end

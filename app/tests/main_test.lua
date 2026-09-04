@@ -78,7 +78,7 @@ function T.input_callbacks_forward_complete_argument_tuples()
     Assert.equal(type(love.touchpressed), "function", "love.touchpressed must be registered by the entrypoint")
 
     local keypressedArgs = { "a", "a", true }
-    love.keypressed(unpack(keypressedArgs))
+    love.keypressed(keypressedArgs[1], keypressedArgs[2], keypressedArgs[3])
     local actual = assert(calls.keypressed, "love.keypressed must reach App.keypressed")
     Assert.equal(actual.n, #keypressedArgs, "love.keypressed must preserve every LÖVE argument")
     for i, v in ipairs(keypressedArgs) do

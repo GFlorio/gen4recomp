@@ -46,6 +46,7 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
+---@field starterChoice table? the modal starter-choice surface; while active the tick's UI events route to the script scheduler
 ---@field signpost FieldSignpostController
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
@@ -77,6 +78,7 @@ local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 ---@field scriptClient ScriptInteractionClient
 ---@field menuHost FieldMenuHost
 ---@field contextChoice ContextChoiceProvider
+---@field starterChoice table? the modal starter-choice surface; while active the tick's UI events route to the script scheduler
 ---@field signpost FieldSignpostController the fixed-tick signpost controller (save-gate interrogation only; the scheduler steps it)
 ---@field applicationHost FieldApplicationHost the one application modal owner (Start Menu and its destinations)
 ---@field fieldEntranceIndicator FieldEntranceIndicator
@@ -224,6 +226,7 @@ function FieldSession.new(options)
     scriptClient = options.scriptClient,
     menuHost = options.menuHost,
     contextChoice = options.contextChoice,
+    starterChoice = options.starterChoice,
     signpost = options.signpost,
     applicationHost = options.applicationHost,
     fieldEntranceIndicator = options.fieldEntranceIndicator,
@@ -658,7 +661,12 @@ function FieldSession:updateFixed(inputSnapshot)
   }
   local menuModal = self.menuHost:isModal()
   local contextChoiceModal = self.contextChoice:isActive()
-  if menuModal or contextChoiceModal then
+  -- The script-owned starter modal routes the same normalized UI events to
+  -- the scheduler while it owns the choice; like the contextual choice it
+  -- suppresses the raw field edges for that tick.
+  local starterChoice = self.starterChoice
+  local starterChoiceModal = starterChoice ~= nil and starterChoice:isActive()
+  if menuModal or contextChoiceModal or starterChoiceModal then
     local uiEvents = self.input:uiSnapshot(self.tick + 1)
     if menuModal then
       schedulerInput.menuEvents = self.menuHost:inputEvents(uiEvents)
@@ -675,6 +683,12 @@ function FieldSession:updateFixed(inputSnapshot)
   if not contextChoiceModal and contextChoiceNowModal then
     self.input:beginUi(self.tick + 1)
   elseif contextChoiceModal and not contextChoiceNowModal then
+    self.input:clearUi()
+  end
+  local starterChoiceNowModal = starterChoice ~= nil and starterChoice:isActive()
+  if not starterChoiceModal and starterChoiceNowModal then
+    self.input:beginUi(self.tick + 1)
+  elseif starterChoiceModal and not starterChoiceNowModal then
     self.input:clearUi()
   end
   if self.mapEntryStage then
