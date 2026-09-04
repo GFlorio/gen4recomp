@@ -19,6 +19,9 @@ local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local StandardFade = require("libs.hgss.src.presentation.StandardFade")
 local StartMenuRenderer = require("libs.hgss.src.ui.StartMenuRenderer")
 local TrainerCardRenderer = require("libs.hgss.src.ui.TrainerCardRenderer")
+local PartyScreenRenderer = require("libs.hgss.src.ui.PartyScreenRenderer")
+local MonIconAssetProvider = require("libs.hgss.src.presentation.MonIconAssetProvider")
+local FieldApplicationIds = require("libs.hgss.src.field.FieldApplicationIds")
 
 local KEY_DIRECTIONS =
   { w = "north", up = "north", s = "south", down = "south", a = "west", left = "west", d = "east", right = "east" }
@@ -41,6 +44,8 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 ---@field signpostRenderer FieldSignpostRenderer?
 ---@field startMenuRenderer StartMenuRenderer?
 ---@field trainerCardRenderer TrainerCardRenderer?
+---@field partyScreenRenderer PartyScreenRenderer?
+---@field monIconProvider MonIconAssetProvider? the one shared party-icon atlas for the state lifetime
 ---@field textRenderer FieldTextRenderer? the one shared glyph atlas the UI renderers draw through
 ---@field _lastGeometrySignature string? the structural presentation-geometry signature the last sync consumed
 ---@field _pollPresentationTopology boolean whether injected topology changes are polled during draw
@@ -157,6 +162,8 @@ function FieldState.new(game, options)
       manifest = runtime.uiManifest,
       text = self.textRenderer,
     })
+    self.partyScreenRenderer = PartyScreenRenderer.new()
+    self.monIconProvider = MonIconAssetProvider.new(runtime.cacheFs)
     self.fieldEntranceIndicatorPool = GpuAssetPool.new(runtime.cacheFs)
     self.fieldEntranceIndicatorRenderer =
       FieldStaticEffectRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
@@ -571,11 +578,20 @@ function FieldState:draw()
   end
   -- The one active application surface: the Start Menu through the runtime's
   -- placement record (the same record the host maps pointer input through),
-  -- or the Trainer Card in the viewport; never both.
+  -- the Trainer Card in the viewport, or the party screen with its icon
+  -- atlas; never more than one.
   if hostStatus.menu then
     self.startMenuRenderer:draw(hostStatus.menu, assert(self.runtime.startMenuPlacement))
   elseif hostStatus.application then
-    self.trainerCardRenderer:draw(hostStatus.application, self.runtime.viewport)
+    if hostStatus.applicationId == FieldApplicationIds.POKEMON then
+      assert(self.partyScreenRenderer, "party screen renderer is unavailable"):draw(
+        hostStatus.application,
+        assert(hostStatus.application.layout, "the party application presents its layout"),
+        assert(self.monIconProvider, "party icon provider is unavailable")
+      )
+    else
+      self.trainerCardRenderer:draw(hostStatus.application, self.runtime.viewport)
+    end
   end
   local presentation = self.runtime.menuHost:presentation()
   if presentation then
@@ -988,6 +1004,11 @@ function FieldState:dispose()
     self.trainerCardRenderer:release()
     self.trainerCardRenderer = nil
   end
+  if self.monIconProvider then
+    self.monIconProvider:release()
+    self.monIconProvider = nil
+  end
+  self.partyScreenRenderer = nil
   if self.textRenderer then
     self.textRenderer:release()
     self.textRenderer = nil

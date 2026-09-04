@@ -92,6 +92,7 @@ local function disposableState()
     signpostRenderer = fakeResource("release"),
     startMenuRenderer = fakeResource("release"),
     trainerCardRenderer = fakeResource("release"),
+    monIconProvider = fakeResource("release"),
     messageProvider = fakeResource("dispose"),
     actors = fakeResource("dispose"),
     actorAssets = fakeAssetProvider(),
@@ -126,6 +127,7 @@ local function disposableState()
     signpostRenderer = resources.signpostRenderer,
     startMenuRenderer = resources.startMenuRenderer,
     trainerCardRenderer = resources.trainerCardRenderer,
+    monIconProvider = resources.monIconProvider,
     renderer = resources.renderer,
   }, FieldState)
   return state, resources
@@ -141,6 +143,7 @@ function T.dispose_releases_each_resource_without_saving()
   Assert.equal(resources.signpostRenderer.calls, 1, "disposal releases the signpost renderer once")
   Assert.equal(resources.startMenuRenderer.calls, 1, "disposal releases the start menu renderer once")
   Assert.equal(resources.trainerCardRenderer.calls, 1, "disposal releases the trainer card renderer once")
+  Assert.equal(resources.monIconProvider.calls, 1, "disposal releases the party icon atlas once")
   Assert.equal(resources.messageProvider.calls, 1)
   Assert.equal(resources.actors.calls, 1)
   Assert.equal(resources.actorAssets.releaseCalls, 0, "no fixed simulation-side avatar reference remains to release")
