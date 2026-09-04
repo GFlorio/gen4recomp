@@ -14,7 +14,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 
 local CONFORMER_MODULE = "romdump.src.digest.TerrainBoundaryConformer"
 

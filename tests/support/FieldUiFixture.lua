@@ -15,9 +15,9 @@
 local PngWriter = require("libs.assets.src.PngWriter")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local FieldDialogueFixture = require("tests.support.FieldDialogueFixture")
 
 local FieldUiFixture = {}

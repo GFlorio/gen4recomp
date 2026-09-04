@@ -17,7 +17,7 @@
 -- validated record is valid.
 
 local Assert = require("tests.support.Assert")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local T = {}
 

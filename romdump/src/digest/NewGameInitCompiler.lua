@@ -7,7 +7,7 @@
 -- silently dropped. Pure module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
+local NewGameInitCache = require("libs.assets.src.newgame.NewGameInitCache")
 local Hashing = require("romdump.src.digest.Hashing")
 
 local NewGameInitCompiler = {}
@@ -49,7 +49,7 @@ function NewGameInitCompiler.compile(input)
       end
       operations[#operations + 1] = { op = "set_flag", id = id, symbol = symbol }
     elseif mnemonic == "LotoIDSet" then
-      local vars = require("libs.assets.src.FieldScriptSymbols").variablesByName
+      local vars = require("libs.assets.src.field.FieldScriptSymbols").variablesByName
       local lowId = vars.VAR_LOTO_NUMBER_LO
       local highId = vars.VAR_LOTO_NUMBER_HI
       if variableSymbols ~= nil then
@@ -143,7 +143,7 @@ function NewGameInitCompiler.compileFromRom(romFs, sha1hex, hashLua)
       instructions[#instructions + 1] = { mnemonic = ins.name:gsub("^ScrCmd_", ""), operands = operands }
     end
 
-    local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+    local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
     local memberBytes = assert(archive:readMember(member))
     local artifact = NewGameInitCompiler.compile({
       versionId = romFs:version(),

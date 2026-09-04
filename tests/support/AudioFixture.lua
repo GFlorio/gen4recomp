@@ -9,7 +9,7 @@
 -- writer, so libs/assets and audio runtime tests can build
 -- ready caches without importing romdump. Test-only fixture.
 
-local AudioCache = require("libs.assets.src.AudioCache")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 

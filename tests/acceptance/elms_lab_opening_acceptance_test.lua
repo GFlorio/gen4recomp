@@ -8,7 +8,7 @@
 
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local ScriptIdentity = require("libs.assets.src.ScriptIdentity")

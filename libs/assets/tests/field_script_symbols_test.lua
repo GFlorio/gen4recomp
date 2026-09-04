@@ -5,7 +5,7 @@
 -- from this module.
 
 local Assert = require("tests.support.Assert")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 
 local T = {}
 

@@ -2,9 +2,9 @@
 -- cache and normalized field events. The scan order is numeric and the
 -- returned routes are shortest paths with stable direction tie-breaking.
 
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
+local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
 local FieldTraversal = require("libs.hgss.src.field.FieldTraversal")
 local MapResolver = require("romdump.src.digest.MapResolver")
 local MapCatalog = require("romdump.src.digest.MapCatalog")

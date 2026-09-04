@@ -15,10 +15,10 @@
 -- business (isReady checks it first; the writer writes it last). Pure domain
 -- module.
 
-local AudioCache = require("libs.assets.src.AudioCache")
-local AudioSequence = require("libs.assets.src.AudioSequence")
-local AudioBank = require("libs.assets.src.AudioBank")
-local AudioSample = require("libs.assets.src.AudioSample")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
+local AudioSequence = require("libs.assets.src.audio.AudioSequence")
+local AudioBank = require("libs.assets.src.audio.AudioBank")
+local AudioSample = require("libs.assets.src.audio.AudioSample")
 
 local AudioCacheValidator = {}
 

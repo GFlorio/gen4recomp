@@ -6,7 +6,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local OpeningLifecycle = require("tests.acceptance.support.OpeningLifecycle")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
 

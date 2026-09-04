@@ -28,7 +28,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 local AnimationPlayer = require("libs.hgss.src.presentation.AnimationPlayer")
 
 local ModelAnimationState = {}

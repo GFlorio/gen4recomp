@@ -17,7 +17,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
-local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
+local G4MeshFormat = require("libs.assets.src.model.G4MeshFormat")
 
 local MeshWriter = {}
 

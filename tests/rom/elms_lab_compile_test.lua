@@ -11,7 +11,7 @@ local FakeCache = require("tests.support.FakeCache")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local SceneMesh = require("libs.hgss.src.presentation.SceneMesh")
 local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
 

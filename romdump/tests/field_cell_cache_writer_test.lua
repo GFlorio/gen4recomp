@@ -4,9 +4,9 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 local FieldCellCacheWriter = require("romdump.src.digest.FieldCellCacheWriter")
 
 local T = {}

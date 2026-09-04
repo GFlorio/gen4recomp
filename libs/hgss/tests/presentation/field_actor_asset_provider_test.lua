@@ -7,7 +7,7 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
 local FieldActorAssetProvider = require("libs.hgss.src.presentation.FieldActorAssetProvider")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 

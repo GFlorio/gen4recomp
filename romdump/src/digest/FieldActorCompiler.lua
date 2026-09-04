@@ -18,7 +18,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ZoneEvents = require("romdump.src.digest.ZoneEvents")
-local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local Hashing = require("romdump.src.digest.Hashing")
 local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
@@ -29,7 +29,7 @@ local FieldActorModel = require("romdump.src.digest.FieldActorModel")
 local FieldActorStaticModel = require("romdump.src.digest.FieldActorStaticModel")
 local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")
 local PlayerAvatar = require("romdump.src.reference.hgss.player_avatar")
-local PoseContract = require("libs.assets.src.PoseContract")
+local PoseContract = require("libs.assets.src.model.PoseContract")
 local manifest = require("romdump.src.config.FieldActors")
 
 local FieldActorCompiler = {}

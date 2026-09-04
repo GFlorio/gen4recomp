@@ -12,7 +12,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local VertexFormat = require("libs.assets.src.VertexFormat")
+local VertexFormat = require("libs.assets.src.model.VertexFormat")
 
 local FieldActorMesh = {}
 

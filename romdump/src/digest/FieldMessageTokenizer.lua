@@ -9,7 +9,7 @@
 -- MESSAGE_TRNAME_TRUNCATED error. Pure module: no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 
 local FieldMessageTokenizer = {}
 

@@ -12,8 +12,8 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local BinaryReader = require("libs.codec.src.BinaryReader")
-local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
-local VertexFormat = require("libs.assets.src.VertexFormat")
+local G4MeshFormat = require("libs.assets.src.model.G4MeshFormat")
+local VertexFormat = require("libs.assets.src.model.VertexFormat")
 
 local SceneMesh = {}
 

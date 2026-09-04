@@ -68,8 +68,8 @@ end
 function T.tests.composition_releases_font_zero_when_font_four_acquisition_fails()
   local modules = {
     cache = CacheFs.forVersion,
-    introValidate = require("libs.assets.src.IntroAssetCache").validateManifest,
-    fieldUiValidate = require("libs.assets.src.FieldUiAssetCache").validateManifest,
+    introValidate = require("libs.assets.src.newgame.IntroAssetCache").validateManifest,
+    fieldUiValidate = require("libs.assets.src.field.FieldUiAssetCache").validateManifest,
     fontLoad = FieldFontLoader.load,
     providerNew = FieldMessageProvider.new,
     audioCompose = GameAudio.compose,
@@ -79,8 +79,8 @@ function T.tests.composition_releases_font_zero_when_font_four_acquisition_fails
     controllerNew = OakIntroController.new,
     messagesNew = OakIntroMessages.new,
   }
-  local introCache = require("libs.assets.src.IntroAssetCache")
-  local fieldUiCache = require("libs.assets.src.FieldUiAssetCache")
+  local introCache = require("libs.assets.src.newgame.IntroAssetCache")
+  local fieldUiCache = require("libs.assets.src.field.FieldUiAssetCache")
   local calls = {}
   local fontZero = { releases = 0 }
   function fontZero:release()

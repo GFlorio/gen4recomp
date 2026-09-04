@@ -9,7 +9,7 @@ local MapUnits = require("romdump.src.digest.MapUnits")
 local AreaData = require("romdump.src.digest.AreaData")
 local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
 local TerrainAnimationCompiler = require("romdump.src.digest.TerrainAnimationCompiler")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local Hashing = require("romdump.src.digest.Hashing")
 local Errors = require("libs.errors.src.Errors")
 

@@ -6,7 +6,7 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local CollisionFixture = require("tests.support.CollisionFixture")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local T = {}
 

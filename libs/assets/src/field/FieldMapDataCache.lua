@@ -11,7 +11,7 @@ local FieldMapDataCache = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
-local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
 
 FieldMapDataCache.FORMAT = Contract.fieldMapData.cacheFormat
 FieldMapDataCache.FIELD_SCHEMA = Contract.fieldMapData.fieldSchema

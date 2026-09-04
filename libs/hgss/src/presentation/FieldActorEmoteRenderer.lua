@@ -20,8 +20,8 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local SceneDescriptor = require("libs.hgss.src.presentation.SceneDescriptor")
 local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
-local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
-local PoseContract = require("libs.assets.src.PoseContract")
+local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
+local PoseContract = require("libs.assets.src.model.PoseContract")
 
 local IDENTITY_MODEL_NORMAL = Matrix3.identity()
 

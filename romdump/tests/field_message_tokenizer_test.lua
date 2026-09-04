@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local Tokenizer = require("romdump.src.digest.FieldMessageTokenizer")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 local charmap = require("romdump.src.reference.hgss.charmap")
 
 local T = {}

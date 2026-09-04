@@ -23,9 +23,9 @@
 -- the writer/readiness and the loader cannot drift apart. Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
-local AnimationClip = require("libs.assets.src.AnimationClip")
-local CompiledNsbtaClip = require("libs.assets.src.CompiledNsbtaClip")
-local PolygonState = require("libs.assets.src.PolygonState")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
+local CompiledNsbtaClip = require("libs.assets.src.model.CompiledNsbtaClip")
+local PolygonState = require("libs.assets.src.model.PolygonState")
 local Validate = require("libs.assets.src.Validate")
 
 local ModelAsset = {}

@@ -7,7 +7,7 @@
 -- cleanup that could delete the last remaining copy of the previous artifact.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldMessageCacheWriter = {}

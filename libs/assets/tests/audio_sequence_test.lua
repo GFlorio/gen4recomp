@@ -20,7 +20,7 @@
 
 local Assert = require("tests.support.Assert")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
-local AudioSequence = require("libs.assets.src.AudioSequence")
+local AudioSequence = require("libs.assets.src.audio.AudioSequence")
 local AudioFixture = require("tests.support.AudioFixture")
 
 local T = {}

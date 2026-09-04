@@ -5,7 +5,7 @@
 -- failures keep the stage as recovery material.
 
 local Assert = require("tests.support.Assert")
-local AudioCache = require("libs.assets.src.AudioCache")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
 local AudioCacheWriter = require("romdump.src.digest.AudioCacheWriter")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")

@@ -7,7 +7,7 @@
 local Assert = require("tests.support.Assert")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
-local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
+local NsbmdSbcEvaluator = require("libs.assets.src.model.NsbmdSbcEvaluator")
 
 local T = {}
 

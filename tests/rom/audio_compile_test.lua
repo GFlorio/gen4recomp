@@ -18,10 +18,10 @@
 -- census suite.
 
 local Assert = require("tests.support.Assert")
-local AudioCache = require("libs.assets.src.AudioCache")
-local AudioSequence = require("libs.assets.src.AudioSequence")
-local AudioBank = require("libs.assets.src.AudioBank")
-local AudioSample = require("libs.assets.src.AudioSample")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
+local AudioSequence = require("libs.assets.src.audio.AudioSequence")
+local AudioBank = require("libs.assets.src.audio.AudioBank")
+local AudioSample = require("libs.assets.src.audio.AudioSample")
 local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local AudioCompiler = require("romdump.src.digest.audio.AudioCompiler")
 local Hashing = require("romdump.src.digest.Hashing")

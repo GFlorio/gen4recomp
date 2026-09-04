@@ -4,9 +4,9 @@
 
 local Assert = require("tests.support.Assert")
 local Contract = require("libs.assets.src.DerivedAssetContract")
-local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
+local FieldEffectAssetCache = require("libs.assets.src.field.FieldEffectAssetCache")
 local FieldEntranceIndicatorRuntime = require("game.hgss.src.field.FieldEntranceIndicatorRuntime")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local T = { tests = {} }
 

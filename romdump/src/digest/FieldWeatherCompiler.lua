@@ -7,7 +7,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local HgssFieldFog = require("romdump.src.digest.HgssFieldFog")
-local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local FieldWeatherCache = require("libs.assets.src.field.FieldWeatherCache")
 local Hashing = require("romdump.src.digest.Hashing")
 
 local FieldWeatherCompiler = {}
@@ -40,7 +40,7 @@ local function resolveMapId(symbol, fallback)
 end
 
 local function resolveFlag(name, fallback)
-  local ok, Symbols = pcall(require, "libs.assets.src.FieldScriptSymbols")
+  local ok, Symbols = pcall(require, "libs.assets.src.field.FieldScriptSymbols")
   if ok and Symbols and Symbols.flagsByName and Symbols.flagsByName[name] ~= nil then
     return Symbols.flagsByName[name]
   end

@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 
 local PINNED_STD_INIT_SCRIPT = {
   { mnemonic = "SetFlag", operands = { "FLAG_HIDE_ELMS_LAB_OFFICER" } },

@@ -3,7 +3,7 @@
 local Assert = require("tests.support.Assert")
 local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local CollisionFixture = require("tests.support.CollisionFixture")
 
 local T = {}

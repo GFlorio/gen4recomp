@@ -8,7 +8,7 @@
 -- initial manifest).
 
 local Assert = require("tests.support.Assert")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {

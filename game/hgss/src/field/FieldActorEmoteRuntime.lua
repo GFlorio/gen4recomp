@@ -5,7 +5,7 @@
 -- activeEmoteKind and the final presented world position, so the renderer reads
 -- those directly every frame.
 
-local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
+local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
 
 local M = {}
 

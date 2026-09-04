@@ -10,7 +10,7 @@ local AudioFixture = require("tests.support.AudioFixture")
 local T = {}
 
 local function audioErrors()
-  return require("libs.assets.src.AudioErrors")
+  return require("libs.assets.src.audio.AudioErrors")
 end
 
 local function throwsCode(code, fn)
@@ -30,9 +30,9 @@ end
 -- literal: a malformed asset fails with the module's own code.
 function T.asset_validators_raise_the_shared_codes()
   local AudioErrors = audioErrors()
-  local AudioSequence = require("libs.assets.src.AudioSequence")
-  local AudioBank = require("libs.assets.src.AudioBank")
-  local AudioSample = require("libs.assets.src.AudioSample")
+  local AudioSequence = require("libs.assets.src.audio.AudioSequence")
+  local AudioBank = require("libs.assets.src.audio.AudioBank")
+  local AudioSample = require("libs.assets.src.audio.AudioSample")
   local sequence = AudioFixture.sequence(0, "SEQ_TEST", 12, 1)
   rawset(sequence, "program", nil)
   throwsCode(AudioErrors.AUDIO_SEQUENCE_INVALID, function()

@@ -1,7 +1,7 @@
 -- HGSS source movement selectors normalized into the semantic field-object contract.
 
 local Assert = require("tests.support.Assert")
-local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
 local HgssObjectMovement = require("romdump.src.digest.HgssObjectMovement")
 
 local T = {}

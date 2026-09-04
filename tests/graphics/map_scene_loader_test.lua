@@ -11,8 +11,8 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
-local MeshWriter = require("libs.assets.src.MeshWriter")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local PngWriter = require("libs.assets.src.PngWriter")
 
 local T = {}

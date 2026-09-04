@@ -40,7 +40,7 @@ local AudioBank = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Errors = require("libs.errors.src.Errors")
-local AudioErrors = require("libs.assets.src.AudioErrors")
+local AudioErrors = require("libs.assets.src.audio.AudioErrors")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
 AudioBank.SCHEMA = Contract.audio.bankSchema

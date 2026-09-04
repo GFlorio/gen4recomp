@@ -9,8 +9,8 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 
 local FieldFontLoader = {}
 

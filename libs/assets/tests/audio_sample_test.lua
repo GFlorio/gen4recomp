@@ -9,9 +9,9 @@
 -- with the payload bytes.
 
 local Assert = require("tests.support.Assert")
-local AudioCache = require("libs.assets.src.AudioCache")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
-local AudioSample = require("libs.assets.src.AudioSample")
+local AudioSample = require("libs.assets.src.audio.AudioSample")
 local AudioFixture = require("tests.support.AudioFixture")
 
 local T = {}

@@ -30,10 +30,10 @@ local MapAssetCache = {}
 local Errors = require("libs.errors.src.Errors")
 local AssetErrors = require("libs.assets.src.errors")
 local Validate = require("libs.assets.src.Validate")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
-local CompiledNsbtaClip = require("libs.assets.src.CompiledNsbtaClip")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
+local CompiledNsbtaClip = require("libs.assets.src.model.CompiledNsbtaClip")
 local Contract = require("libs.assets.src.DerivedAssetContract")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 MapAssetCache.FORMAT = Contract.map.cacheFormat
 MapAssetCache.SCENE_SCHEMA = Contract.map.sceneSchema

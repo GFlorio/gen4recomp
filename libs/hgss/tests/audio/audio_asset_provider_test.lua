@@ -14,7 +14,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local AudioCache = require("libs.assets.src.AudioCache")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
 local AudioFixture = require("tests.support.AudioFixture")
 local FakeCache = require("tests.support.FakeCache")
 local AudioAssetProvider = require("libs.hgss.src.audio.AudioAssetProvider")

@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local ScriptMenuHost = require("libs.hgss.src.script.ScriptMenuHost")
 local MenuProtocol = require("libs.assets.src.MenuProtocol")

@@ -9,7 +9,7 @@
 -- copy of the previous artifact.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldFontCacheWriter = {}

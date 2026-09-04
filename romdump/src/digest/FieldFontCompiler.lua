@@ -22,8 +22,8 @@ local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
 local G2dDecoder = require("romdump.src.digest.G2dDecoder")
 local FieldMessageCompiler = require("romdump.src.digest.FieldMessageCompiler")
 local charmap = require("romdump.src.reference.hgss.charmap")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 local manifest = require("romdump.src.config.FieldMessages")
 
 local FieldFontCompiler = {}

@@ -15,7 +15,7 @@
 -- - Volume ramps: BGM duck + ambient moves via GameSound:moveSequenceVolume
 -- - Exit: fade-stop environment, restore BGM to level 128
 
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
 
 ---@class FieldAudioControllerOptions
 ---@field sound GameSound

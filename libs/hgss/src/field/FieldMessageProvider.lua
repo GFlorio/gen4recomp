@@ -5,8 +5,8 @@
 -- template. Pure module: CacheFs-shaped IO only, no love dependency.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 
 ---@class FieldMessageProvider
 ---@field private _cacheFs CacheFs

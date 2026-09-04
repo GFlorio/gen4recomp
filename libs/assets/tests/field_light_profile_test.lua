@@ -3,7 +3,7 @@
 -- with HgssFieldLightProfile under romdump.
 
 local Assert = require("tests.support.Assert")
-local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local FieldLightProfile = require("libs.assets.src.field.FieldLightProfile")
 
 local T = {}
 

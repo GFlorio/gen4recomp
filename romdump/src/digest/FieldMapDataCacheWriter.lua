@@ -7,7 +7,7 @@
 -- the last remaining copy of the previous artifact.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldMapDataCacheWriter = {}

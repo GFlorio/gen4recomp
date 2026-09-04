@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldUiCompiler = require("romdump.src.digest.FieldUiCompiler")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local PngReader = require("tests.support.PngReader")
 
 local T = {}

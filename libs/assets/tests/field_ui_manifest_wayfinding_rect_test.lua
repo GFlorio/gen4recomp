@@ -2,7 +2,7 @@
 -- This file covers the manifest validator contract for final surfaces.
 
 local Assert = require("tests.support.Assert")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
 
 local T = {}

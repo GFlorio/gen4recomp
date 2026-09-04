@@ -17,7 +17,7 @@ local InventoryAssert = require("tests.support.InventoryAssert")
 local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
 local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
 local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 
 local T = {}
 

@@ -2,7 +2,7 @@
 -- fixtures. `blockedTiles` lists { x, z } tiles whose blocked flag is set;
 -- every other tile is a passable zero cell.
 
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 
 local CollisionFixture = {}
 

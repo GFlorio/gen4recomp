@@ -5,7 +5,7 @@ local Errors = require("libs.errors.src.Errors")
 local HgssCameraTable = require("romdump.src.digest.HgssCameraTable")
 local FieldCameraDiscovery = require("romdump.src.digest.FieldCameraDiscovery")
 local Hashing = require("romdump.src.digest.Hashing")
-local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
+local FieldCameraCache = require("libs.assets.src.field.FieldCameraCache")
 local Manifest = require("romdump.src.config.FieldCameras")
 
 local FieldCameraCompiler = {}

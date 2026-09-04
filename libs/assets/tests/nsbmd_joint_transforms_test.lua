@@ -15,7 +15,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
-local Joint = require("libs.assets.src.NsbmdJointTransforms")
+local Joint = require("libs.assets.src.model.NsbmdJointTransforms")
 
 local T = {}
 

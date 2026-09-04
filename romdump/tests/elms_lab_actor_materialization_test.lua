@@ -13,7 +13,7 @@ local FieldActorCacheWriter = require("romdump.src.digest.FieldActorCacheWriter"
 local FieldActorAssetProvider = require("libs.hgss.src.presentation.FieldActorAssetProvider")
 local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 
 local T = {}
 

@@ -8,7 +8,7 @@
 
 local Assert = require("tests.support.Assert")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
+local NsbmdSbcEvaluator = require("libs.assets.src.model.NsbmdSbcEvaluator")
 
 local T = {}
 

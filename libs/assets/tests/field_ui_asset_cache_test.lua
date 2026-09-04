@@ -4,7 +4,7 @@
 -- arrays, unknown values, non-finite/negative/out-of-atlas rectangles).
 
 local Assert = require("tests.support.Assert")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local DerivedAssetContract = require("libs.assets.src.DerivedAssetContract")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")

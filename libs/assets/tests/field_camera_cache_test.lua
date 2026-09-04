@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
+local FieldCameraCache = require("libs.assets.src.field.FieldCameraCache")
 
 local T = {}
 

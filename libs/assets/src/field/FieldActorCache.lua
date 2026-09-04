@@ -86,7 +86,7 @@ local FieldActorCache = {}
 
 local Validate = require("libs.assets.src.Validate")
 local Contract = require("libs.assets.src.DerivedAssetContract")
-local PolygonState = require("libs.assets.src.PolygonState")
+local PolygonState = require("libs.assets.src.model.PolygonState")
 
 FieldActorCache.FORMAT = Contract.fieldActors.cacheFormat
 FieldActorCache.SCHEMA = Contract.fieldActors.schema

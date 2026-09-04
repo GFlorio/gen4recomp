@@ -2,7 +2,7 @@
 -- batch and confirm every field survives, then exercise each validation guard.
 
 local Assert = require("tests.support.Assert")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local SceneMesh = require("libs.hgss.src.presentation.SceneMesh")
 
 local function throwsCode(code, fn)

@@ -2,8 +2,8 @@
 -- for every ready game version and stops at the semantic audio/output boundary.
 
 local Assert = require("tests.support.Assert")
-local AudioBank = require("libs.assets.src.AudioBank")
-local AudioCache = require("libs.assets.src.AudioCache")
+local AudioBank = require("libs.assets.src.audio.AudioBank")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameVersion = require("romdump.src.source.GameVersion")

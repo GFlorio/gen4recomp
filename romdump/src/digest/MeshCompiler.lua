@@ -21,7 +21,7 @@ local HgssFieldMaterial = require("romdump.src.digest.HgssFieldMaterial")
 local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local FixedPoint = require("libs.math.src.FixedPoint")
 local Matrix4 = require("libs.math.src.Matrix4")
-local PoseContract = require("libs.assets.src.PoseContract")
+local PoseContract = require("libs.assets.src.model.PoseContract")
 local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
 
 local MeshCompiler = {}

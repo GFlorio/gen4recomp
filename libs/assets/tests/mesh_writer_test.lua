@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local BinaryReader = require("libs.codec.src.BinaryReader")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local Errors = require("libs.errors.src.Errors")
 
 local T = {}

@@ -3,7 +3,7 @@
 -- surface (the mod-facing direction) lives in libs/assets
 -- FieldScriptSymbols; this module derives from it so the two can never drift.
 
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 
 local byId = {}
 for name, id in pairs(FieldScriptSymbols.flagsByName) do

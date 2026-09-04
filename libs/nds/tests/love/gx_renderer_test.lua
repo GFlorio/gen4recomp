@@ -16,7 +16,7 @@ local Matrix4 = require("libs.math.src.Matrix4")
 local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
 local FieldActorDraw = require("libs.hgss.src.presentation.FieldActorDraw")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
-local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local FieldLightProfile = require("libs.assets.src.field.FieldLightProfile")
 local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 
 local T = {}

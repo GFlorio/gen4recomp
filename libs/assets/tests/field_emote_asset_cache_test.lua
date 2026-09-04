@@ -5,8 +5,8 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local Errors = require("libs.errors.src.Errors")
-local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local T = { tests = {} }
 

@@ -13,7 +13,7 @@
 -- behind.
 
 local Assert = require("tests.support.Assert")
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 local AnimationPlayer = require("libs.hgss.src.presentation.AnimationPlayer")
 local ModelAnimationState = require("libs.hgss.src.presentation.ModelAnimationState")
 local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")

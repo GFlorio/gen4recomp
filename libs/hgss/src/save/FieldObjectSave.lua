@@ -2,7 +2,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.script.src.errors")
-local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 

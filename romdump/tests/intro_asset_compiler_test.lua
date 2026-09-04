@@ -413,7 +413,7 @@ function T.shrink_assets_keep_source_order_and_use_nine_tick_replacements()
 end
 
 local function introCache()
-  local ok, cache = pcall(require, "libs.assets.src.IntroAssetCache")
+  local ok, cache = pcall(require, "libs.assets.src.newgame.IntroAssetCache")
   if not ok then
     error("the intro visual cache contract is missing: " .. tostring(cache), 0)
   end

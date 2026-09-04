@@ -6,7 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local SceneMesh = require("libs.hgss.src.presentation.SceneMesh")
 
 local T = {}

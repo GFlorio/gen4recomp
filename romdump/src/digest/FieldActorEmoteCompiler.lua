@@ -10,8 +10,8 @@
 local Errors = require("libs.errors.src.Errors")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
-local ModelAsset = require("libs.assets.src.ModelAsset")
-local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
+local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
 local Hashing = require("romdump.src.digest.Hashing")
 
 local Compiler = {}

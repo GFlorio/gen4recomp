@@ -8,7 +8,7 @@
 -- reference and NEVER mutated. Pure domain module.
 
 local Assert = require("tests.support.Assert")
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 
 local T = {}
 

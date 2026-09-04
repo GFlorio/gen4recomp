@@ -7,7 +7,7 @@
 -- cleanup that could delete the last remaining copy of the previous class.
 
 local Errors = require("libs.errors.src.Errors")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldUiCacheWriter = {}

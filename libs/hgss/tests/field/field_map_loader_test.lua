@@ -4,10 +4,10 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local CollisionFixture = require("tests.support.CollisionFixture")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldGrid = require("libs.hgss.src.field.FieldGrid")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
 
 local T = {}

@@ -6,7 +6,7 @@
 -- `MapInitScriptController` or the scheduler; they only drive/observe real
 -- production state through existing public test seams.
 
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 
 local VAR_SCENE_PLAYERS_HOUSE_1F = FieldScriptSymbols.variablesByName.VAR_SCENE_PLAYERS_HOUSE_1F
 local VAR_SCENE_NEW_BARK_WEST_EXIT = FieldScriptSymbols.variablesByName.VAR_SCENE_NEW_BARK_WEST_EXIT

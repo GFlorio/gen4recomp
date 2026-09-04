@@ -3,7 +3,7 @@
 -- live field window must acquire and release with the simulation resources.
 
 local Assert = require("tests.support.Assert")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
 
 local T = {}

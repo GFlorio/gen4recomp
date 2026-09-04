@@ -12,7 +12,7 @@
 --
 -- Pure domain module: no love dependency.
 
-local NsbmdSbcEvaluator = require("libs.assets.src.NsbmdSbcEvaluator")
+local NsbmdSbcEvaluator = require("libs.assets.src.model.NsbmdSbcEvaluator")
 local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
 
 local NsbmdStaticTransforms = {}

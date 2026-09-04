@@ -73,7 +73,7 @@ function AudioCache.isReady(cacheFs, expectedMarker)
   if cacheFs:read(AudioCache.markerPath()) ~= expectedMarker then
     return false
   end
-  return require("libs.assets.src.AudioCacheValidator").validate(cacheFs) == nil
+  return require("libs.assets.src.audio.AudioCacheValidator").validate(cacheFs) == nil
 end
 
 return AudioCache

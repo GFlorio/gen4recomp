@@ -5,7 +5,7 @@
 -- player/profile/options, and never runs on Continue.
 
 local CacheFs = require("libs.storage.src.CacheFs")
-local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
+local NewGameInitCache = require("libs.assets.src.newgame.NewGameInitCache")
 
 local NewGameInitialization = {}
 

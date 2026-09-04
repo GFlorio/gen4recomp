@@ -8,7 +8,7 @@
 
 local Assert = require("tests.support.Assert")
 local NeighborRing = require("libs.hgss.src.presentation.NeighborRing")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local FakeCache = require("tests.support.FakeCache")
 
 local T = {}

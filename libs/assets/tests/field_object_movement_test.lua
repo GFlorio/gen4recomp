@@ -1,7 +1,7 @@
 -- Source-independent field-object movement profiles and their strict lookup contract.
 
 local Assert = require("tests.support.Assert")
-local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
 
 local T = {}
 

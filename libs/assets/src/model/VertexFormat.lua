@@ -5,7 +5,7 @@
 -- The table is plain data (no love calls), so it is safe to require anywhere.
 -- Color is carried as float4 in 0..1 to keep the shader read unambiguous.
 
-local G4MeshFormat = require("libs.assets.src.G4MeshFormat")
+local G4MeshFormat = require("libs.assets.src.model.G4MeshFormat")
 
 local VertexFormat = {}
 

@@ -36,8 +36,8 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local PolygonState = require("libs.assets.src.PolygonState")
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local PolygonState = require("libs.assets.src.model.PolygonState")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 
 ---@class ModelDefinition
 ---@field key string

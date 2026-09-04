@@ -3,11 +3,11 @@
 -- model descriptors remain content-addressed cache assets shared with maps.
 
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local MeshWriter = require("libs.assets.src.MeshWriter")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 local PngWriter = require("libs.assets.src.PngWriter")
 
 local Writer = {}

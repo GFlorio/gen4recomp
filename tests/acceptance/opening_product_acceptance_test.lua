@@ -8,7 +8,7 @@ local FakeAudioOutput = require("tests.acceptance.support.FakeAudioOutput")
 local GameSaveStore = require("libs.hgss.src.save.GameSaveStore")
 local SaveFs = require("libs.storage.src.SaveFs")
 local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 
 local T = {

@@ -13,7 +13,7 @@ local Hashing = require("romdump.src.digest.Hashing")
 local PngWriter = require("libs.assets.src.PngWriter")
 local Lz10 = require("romdump.src.digest.Lz10")
 local G2dDecoder = require("romdump.src.digest.G2dDecoder")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local manifestConfig = require("romdump.src.config.FieldUiAssets")
 
 local FieldUiCompiler = {}

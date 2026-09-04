@@ -12,7 +12,7 @@ local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
 local SequencePlayer = require("libs.nds.src.nitro.sound.SequencePlayer")
 local GameSound = require("libs.hgss.src.audio.GameSound")
 local FieldAudioController = require("libs.hgss.src.audio.FieldAudioController")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
 
 local T = {}
 

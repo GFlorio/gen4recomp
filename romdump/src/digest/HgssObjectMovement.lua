@@ -2,7 +2,7 @@
 -- 0985e8718df4f25e64d6507d89c0c97c0d288981 src/map_object.c and its movement
 -- controller tables in asm/unk_02061284.s and asm/unk_data_020FCBD8.s.
 
-local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
 
 local HgssObjectMovement = {}
 

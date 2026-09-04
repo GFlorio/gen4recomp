@@ -5,7 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local SceneMesh = require("libs.hgss.src.presentation.SceneMesh")
 local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")

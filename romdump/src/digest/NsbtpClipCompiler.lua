@@ -22,7 +22,7 @@
 -- resolves each variant texture/palette by name against the model's texture
 -- set (the embedded TEX0 for real field models). Pure domain module.
 
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 
 local NsbtpClipCompiler = {}
 

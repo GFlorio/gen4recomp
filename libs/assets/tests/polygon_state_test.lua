@@ -7,7 +7,7 @@
 -- there is no defaulting path.
 
 local Assert = require("tests.support.Assert")
-local PolygonState = require("libs.assets.src.PolygonState")
+local PolygonState = require("libs.assets.src.model.PolygonState")
 
 local T = {}
 

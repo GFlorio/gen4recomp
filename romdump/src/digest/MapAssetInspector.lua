@@ -19,7 +19,7 @@ local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
 local HgssFieldLightProfile = require("romdump.src.digest.HgssFieldLightProfile")
 local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
-local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local FieldLightProfile = require("libs.assets.src.field.FieldLightProfile")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local BuildModelAnimList = require("romdump.src.digest.BuildModelAnimList")
 

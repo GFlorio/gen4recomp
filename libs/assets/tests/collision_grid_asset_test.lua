@@ -4,7 +4,7 @@
 -- bytes. No HGSS packing knowledge belongs here or in the engine.
 
 local Assert = require("tests.support.Assert")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 
 local T = {}
 

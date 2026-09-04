@@ -71,8 +71,8 @@ local TestProvider = require("libs.nds.tests.nitro.sound.TestProvider")
 local VoiceMixer = require("libs.nds.src.nitro.sound.VoiceMixer")
 local SequencePlayer = require("libs.nds.src.nitro.sound.SequencePlayer")
 local NnsSoundMath = require("libs.nds.src.nitro.sound.NnsSoundMath")
-local AudioSequence = require("libs.assets.src.AudioSequence")
-local AssetAudioErrors = require("libs.assets.src.AudioErrors")
+local AudioSequence = require("libs.assets.src.audio.AudioSequence")
+local AssetAudioErrors = require("libs.assets.src.audio.AudioErrors")
 
 local T = {}
 

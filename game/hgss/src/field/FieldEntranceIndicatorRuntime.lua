@@ -2,9 +2,9 @@
 -- generated-asset loading and lifecycle rebinding outside FieldRuntime's large
 -- boot closure while leaving the effect state itself pure and engine-owned.
 
-local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
+local FieldEffectAssetCache = require("libs.assets.src.field.FieldEffectAssetCache")
 local FieldEntranceIndicator = require("libs.hgss.src.field.FieldEntranceIndicator")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 
 local M = {}

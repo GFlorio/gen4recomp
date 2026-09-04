@@ -6,7 +6,7 @@
 -- durations, so a model's door semantics never depend on whether a live
 -- ModelInstance happens to be attached. Pure domain module: no love.
 
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 
 local ModelDoorMetadata = {}
 

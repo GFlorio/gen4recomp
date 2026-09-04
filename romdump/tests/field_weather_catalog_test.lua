@@ -96,7 +96,7 @@ end
 
 function T.defog_rule_rewrites_9_to_0_with_resolved_flag_id()
   local Compiler = requireCatalogCompiler()
-  local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+  local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
   local bundle = assert(Compiler.compile())
   local rule = bundle.catalog.rules[3]
   Assert.equal(rule.fromWeatherId, 9)
@@ -107,7 +107,7 @@ end
 
 function T.flash_rule_rewrites_11_to_12_with_resolved_flag_id()
   local Compiler = requireCatalogCompiler()
-  local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+  local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
   local bundle = assert(Compiler.compile())
   local rule = bundle.catalog.rules[4]
   Assert.equal(rule.fromWeatherId, 11)

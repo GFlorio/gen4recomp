@@ -14,7 +14,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local Hashing = require("romdump.src.digest.Hashing")
-local AudioCache = require("libs.assets.src.AudioCache")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
 local Sdat = require("libs.nds.src.nitro.sound.Sdat")
 local SequenceLowering = require("romdump.src.digest.audio.SequenceLowering")
 local Sbnk = require("libs.nds.src.nitro.sound.Sbnk")

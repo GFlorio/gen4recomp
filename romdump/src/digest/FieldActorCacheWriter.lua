@@ -8,7 +8,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local PngWriter = require("libs.assets.src.PngWriter")
-local FieldActorCache = require("libs.assets.src.FieldActorCache")
+local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local FieldActorCacheWriter = {}

@@ -1,7 +1,7 @@
 -- Defines the strict generated physical-cell cache. Runtime consumers resolve
 -- matrix coordinates from this index and never need ROM or logical-map scenes.
 
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local Contract = require("libs.assets.src.DerivedAssetContract")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Validate = require("libs.assets.src.Validate")

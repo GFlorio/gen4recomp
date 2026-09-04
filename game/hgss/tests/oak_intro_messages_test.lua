@@ -1,7 +1,7 @@
 -- Unit coverage for Oak's immutable bank-219 template and substitution boundary.
 
 local Assert = require("tests.support.Assert")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 local OakIntroMessages = require("game.hgss.src.newgame.OakIntroMessages")
 
 local T = {}

@@ -23,9 +23,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
 local FieldFontLoader = require("libs.hgss.src.ui.FieldFontLoader")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 local Utf8Glyphs = require("libs.assets.src.Utf8Glyphs")
 
 -- The palette-text shader source is an HGSS UI asset colocated with this

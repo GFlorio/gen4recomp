@@ -3,7 +3,7 @@
 -- an immediate field action while the application host owns the menu.
 
 local Assert = require("tests.support.Assert")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 

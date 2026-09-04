@@ -1,5 +1,5 @@
 -- Static contract for the G4M2 batch-format constants: exactly one owner,
--- libs/assets/src/G4MeshFormat.lua (MAGIC/VERSION/STRIDE/HEADER_SIZE/
+-- libs/assets/src/model/G4MeshFormat.lua (MAGIC/VERSION/STRIDE/HEADER_SIZE/
 -- indexWidths), required from every mesh-format module. Textual by intent: a
 -- rename that leaves a second source of truth for the magic, version, stride,
 -- or header size anywhere in production code fails this check. The behavioral
@@ -10,21 +10,21 @@ local Assert = require("tests.support.Assert")
 
 local T = {}
 
-local OWNER = "libs/assets/src/G4MeshFormat.lua"
+local OWNER = "libs/assets/src/model/G4MeshFormat.lua"
 
 -- The three mesh-format modules that must consume the owner and never
 -- re-declare the batch constants.
 local FILES = {
-  "libs/assets/src/VertexFormat.lua",
-  "libs/assets/src/MeshWriter.lua",
+  "libs/assets/src/model/VertexFormat.lua",
+  "libs/assets/src/model/MeshWriter.lua",
   "libs/hgss/src/presentation/SceneMesh.lua",
 }
 
 -- Literal duplications each file must be free of: the quoted magic string,
 -- and the standalone constant definitions of the batch format.
 local FORBIDDEN = {
-  ["libs/assets/src/VertexFormat.lua"] = { '"G4M2"', "VertexFormat.VERSION = 2" },
-  ["libs/assets/src/MeshWriter.lua"] = { '"G4M2"', "local VERSION = 2", "local STRIDE = 40" },
+  ["libs/assets/src/model/VertexFormat.lua"] = { '"G4M2"', "VertexFormat.VERSION = 2" },
+  ["libs/assets/src/model/MeshWriter.lua"] = { '"G4M2"', "local VERSION = 2", "local STRIDE = 40" },
   ["libs/hgss/src/presentation/SceneMesh.lua"] = {
     '"G4M2"',
     "local HEADER = 24",
@@ -45,7 +45,7 @@ function T.g4_mesh_format_owner_declares_the_contract_constants()
   Assert.notNil(owner, "missing " .. OWNER .. ": the G4M2 constants must live in one owner module")
 
   -- Loaded through the real require path so the values are the module's own.
-  local ok, G4MeshFormat = pcall(require, "libs.assets.src.G4MeshFormat")
+  local ok, G4MeshFormat = pcall(require, "libs.assets.src.model.G4MeshFormat")
   Assert.isTrue(ok and type(G4MeshFormat) == "table", "G4MeshFormat must be require-able as a module")
   Assert.equal(G4MeshFormat.MAGIC, "G4M2")
   Assert.equal(G4MeshFormat.VERSION, 2)

@@ -34,7 +34,7 @@
 -- Pure domain module.
 
 local Errors = require("libs.errors.src.Errors")
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 
 local NsbcaClipCompiler = {}
 

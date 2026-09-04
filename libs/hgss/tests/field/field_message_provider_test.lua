@@ -4,8 +4,8 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 

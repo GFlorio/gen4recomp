@@ -29,8 +29,8 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldSignpostTheme = require("libs.hgss.src.ui.FieldSignpostTheme")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
 local FieldDrawState = require("libs.hgss.src.presentation.FieldDrawState")
 

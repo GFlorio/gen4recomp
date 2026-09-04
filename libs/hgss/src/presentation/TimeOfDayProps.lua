@@ -17,7 +17,7 @@
 -- The four bands in HGSS band-slot order, owned by the animation contract
 -- (AnimationClip.BANDS): the digest stamps clip.timeBand from the same table
 -- (ov01_022095EC indices 0-3; LATE maps to the NITE slot).
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 
 local TimeOfDayProps = {}
 

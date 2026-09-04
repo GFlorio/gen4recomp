@@ -57,7 +57,7 @@ local ANIM_ARCHIVE = "build_anim"
 -- vocabulary lives on the animation contract (AnimationClip.ROLES), the one
 -- owner compiler and runtime share -- the digest never depends
 -- on a runtime controller.
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 
 local ROLE_PATTERNS = {
   door_op = AnimationClip.ROLES.DOOR_OPEN,

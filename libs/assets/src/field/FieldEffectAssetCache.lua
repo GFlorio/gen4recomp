@@ -1,7 +1,7 @@
 -- Strict cache contract for the normalized field-effect model and its assets.
 
 local Contract = require("libs.assets.src.DerivedAssetContract")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local FieldEffectAssetCache = {}
 FieldEffectAssetCache.FORMAT = Contract.fieldEffects.cacheFormat

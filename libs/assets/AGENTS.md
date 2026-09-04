@@ -15,6 +15,17 @@ contracts, not the Nintendo/HGSS source formats that produce them.
 - Keep paths, schema definitions, validation, and source-independent encoders/decoders with
   the contract they own.
 
+## Domain topology
+
+- `src/audio` owns derived audio data contracts, readiness, and validation.
+- `src/model` owns project-defined mesh, model, animation, pose, and render-state contracts.
+- `src/field` owns field-specific generated caches, text, UI, weather, effects, and movement
+  contracts.
+- `src/newgame` owns New Game and Oak startup asset contracts.
+- The `src` root retains shared asset, script, protocol, and utility contracts that are not
+  exclusive to one domain. Keep these as shallow siblings; do not add technical-layer
+  directories, registries, or compatibility modules for moved paths.
+
 ## Contracts and compatibility
 
 - Current project-owned schemas are strict. Required fields remain required; unknown modes and

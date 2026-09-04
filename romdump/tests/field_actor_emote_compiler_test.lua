@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
+local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
 
 local T = { tests = {} }
 
@@ -8,8 +8,8 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
     "romdump.src.digest.FieldActorEmoteCompiler",
     "libs.nds.src.nitro.g3d.Nsbmd",
     "romdump.src.digest.ModelAssetCompiler",
-    "libs.assets.src.ModelAsset",
-    "libs.assets.src.FieldEmoteAssetCache",
+    "libs.assets.src.model.ModelAsset",
+    "libs.assets.src.field.FieldEmoteAssetCache",
     "romdump.src.digest.Hashing",
   }
   local saved = {}
@@ -34,8 +34,8 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
       }
     end,
   }
-  package.loaded["libs.assets.src.ModelAsset"] = { SCHEMA = "g4-model-v1", validate = function() end }
-  package.loaded["libs.assets.src.FieldEmoteAssetCache"] = {
+  package.loaded["libs.assets.src.model.ModelAsset"] = { SCHEMA = "g4-model-v1", validate = function() end }
+  package.loaded["libs.assets.src.field.FieldEmoteAssetCache"] = {
     SCHEMA = "g4-field-emote-v1",
     geometryPath = FieldEmoteAssetCache.geometryPath,
     texturePath = FieldEmoteAssetCache.texturePath,

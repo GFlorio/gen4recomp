@@ -2,7 +2,7 @@
 -- Physical legality and presentation remain manager-owned; this module only
 -- advances source-shaped controller state and asks its capability to act.
 
-local FieldObjectMovement = require("libs.assets.src.FieldObjectMovement")
+local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 
 ---@class FieldActorAutonomy

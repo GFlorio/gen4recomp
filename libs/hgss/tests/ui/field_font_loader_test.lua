@@ -8,9 +8,9 @@ local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
 local FieldFontLoader = require("libs.hgss.src.ui.FieldFontLoader")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 
 local T = {}
 

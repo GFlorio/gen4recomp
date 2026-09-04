@@ -113,7 +113,7 @@ local GOVERNED_PACKAGES = {
 }
 
 local REPRESENTATIVE_MODULES = {
-  assets = "libs.assets.src.FieldMessageCache",
+  assets = "libs.assets.src.field.FieldMessageCache",
   codec = "libs.codec.src.BinaryReader",
   errors = "libs.errors.src.Errors",
   math = "libs.math.src.FixedPoint",

@@ -8,7 +8,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
-local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
+local FieldCameraCache = require("libs.assets.src.field.FieldCameraCache")
 
 local FieldCameraCacheWriter = {}
 

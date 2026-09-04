@@ -9,7 +9,7 @@
 local Assert = require("tests.support.Assert")
 local AcceptanceHarness = require("tests.acceptance.support.AcceptanceHarness")
 local CacheFs = require("libs.storage.src.CacheFs")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
 
 local T = {
   metadata = {

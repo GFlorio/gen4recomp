@@ -3,21 +3,21 @@
 -- responsibility when a developer explicitly rebuilds, and implementation
 -- freshness belongs to the producer fingerprint.
 
-local FieldActorCache = require("libs.assets.src.FieldActorCache")
-local AudioCache = require("libs.assets.src.AudioCache")
-local FieldFontCache = require("libs.assets.src.FieldFontCache")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
+local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
+local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
+local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local ScriptCache = require("libs.assets.src.ScriptCache")
-local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
-local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
-local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
-local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
-local NewGameInitCache = require("libs.assets.src.NewGameInitCache")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
+local FieldCameraCache = require("libs.assets.src.field.FieldCameraCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
+local IntroAssetCache = require("libs.assets.src.newgame.IntroAssetCache")
+local FieldWeatherCache = require("libs.assets.src.field.FieldWeatherCache")
+local FieldEffectAssetCache = require("libs.assets.src.field.FieldEffectAssetCache")
+local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
+local NewGameInitCache = require("libs.assets.src.newgame.NewGameInitCache")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 
 local DerivedCacheAudit = {}
 

@@ -30,10 +30,10 @@ local FieldSession = require("libs.hgss.src.field.FieldSession")
 local FieldTransition = require("libs.hgss.src.field.FieldTransition")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
 local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 
 local SceneLoaderFixture = {}

@@ -6,8 +6,8 @@
 -- targets (TerrainMaterialAnimator binds materials by target name).
 
 local Assert = require("tests.support.Assert")
-local AnimationClip = require("libs.assets.src.AnimationClip")
-local CompiledNsbtaClip = require("libs.assets.src.CompiledNsbtaClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
+local CompiledNsbtaClip = require("libs.assets.src.model.CompiledNsbtaClip")
 
 local T = {}
 

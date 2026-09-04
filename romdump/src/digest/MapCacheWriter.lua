@@ -19,12 +19,12 @@
 -- leaves no new shared artifacts behind at all.
 
 local Errors = require("libs.errors.src.Errors")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local AssetErrors = require("libs.assets.src.errors")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local MapCacheWriter = {}

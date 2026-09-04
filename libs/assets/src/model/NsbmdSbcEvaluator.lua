@@ -59,8 +59,8 @@
 local Errors = require("libs.errors.src.Errors")
 local Matrix4 = require("libs.math.src.Matrix4")
 local ErrorCodes = require("libs.assets.src.ErrorCodes")
-local NsbmdJointTransforms = require("libs.assets.src.NsbmdJointTransforms")
-local PoseContract = require("libs.assets.src.PoseContract")
+local NsbmdJointTransforms = require("libs.assets.src.model.NsbmdJointTransforms")
+local PoseContract = require("libs.assets.src.model.PoseContract")
 
 local NsbmdSbcEvaluator = {}
 

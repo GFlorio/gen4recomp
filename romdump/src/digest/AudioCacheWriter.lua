@@ -10,9 +10,9 @@
 -- copy of the previous artifact.
 
 local Errors = require("libs.errors.src.Errors")
-local AudioCache = require("libs.assets.src.AudioCache")
-local AudioCacheValidator = require("libs.assets.src.AudioCacheValidator")
-local AudioErrors = require("libs.assets.src.AudioErrors")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
+local AudioCacheValidator = require("libs.assets.src.audio.AudioCacheValidator")
+local AudioErrors = require("libs.assets.src.audio.AudioErrors")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
 
 local AudioCacheWriter = {}

@@ -2,8 +2,8 @@
 -- generated definition it references.
 
 local Assert = require("tests.support.Assert")
-local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local FieldEffectAssetCache = require("libs.assets.src.field.FieldEffectAssetCache")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local T = { tests = {} }
 local EXPECTED_MARKER = "field-effect-cache-v8:rom:dep"

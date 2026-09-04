@@ -22,7 +22,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
-local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
+local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local FieldDrawState = require("libs.hgss.src.presentation.FieldDrawState")
 
 ---@class TrainerCardRenderer

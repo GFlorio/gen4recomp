@@ -6,7 +6,7 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FakeCache = require("tests.support.FakeCache")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local SaveFs = require("libs.storage.src.SaveFs")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 

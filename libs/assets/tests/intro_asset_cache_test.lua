@@ -94,7 +94,7 @@ local function reject(cache, mutate, label)
 end
 
 function T.complete_schema_manifest_loads_and_declares_closed_inventory()
-  local cache = require("libs.assets.src.IntroAssetCache")
+  local cache = require("libs.assets.src.newgame.IntroAssetCache")
   Assert.equal(cache.SCHEMA, "g4-intro-assets-v10")
   Assert.equal(cache.FORMAT, DerivedAssetContract.intro.cacheFormat)
   local manifest = validManifest()
@@ -111,7 +111,7 @@ function T.complete_schema_manifest_loads_and_declares_closed_inventory()
 end
 
 function T.stale_and_malformed_manifests_fail_before_composition()
-  local cache = require("libs.assets.src.IntroAssetCache")
+  local cache = require("libs.assets.src.newgame.IntroAssetCache")
   local complete = validManifest()
   Assert.isTrue(cache.validateManifest(complete), "the complete schema fixture must be accepted first")
   reject(cache, function(manifest)
@@ -194,7 +194,7 @@ function T.stale_and_malformed_manifests_fail_before_composition()
 end
 
 function T.semantic_records_do_not_add_files_to_cache_readiness()
-  local cache = require("libs.assets.src.IntroAssetCache")
+  local cache = require("libs.assets.src.newgame.IntroAssetCache")
   local CacheFs = require("libs.storage.src.CacheFs")
   local FakeCache = require("tests.support.FakeCache")
   local backend = FakeCache.new()

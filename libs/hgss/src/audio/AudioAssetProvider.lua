@@ -19,8 +19,8 @@
 
 local Errors = require("libs.errors.src.Errors")
 local AudioErrors = require("libs.hgss.src.audio.AudioErrors")
-local AssetErrors = require("libs.assets.src.AudioErrors")
-local AudioCache = require("libs.assets.src.AudioCache")
+local AssetErrors = require("libs.assets.src.audio.AudioErrors")
+local AudioCache = require("libs.assets.src.audio.AudioCache")
 
 ---@class AudioAssetProvider
 ---@field private _cacheFs CacheFs

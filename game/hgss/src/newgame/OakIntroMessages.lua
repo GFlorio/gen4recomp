@@ -2,7 +2,7 @@
 -- resolves the source player-name field only when a message is opened.
 
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
-local FieldMessageText = require("libs.assets.src.FieldMessageText")
+local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 
 local OakIntroMessages = {}
 OakIntroMessages.__index = OakIntroMessages

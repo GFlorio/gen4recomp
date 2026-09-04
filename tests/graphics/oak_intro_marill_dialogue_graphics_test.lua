@@ -5,13 +5,13 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local GameVersion = require("romdump.src.source.GameVersion")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local OakIntroComposition = require("game.hgss.src.newgame.OakIntroComposition")
 local RomImporter = require("romdump.src.source.RomImporter")
-local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
+local IntroAssetCache = require("libs.assets.src.newgame.IntroAssetCache")
 
 local T = {}
 

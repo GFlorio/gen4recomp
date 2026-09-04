@@ -9,7 +9,7 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local ScriptDialogueHost = require("libs.hgss.src.script.ScriptDialogueHost")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
-local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
+local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 

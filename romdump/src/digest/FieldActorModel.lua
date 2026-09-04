@@ -20,7 +20,7 @@ local DsPolygonAttr = require("libs.nds.src.gx.DsPolygonAttr")
 local MapUnits = require("romdump.src.digest.MapUnits")
 local MeshCompiler = require("romdump.src.digest.MeshCompiler")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
-local PoseContract = require("libs.assets.src.PoseContract")
+local PoseContract = require("libs.assets.src.model.PoseContract")
 
 local FieldActorModel = {}
 

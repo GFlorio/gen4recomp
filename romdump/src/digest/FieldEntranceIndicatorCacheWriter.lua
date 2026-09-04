@@ -1,10 +1,10 @@
 -- Transactional writer for the normalized directional entrance field effect.
 
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
-local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local FieldEffectAssetCache = require("libs.assets.src.field.FieldEffectAssetCache")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local Writer = {}
 function Writer.write(cacheFs, bundle)

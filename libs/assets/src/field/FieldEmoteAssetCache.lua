@@ -4,7 +4,7 @@
 
 local Contract = require("libs.assets.src.DerivedAssetContract")
 local Errors = require("libs.errors.src.Errors")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local FieldEmoteAssetCache = {}
 FieldEmoteAssetCache.FORMAT = Contract.fieldEmotes.cacheFormat

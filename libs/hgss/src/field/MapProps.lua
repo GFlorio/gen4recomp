@@ -64,7 +64,7 @@ local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
 local FieldGrid = require("libs.hgss.src.field.FieldGrid")
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 local DoorSound = require("libs.hgss.src.field.DoorSound")
 
 local ANIMATION_CATEGORIES = { AnimationClip.CATEGORIES.joint, AnimationClip.CATEGORIES.material }

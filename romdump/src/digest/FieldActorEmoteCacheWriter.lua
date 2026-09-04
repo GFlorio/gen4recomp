@@ -1,10 +1,10 @@
 -- Transactional writer for the normalized movement-emote billboard descriptor.
 
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
-local MeshWriter = require("libs.assets.src.MeshWriter")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local PngWriter = require("libs.assets.src.PngWriter")
-local FieldEmoteAssetCache = require("libs.assets.src.FieldEmoteAssetCache")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local Writer = {}
 function Writer.write(cacheFs, bundle)

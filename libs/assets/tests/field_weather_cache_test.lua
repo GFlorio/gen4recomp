@@ -13,7 +13,7 @@ local FakeCache = require("tests.support.FakeCache")
 
 ---@return FieldWeatherTest.Cache
 local function requireCache()
-  local ok, mod = pcall(require, "libs.assets.src.FieldWeatherCache")
+  local ok, mod = pcall(require, "libs.assets.src.field.FieldWeatherCache")
   if not ok then
     error("FieldWeatherCache is absent: runtime has no generated weather catalog authority", 0)
   end

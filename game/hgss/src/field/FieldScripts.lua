@@ -16,7 +16,7 @@ local WorldState = require("libs.hgss.src.script.WorldState")
 local Scheduler = require("libs.script.src.Scheduler")
 local HgssScript = require("libs.hgss.src.script.Composition")
 local FieldScriptCompatibility = require("game.hgss.src.field.FieldScriptCompatibility")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local MapInitScriptController = require("libs.hgss.src.field.MapInitScriptController")
 
 -- The player facade the script services consume: position/facing/gender/name

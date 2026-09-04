@@ -96,7 +96,7 @@ function T.engine_contains_no_duplicate_preset_literal_table()
     -- The forbidden literal is the 14-preset table in engine/game code.
     -- We prove absence by checking that requiring the engine resolver does not
     -- bring a presets table and that the cache is the sole preset holder.
-    local ok, FieldWeatherCache = pcall(require, "libs.assets.src.FieldWeatherCache")
+    local ok, FieldWeatherCache = pcall(require, "libs.assets.src.field.FieldWeatherCache")
     if not ok then
       error("FieldWeatherCache absent: engine preset duplication cannot be proven", 0)
     end

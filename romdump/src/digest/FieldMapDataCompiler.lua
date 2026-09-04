@@ -6,7 +6,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ZoneEvents = require("romdump.src.digest.ZoneEvents")
-local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
 local MapCatalog = require("romdump.src.digest.MapCatalog")
 local MapAnalysis = require("romdump.src.digest.MapAnalysis")
 local MapMatrix = require("romdump.src.digest.MapMatrix")

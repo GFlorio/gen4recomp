@@ -1,10 +1,10 @@
 -- Contract tests for strict physical-cell topology and runtime addressing.
 
 local Assert = require("tests.support.Assert")
-local FieldCellCache = require("libs.assets.src.FieldCellCache")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local ModelAsset = require("libs.assets.src.ModelAsset")
+local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local T = {}
 

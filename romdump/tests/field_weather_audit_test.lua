@@ -5,7 +5,7 @@ local FakeCache = require("tests.support.FakeCache")
 local T = {}
 
 local function requireWeatherCache()
-  local ok, m = pcall(require, "libs.assets.src.FieldWeatherCache")
+  local ok, m = pcall(require, "libs.assets.src.field.FieldWeatherCache")
   if not ok then
     error("FieldWeatherCache is absent: audit cannot require the weather artifact", 0)
   end
@@ -14,16 +14,16 @@ end
 
 local function publishedCache()
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
-  local FieldActorCache = require("libs.assets.src.FieldActorCache")
-  local FieldCameraCache = require("libs.assets.src.FieldCameraCache")
-  local FieldFontCache = require("libs.assets.src.FieldFontCache")
-  local FieldMessageCache = require("libs.assets.src.FieldMessageCache")
-  local FieldUiAssetCache = require("libs.assets.src.FieldUiAssetCache")
-  local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
-  local AudioCache = require("libs.assets.src.AudioCache")
+  local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
+  local FieldCameraCache = require("libs.assets.src.field.FieldCameraCache")
+  local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
+  local FieldMessageCache = require("libs.assets.src.field.FieldMessageCache")
+  local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
+  local IntroAssetCache = require("libs.assets.src.newgame.IntroAssetCache")
+  local AudioCache = require("libs.assets.src.audio.AudioCache")
   local ScriptCache = require("libs.assets.src.ScriptCache")
   local MapAssetCache = require("libs.assets.src.MapAssetCache")
-  local FieldMapDataCache = require("libs.assets.src.FieldMapDataCache")
+  local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
   for _, path in ipairs({
     FieldActorCache.markerPath(),
     FieldCameraCache.markerPath(),

@@ -80,7 +80,7 @@ end
 function T.bands_are_the_animation_contracts_table_in_band_order()
   -- One vocabulary owner: BANDS IS the animation contract's table (not a
   -- copy), and the copy function is gone.
-  local AnimationClip = require("libs.assets.src.AnimationClip")
+  local AnimationClip = require("libs.assets.src.model.AnimationClip")
   Assert.equal(TimeOfDayProps.BANDS, AnimationClip.BANDS, "BANDS references the shared animation contract table")
   Assert.deepEqual(TimeOfDayProps.BANDS, { "morn", "day", "eve", "nite" })
   Assert.isNil(TimeOfDayProps.bands, "bands() is gone; consumers iterate BANDS")

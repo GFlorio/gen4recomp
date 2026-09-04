@@ -11,7 +11,7 @@
 -- build.
 
 local Assert = require("tests.support.Assert")
-local AudioSequence = require("libs.assets.src.AudioSequence")
+local AudioSequence = require("libs.assets.src.audio.AudioSequence")
 local Errors = require("libs.errors.src.Errors")
 local SequenceLowering = require("romdump.src.digest.audio.SequenceLowering")
 local SseqFixture = require("tests.support.SseqFixture")

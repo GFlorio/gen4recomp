@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local PlayerData = require("libs.hgss.src.save.PlayerData")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local WorldState = require("libs.hgss.src.script.WorldState")

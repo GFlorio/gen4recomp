@@ -19,8 +19,8 @@ local FieldEventResolver = require("libs.hgss.src.field.FieldEventResolver")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
-local MeshWriter = require("libs.assets.src.MeshWriter")
-local CollisionGridAsset = require("libs.assets.src.CollisionGridAsset")
+local MeshWriter = require("libs.assets.src.model.MeshWriter")
+local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local TextureSrtEvaluator = require("libs.hgss.src.presentation.TextureSrtEvaluator")
 
 local T = {}

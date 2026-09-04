@@ -1,7 +1,7 @@
 -- Adapts HGSS field presentation state into the normalized frame consumed by
 -- the concrete Nintendo DS LÖVE renderer.
 
-local FieldLightProfile = require("libs.assets.src.FieldLightProfile")
+local FieldLightProfile = require("libs.assets.src.field.FieldLightProfile")
 local GxRenderer = require("libs.nds.src.love.GxRenderer")
 local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
 

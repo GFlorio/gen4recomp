@@ -16,7 +16,7 @@ local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 local GxRenderer = require("libs.nds.src.love.GxRenderer")
 local Matrix4 = require("libs.math.src.Matrix4")
 local RenderQueue = require("libs.hgss.src.presentation.RenderQueue")
-local VertexFormat = require("libs.assets.src.VertexFormat")
+local VertexFormat = require("libs.assets.src.model.VertexFormat")
 
 local T = {}
 

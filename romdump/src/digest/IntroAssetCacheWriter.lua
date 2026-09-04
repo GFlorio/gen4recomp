@@ -4,7 +4,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
-local IntroAssetCache = require("libs.assets.src.IntroAssetCache")
+local IntroAssetCache = require("libs.assets.src.newgame.IntroAssetCache")
 
 local IntroAssetCacheWriter = {}
 

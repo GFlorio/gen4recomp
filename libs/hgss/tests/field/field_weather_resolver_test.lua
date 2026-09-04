@@ -1,7 +1,7 @@
 -- Pure resolver conformance for weather override families.
 
 local Assert = require("tests.support.Assert")
-local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local FieldWeatherCache = require("libs.assets.src.field.FieldWeatherCache")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 
 local T = {}

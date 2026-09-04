@@ -7,7 +7,7 @@
 
 local Assert = require("tests.support.Assert")
 local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 
 local T = {}

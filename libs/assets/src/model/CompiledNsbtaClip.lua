@@ -10,7 +10,7 @@
 -- so ModelAsset and MapAssetCache raise their own owner-local error codes at
 -- their boundaries. Pure domain module.
 
-local AnimationClip = require("libs.assets.src.AnimationClip")
+local AnimationClip = require("libs.assets.src.model.AnimationClip")
 local Validate = require("libs.assets.src.Validate")
 
 local CompiledNsbtaClip = {}

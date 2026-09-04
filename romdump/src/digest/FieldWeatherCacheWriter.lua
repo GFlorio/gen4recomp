@@ -5,7 +5,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ArtifactPublisher = require("libs.storage.src.ArtifactPublisher")
-local FieldWeatherCache = require("libs.assets.src.FieldWeatherCache")
+local FieldWeatherCache = require("libs.assets.src.field.FieldWeatherCache")
 
 local FieldWeatherCacheWriter = {}
 

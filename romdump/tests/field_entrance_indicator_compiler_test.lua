@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldEffectAssetCache = require("libs.assets.src.FieldEffectAssetCache")
+local FieldEffectAssetCache = require("libs.assets.src.field.FieldEffectAssetCache")
 
 local T = { tests = {} }
 
@@ -12,7 +12,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
     "romdump.src.digest.ModelAssetCompiler",
     "romdump.src.digest.MapAssetCompiler",
     "romdump.src.digest.MapPropAnimCompiler",
-    "libs.assets.src.ModelAsset",
+    "libs.assets.src.model.ModelAsset",
     "romdump.src.digest.Hashing",
     "romdump.src.config.FieldEffects",
   }
@@ -143,7 +143,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       }, {}
     end,
   }
-  package.loaded["libs.assets.src.ModelAsset"] = {
+  package.loaded["libs.assets.src.model.ModelAsset"] = {
     SCHEMA = "g4-model-v1",
     validate = function() end,
   }
@@ -264,7 +264,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
     "romdump.src.digest.ModelAssetCompiler",
     "romdump.src.digest.MapAssetCompiler",
     "romdump.src.digest.MapPropAnimCompiler",
-    "libs.assets.src.ModelAsset",
+    "libs.assets.src.model.ModelAsset",
     "romdump.src.digest.Hashing",
   }
   local saved = {}
@@ -338,7 +338,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       }, {}
     end,
   }
-  package.loaded["libs.assets.src.ModelAsset"] = { SCHEMA = "g4-model-v1", validate = function() end }
+  package.loaded["libs.assets.src.model.ModelAsset"] = { SCHEMA = "g4-model-v1", validate = function() end }
   package.loaded["romdump.src.digest.Hashing"] = {
     sha1hex = function()
       return "rom-hash"

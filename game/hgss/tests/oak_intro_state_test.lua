@@ -7,7 +7,7 @@ local OakIntroState = require("game.hgss.src.newgame.OakIntroState")
 local OakIntroController = require("game.hgss.src.newgame.OakIntroController")
 local NewGame = require("game.hgss.src.newgame.NewGame")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldScriptSymbols = require("libs.assets.src.FieldScriptSymbols")
+local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
 
 local T = {}
