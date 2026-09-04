@@ -13,6 +13,7 @@ local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
 local FieldStaticEffectRenderer = require("libs.hgss.src.presentation.FieldStaticEffectRenderer")
 local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
 local FieldTerrainEffectRenderer = require("libs.hgss.src.presentation.FieldTerrainEffectRenderer")
+local FollowingMonTransitionRenderer = require("libs.hgss.src.presentation.FollowingMonTransitionRenderer")
 local GpuAssetPool = require("libs.hgss.src.presentation.GpuAssetPool")
 local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
@@ -190,6 +191,28 @@ function FieldState.new(game, options)
       end
       local function dispose() end
       self.fieldTerrainEffectRenderer = { drawItems = drawItems, dispose = dispose }
+    end
+    -- The transient follower-transition presentation shares the field effect
+    -- pool. Its renderer-backed part instances replace the runtime's
+    -- headless factory, so script-started transitions render through the
+    -- exact generated resources while keeping controller timing.
+    -- Partially constructed runtimes without the generated definition keep
+    -- the inert stub, mirroring the terrain-effect fallback above.
+    if runtime.followerTransitionDefinition ~= nil and runtime.followingMonTransition ~= nil then
+      self.followingMonTransitionRenderer = FollowingMonTransitionRenderer.new(
+        { transition = runtime.followerTransitionDefinition },
+        self.fieldEntranceIndicatorPool
+      )
+      runtime.followingMonTransition:setModelFactory(function(part)
+        local renderer = assert(self.followingMonTransitionRenderer, "follower transition renderer is unavailable")
+        return renderer:newInstance(part)
+      end)
+    else
+      local function drawItems()
+        return {}
+      end
+      local function dispose() end
+      self.followingMonTransitionRenderer = { drawItems = drawItems, dispose = dispose }
     end
     local width, height = love.graphics.getDimensions()
     -- The initial presentation-geometry sync: pointer input must work
@@ -414,6 +437,11 @@ function FieldState:_worldParts(alpha)
   local terrain = self.runtime.fieldTerrainEffectController
   local terrainRenderer = self.fieldTerrainEffectRenderer
   worldParts[8] = terrainRenderer and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap) or NO_DRAWS
+  local transition = self.runtime.followingMonTransition
+  local transitionRenderer = self.followingMonTransitionRenderer
+  worldParts[9] = (transition and transitionRenderer)
+      and transitionRenderer:drawItems(transition:status(), self.runtime.runtimeMap)
+    or NO_DRAWS
   return worldParts
 end
 
@@ -1023,6 +1051,7 @@ function FieldState:dispose()
     self.worldParts[5] = nil
     self.worldParts[7] = nil
     self.worldParts[8] = nil
+    self.worldParts[9] = nil
   end
   self.worldActorItems = nil
   self.spriteItems = nil
@@ -1045,6 +1074,10 @@ function FieldState:dispose()
   if self.fieldTerrainEffectRenderer then
     self.fieldTerrainEffectRenderer:dispose()
     self.fieldTerrainEffectRenderer = nil
+  end
+  if self.followingMonTransitionRenderer then
+    self.followingMonTransitionRenderer:dispose()
+    self.followingMonTransitionRenderer = nil
   end
   if self.fieldEntranceIndicatorPool then
     self.fieldEntranceIndicatorPool:release()

@@ -206,6 +206,7 @@ end
 ---@field starterProvider table|nil the default starter roster for the blocking starter task (absent -> SCRIPT_SERVICE_MISSING on use)
 ---@field starterChoice table|nil the modal starter-choice surface the blocking task opens and closes (absent -> SCRIPT_SERVICE_MISSING on use)
 ---@field followingMon table|nil the live following-mon controller for follower script operations (absent -> SCRIPT_SERVICE_MISSING on use)
+---@field followerTransition table|nil the transient follower-transition owner the nonblocking transition command starts (absent -> SCRIPT_SERVICE_MISSING on use)
 
 ---@class FieldScripts
 ---@field registry table
@@ -386,6 +387,7 @@ function FieldScripts.new(opts)
       starterProvider = opts.starterProvider,
       starterChoice = opts.starterChoice,
       followingMon = opts.followingMon,
+      followerTransition = opts.followerTransition,
       advanceAsync = advanceAsync,
     },
     taskRegistry = liveTaskRegistry,

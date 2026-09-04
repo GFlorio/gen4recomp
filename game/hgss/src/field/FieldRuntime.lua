@@ -35,6 +35,7 @@ local FieldPlayerAvatarState = require("libs.hgss.src.field.FieldPlayerAvatarSta
 local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
 local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
 local FollowingMonController = require("libs.hgss.src.field.FollowingMonController")
+local FollowingMonTransitionController = require("libs.hgss.src.field.FollowingMonTransitionController")
 local GameSave = require("libs.hgss.src.save.GameSave")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local FieldScripts = require("game.hgss.src.field.FieldScripts")
@@ -192,6 +193,8 @@ end
 ---@field monLanguage string the semantic language key the mon catalog was built for
 ---@field monService HgssMonService the live party/creation/script mon service
 ---@field followingMon FollowingMonController|nil the one derived follower controller (nil after teardown)
+---@field followingMonTransition FollowingMonTransitionController|nil the one transient follower-transition owner (nil after teardown)
+---@field followerTransitionDefinition table|nil the compiled follower-transition definition behind the transient owner
 ---@field session FieldSession
 ---@field actors FieldActorManager
 ---@field dialogue FieldDialogueController?
@@ -238,6 +241,40 @@ FieldRuntime.__index = FieldRuntime
 -- ratio-scaled, so the pitch is preserved at any output rate).
 local AUDIO_SAMPLE_RATE = 32768
 local CAMERA_PROFILES_PATH = FieldCameraCache.profilesPath()
+-- Builds headless follower-transition part instances: deterministic frame
+-- counters with the controller's timing contract and no GPU state.
+-- Presentation replaces this factory with renderer-backed model instances.
+local function headlessTransitionFactory()
+  return function(part, descriptor)
+    local frameCount = 0
+    if part == "animated" then
+      local animations = descriptor.animations
+      assert(type(animations) == "table", "transition animated part requires its clip")
+      local clip = animations[1]
+      assert(type(clip) == "table" and type(clip.frameCount) == "number", "transition clip requires its frame count")
+      frameCount = clip.frameCount
+    end
+    local player = { part = part, frame = 0, frameCount = frameCount, complete = false, disposed = false }
+    function player:updateFixed()
+      self.frame = self.frame + 1
+      if self.frame >= self.frameCount then
+        self.complete = true
+      end
+    end
+    function player:isComplete()
+      return self.complete
+    end
+    function player:reset()
+      self.frame = 0
+      self.complete = false
+    end
+    function player:dispose()
+      self.disposed = true
+    end
+    return player
+  end
+end
+
 ---@return table<string, boolean>
 local function actionBindings()
   local keys = {}
@@ -1043,6 +1080,13 @@ function FieldRuntime:_load()
         return self.mapLoader:get(mapId)
       end,
     })
+    -- The one follower-transition owner: the transient visual the
+    -- nonblocking transition command starts, advanced once per fixed tick
+    -- after the follower reconciles. A missing or malformed generated
+    -- definition fails the boot loudly instead of silently dropping the
+    -- visual. The headless factory keeps deterministic timing without GPU
+    -- state; presentation replaces it with renderer-backed instances.
+    self:_composeFollowerTransition(cacheFs)
     self.scripts = FieldScripts.new({
       cacheFs = cacheFs,
       overrideFs = self.overrideFs,
@@ -1085,6 +1129,7 @@ function FieldRuntime:_load()
       starterProvider = self.starterProvider,
       starterChoice = self.starterChoice,
       followingMon = self.followingMon,
+      followerTransition = self.followingMonTransition,
     })
     -- A loaded game carries strict world and script buckets, so restore is
     -- unconditional after GameSave validation.
@@ -1251,9 +1296,14 @@ function FieldRuntime:update(dt)
     fieldExecuted = fieldExecuted + 1
     -- The follower reconciles once per fixed tick, after player and
     -- transition commits inside the session update and before the next
-    -- tick's actor finalization and draw reads.
+    -- tick's actor finalization and draw reads. The follower transition
+    -- advances once per fixed tick right after, so a same-tick start
+    -- observes the committed placement.
     if self.followingMon then
       self.followingMon:update()
+    end
+    if self.followingMonTransition then
+      self.followingMonTransition:updateFixed()
     end
     if self.applicationHost:error() and not self.errorText then
       self.errorText = tostring(self.applicationHost:error())
@@ -1486,6 +1536,26 @@ end
 -- fieldDataForMap lookup. The day/night source defaults to the wall-clock
 -- IsNighttime predicate (hours 0-3 and 20-23, the bandForHour nite band);
 -- tests and hosts inject a deterministic one.
+-- Composes the one follower-transition owner outside the boot closure
+-- (which sits close to LuaJIT's per-function upvalue limit). The generated
+-- definition loads through the ready cache path; the controller validates it
+-- strictly, so a missing or malformed definition fails the boot loudly.
+---@param cacheFs CacheFs
+function FieldRuntime:_composeFollowerTransition(cacheFs)
+  local transitionEntry = assert(
+    self.fieldEntranceIndicatorAsset.index.effects.follower_transition,
+    "field-effect index is missing follower_transition"
+  )
+  local definition =
+    assert(cacheFs:loadLua(transitionEntry.path), "field-effect definition is missing: follower_transition")
+  self.followerTransitionDefinition = definition
+  self.followingMonTransition = FollowingMonTransitionController.new({
+    actors = self.actors,
+    definition = definition,
+    modelFactory = headlessTransitionFactory(),
+  })
+end
+
 ---@param cacheFs CacheFs
 ---@param restoredAudio table? the restored save's audio bucket, when resuming
 ---@return table audioService the GameSound instance, or the injected recording adapter
@@ -1832,6 +1902,9 @@ function FieldRuntime:_commitSwap(resolution, _, prepared)
     physical.state = "committed"
   end
   self.fieldTerrainEffectController:clear()
+  if self.followingMonTransition then
+    self.followingMonTransition:clear()
+  end
 
   self.runtimeMap = runtimeMap
   self.player = prepared.player
@@ -1931,6 +2004,11 @@ function FieldRuntime:_releaseAll()
     self.followingMon:dispose()
   end
   self.followingMon = nil
+  if self.followingMonTransition then
+    self.followingMonTransition:dispose()
+  end
+  self.followingMonTransition = nil
+  self.followerTransitionDefinition = nil
   if self.actors then
     self.actors:dispose()
   end
