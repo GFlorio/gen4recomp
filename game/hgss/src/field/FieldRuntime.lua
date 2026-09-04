@@ -1024,13 +1024,23 @@ function FieldRuntime:_load()
     -- The one following-mon controller: derived follower presentation over
     -- the live party, driven once per fixed tick after the session update.
     -- The player accessor tracks warp rebinds, so the controller never holds
-    -- a stale player across map swaps.
+    -- a stale player across map swaps. The map accessor reads the live
+    -- session map first (the exact metadata behind the actor/player map)
+    -- and falls back to the loader's resident logical maps; it never
+    -- reaches producer data.
     self.followingMon = FollowingMonController.new({
       service = self.monService,
       catalog = self.monCatalog,
       actors = self.actors,
       playerOf = function()
         return self.player
+      end,
+      mapOf = function(mapId)
+        local current = self.session and self.session.currentMap or self.runtimeMap
+        if current and current.mapId == mapId then
+          return current
+        end
+        return self.mapLoader:get(mapId)
       end,
     })
     self.scripts = FieldScripts.new({
