@@ -4,6 +4,7 @@
 local Assert = require("tests.support.Assert")
 local maps = require("romdump.src.reference.hgss.maps")
 local narcs = require("romdump.src.reference.hgss.narcs")
+local playerAvatar = require("romdump.src.reference.hgss.player_avatar")
 local signpostCommands = require("romdump.src.reference.hgss.signpost_commands")
 
 local T = {}
@@ -146,6 +147,83 @@ function T.signpost_command_constants_are_complete()
   Assert.equal(count, 5)
   Assert.isNil(signpostCommands.semanticName(5), "a code outside the pinned 0..4 range resolves to nothing")
   Assert.isNil(signpostCommands.semanticName("2"), "a non-numeric code resolves to nothing")
+end
+
+function T.player_avatar_transition_order_covers_all_fifteen_source_bits()
+  Assert.deepEqual(playerAvatar.transitionOrder, {
+    "walking",
+    "cycling",
+    "surfing",
+    "restore_control",
+    "watering",
+    "fishing",
+    "poketch",
+    "saving",
+    "heal",
+    "ladder",
+    "rocket",
+    "rocket_heal",
+    "pokeathlon",
+    "apricorn_shake",
+    "rocket_saving",
+  })
+end
+
+function T.player_avatar_visual_states_cover_both_genders_without_the_control_transition()
+  Assert.deepEqual(playerAvatar.visualStates, {
+    "walking",
+    "cycling",
+    "surfing",
+    "watering",
+    "fishing",
+    "poketch",
+    "saving",
+    "heal",
+    "ladder",
+    "rocket",
+    "rocket_heal",
+    "pokeathlon",
+    "apricorn_shake",
+    "rocket_saving",
+  })
+  Assert.deepEqual(playerAvatar.durableStates, {
+    walking = true,
+    cycling = true,
+    surfing = true,
+    rocket = true,
+  })
+  local visualSet = {}
+  for _, state in ipairs(playerAvatar.visualStates) do
+    visualSet[state] = true
+  end
+  for _, gender in ipairs({ 0, 1 }) do
+    local states = playerAvatar.statesForGender(gender)
+    local count = 0
+    for state, spriteId in pairs(states) do
+      count = count + 1
+      Assert.isTrue(visualSet[state] == true, "gender " .. gender .. " state " .. state .. " is a known visual")
+      Assert.isTrue(
+        type(spriteId) == "number" and spriteId >= 0 and spriteId % 1 == 0,
+        "gender " .. gender .. " state " .. state .. " selects a compiled sprite"
+      )
+    end
+    Assert.equal(count, 14, "gender " .. gender .. " maps every visual state")
+    Assert.isNil(states.restore_control, "the control transition has no visual state")
+  end
+  Assert.equal(playerAvatar.statesForGender(0).walking, 0, "male default visual")
+  Assert.equal(playerAvatar.statesForGender(1).walking, 97, "female default visual")
+  Assert.equal(playerAvatar.statesForGender(0).heal, 200, "male heal visual")
+  Assert.equal(playerAvatar.statesForGender(1).heal, 201, "female heal visual")
+  Assert.isTrue(playerAvatar.isDurable("walking"), "walking persists")
+  Assert.isFalse(playerAvatar.isDurable("heal"), "heal is temporary")
+end
+
+function T.player_avatar_mask_selects_transitions_in_source_bit_order()
+  Assert.deepEqual(playerAvatar.transitionsForMask(0), {})
+  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 3), { "restore_control" })
+  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 0 + 2 ^ 8), { "walking", "heal" })
+  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 8 + 2 ^ 0), { "walking", "heal" })
+  Assert.deepEqual(playerAvatar.transitionsForMask(2 ^ 15), {}, "bit 15 queues no transition")
 end
 
 return { tests = T }

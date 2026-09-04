@@ -17,6 +17,31 @@ local function visual(spriteId)
   return FieldActorFixture.visual(spriteId, { frameCount = 8 })
 end
 
+local AVATAR_STATE_KEYS = {
+  "walking",
+  "cycling",
+  "surfing",
+  "rocket",
+  "watering",
+  "fishing",
+  "poketch",
+  "saving",
+  "heal",
+  "ladder",
+  "rocket_heal",
+  "pokeathlon",
+  "apricorn_shake",
+  "rocket_saving",
+}
+
+local function avatarCapability(id, gender, spriteIds)
+  local states = {}
+  for i, name in ipairs(AVATAR_STATE_KEYS) do
+    states[name] = spriteIds[((i - 1) % #spriteIds) + 1]
+  end
+  return { id = id, gender = gender, states = states }
+end
+
 local function bundle(spriteIds)
   local visuals, atlases = {}, {}
   for _, spriteId in ipairs(spriteIds) do
@@ -32,7 +57,7 @@ local function bundle(spriteIds)
       variableSprites = {},
       recordCount = 3,
       runtime = {
-        avatars = { { id = "hero", spriteId = 0, gender = 0 } },
+        avatars = { avatarCapability("hero", 0, spriteIds), avatarCapability("heroine", 1, spriteIds) },
         variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
       },
     },
@@ -50,6 +75,7 @@ function T.writes_visuals_atlases_and_marker()
   Assert.isTrue(FieldActorCache.isReady(cache, b.marker), "ready after write")
   Assert.isTrue(cache:exists(FieldActorCache.atlasPath(29), "file"))
   Assert.equal(cache:loadLua(FieldActorCache.visualPath(0)).spriteId, 0)
+  Assert.deepEqual(cache:loadLua(FieldActorCache.indexPath()).runtime.avatars, b.index.runtime.avatars)
 end
 
 function T.is_not_ready_for_a_different_marker()

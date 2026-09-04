@@ -45,7 +45,7 @@ function T.contract_pins_the_current_asset_identities()
     fieldActors = {
       cacheFormat = "field-actor-cache-v2",
       schema = "g4-field-actor-v3",
-      indexSchema = "g4-field-actor-index-v2",
+      indexSchema = "g4-field-actor-index-v3",
     },
     fieldCamera = {
       cacheFormat = "g4-field-camera-cache-v1",

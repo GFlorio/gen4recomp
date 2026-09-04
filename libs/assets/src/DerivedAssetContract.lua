@@ -21,6 +21,12 @@
 -- classification); the vocabulary a stale v1 cache could have baked in is
 -- no longer trustworthy.
 --
+-- fieldActors index 3: the runtime avatar capability is a semantic state map.
+-- Each playable gender carries exactly the fourteen visual states with
+-- compiled sprite IDs, so runtime state transitions resolve any visual
+-- without source interpretation or fallback. A stale index without the state
+-- maps must fail readiness; only the index identity changes.
+--
 -- fieldActors schema 3/cache v2: generated visuals carry the required
 -- source-independent idle presentation profile and the required semantic
 -- gesture clip map. Each idle pose segment carries a finite
@@ -94,7 +100,7 @@ DerivedAssetContract.fieldCells = {
 DerivedAssetContract.fieldActors = {
   cacheFormat = "field-actor-cache-v2",
   schema = "g4-field-actor-v3",
-  indexSchema = "g4-field-actor-index-v2",
+  indexSchema = "g4-field-actor-index-v3",
 }
 
 DerivedAssetContract.fieldCamera = {

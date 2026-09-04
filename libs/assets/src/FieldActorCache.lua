@@ -142,6 +142,31 @@ local VALID_BILLBOARD_ALPHA_CLASSES = {
 
 local REQUIRED_DIRECTIONS = { north = true, south = true, west = true, east = true }
 
+-- The exact semantic avatar visual vocabulary the runtime may select. Kept as
+-- source-independent names here; the producer reference owns the
+-- source-to-sprite mapping and this validator never interprets it.
+local AVATAR_STATE_KEYS = {
+  "walking",
+  "cycling",
+  "surfing",
+  "rocket",
+  "watering",
+  "fishing",
+  "poketch",
+  "saving",
+  "heal",
+  "ladder",
+  "rocket_heal",
+  "pokeathlon",
+  "apricorn_shake",
+  "rocket_saving",
+}
+
+local AVATAR_STATE_SET = {}
+for _, name in ipairs(AVATAR_STATE_KEYS) do
+  AVATAR_STATE_SET[name] = true
+end
+
 local VALID_GESTURES = { nurse_bow = true, give = true, receive = true }
 
 local function isValidPolygon(record)
@@ -460,6 +485,47 @@ function FieldActorCache.isValidVisual(visual, spriteId)
   return true
 end
 
+-- True only if every playable gender carries exactly the complete semantic
+-- state map and every state sprite is one of the compiled index sprites. A
+-- missing state, an unknown state, a non-integer sprite, a missing or
+-- duplicate gender, or a state pointing outside the compiled set is stale or
+-- malformed generated data, never a runtime fallback.
+local function isValidAvatarCapability(avatar, indexedSprites)
+  if type(avatar) ~= "table" then
+    return false
+  end
+  local keyCount = 0
+  for _ in pairs(avatar) do
+    keyCount = keyCount + 1
+  end
+  if keyCount ~= 3 then
+    return false
+  end
+  if type(avatar.id) ~= "string" or avatar.id == "" then
+    return false
+  end
+  if avatar.gender ~= 0 and avatar.gender ~= 1 then
+    return false
+  end
+  if type(avatar.states) ~= "table" then
+    return false
+  end
+  local stateCount = 0
+  for state, spriteId in pairs(avatar.states) do
+    if AVATAR_STATE_SET[state] ~= true then
+      return false
+    end
+    if not Validate.isNonNegativeInteger(spriteId) then
+      return false
+    end
+    if indexedSprites[spriteId] ~= true then
+      return false
+    end
+    stateCount = stateCount + 1
+  end
+  return stateCount == #AVATAR_STATE_KEYS
+end
+
 -- True only if the marker is exact, the index loads with the expected schema,
 -- spriteIds is the required array of sprite ids, the runtime configuration
 -- block (avatars + variable-sprite policy) is present, and every indexed
@@ -483,17 +549,25 @@ function FieldActorCache.isReady(cacheFs, expectedMarker)
   then
     return false
   end
+  local indexedSprites = {}
+  for _, spriteId in ipairs(index.spriteIds) do
+    indexedSprites[spriteId] = true
+  end
+  if #index.runtime.avatars ~= 2 then
+    return false
+  end
+  local genders = {}
   for _, avatar in ipairs(index.runtime.avatars) do
-    if
-      type(avatar) ~= "table"
-      or type(avatar.id) ~= "string"
-      or avatar.id == ""
-      or not Validate.isNonNegativeInteger(avatar.spriteId)
-      or type(avatar.gender) ~= "number"
-      or avatar.gender % 1 ~= 0
-    then
+    if not isValidAvatarCapability(avatar, indexedSprites) then
       return false
     end
+    if genders[avatar.gender] == true then
+      return false
+    end
+    genders[avatar.gender] = true
+  end
+  if genders[0] ~= true or genders[1] ~= true then
+    return false
   end
   for _, spriteId in ipairs(index.spriteIds) do
     if not Validate.isNonNegativeInteger(spriteId) then

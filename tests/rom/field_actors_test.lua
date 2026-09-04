@@ -106,8 +106,8 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
     previous = spriteId
   end
   Assert.equal(bundle.index.variableSprites[1], manifest.variableSpriteRange.first)
+  Assert.isNil(manifest.gestureSpriteIds, "state visuals are the only avatar selection source")
   for _, avatar in ipairs(manifest.avatars) do
-    Assert.isTrue(compiled[avatar.spriteId], avatar.id .. " variable target must be compiled")
     local generated
     for _, candidate in ipairs(bundle.index.runtime.avatars) do
       if candidate.id == avatar.id then
@@ -116,7 +116,9 @@ function T.compiled_visuals_cover_the_target_maps(romFs)
       end
     end
     Assert.notNil(generated, avatar.id .. " must be present in the runtime avatar catalog")
-    Assert.equal(assert(generated).gender, avatar.gender, avatar.id .. " gender metadata")
+    generated = assert(generated)
+    Assert.equal(generated.gender, avatar.gender, avatar.id .. " gender metadata")
+    Assert.isTrue(compiled[generated.states.walking], avatar.id .. " default visual must be compiled")
   end
 
   local aide = bundle.visuals[29]
@@ -364,6 +366,78 @@ function T.compiled_visuals_publish_semantic_gesture_clips(romFs)
     count = count + 1
   end
   Assert.equal(count, 0)
+end
+
+function T.compiled_bundle_publishes_complete_gendered_avatar_state_capability(romFs)
+  local maleStates = {
+    walking = 0,
+    cycling = 21,
+    surfing = 178,
+    rocket = 258,
+    watering = 180,
+    fishing = 188,
+    poketch = 196,
+    saving = 198,
+    heal = 200,
+    ladder = 248,
+    rocket_heal = 260,
+    pokeathlon = 407,
+    apricorn_shake = 423,
+    rocket_saving = 297,
+  }
+  local femaleStates = {
+    walking = 97,
+    cycling = 98,
+    surfing = 179,
+    rocket = 259,
+    watering = 181,
+    fishing = 189,
+    poketch = 197,
+    saving = 199,
+    heal = 201,
+    ladder = 249,
+    rocket_heal = 261,
+    pokeathlon = 408,
+    apricorn_shake = 424,
+    rocket_saving = 298,
+  }
+  local expectedKeySet =
+    "apricorn_shake,cycling,fishing,heal,ladder,pokeathlon,poketch,rocket,rocket_heal,rocket_saving,saving,surfing,walking,watering"
+
+  local bundle = assert(FieldActorCompiler.compile(romFs))
+  local runtime = assert(bundle.index.runtime, "the generated index must carry a runtime avatar capability")
+  local avatars = assert(runtime.avatars, "the runtime capability must list playable avatars")
+  Assert.equal(#avatars, 2, "the capability covers both genders")
+  local byGender = {}
+  for _, avatar in ipairs(avatars) do
+    Assert.keySet(avatar, "gender,id,states", "avatar records carry only semantic identity")
+    Assert.isTrue(type(avatar.id) == "string" and avatar.id ~= "", "avatar id is required")
+    byGender[avatar.gender] = avatar
+  end
+  local male = assert(byGender[0], "the male capability must be present")
+  local female = assert(byGender[1], "the female capability must be present")
+  Assert.keySet(assert(male.states), expectedKeySet, "male states cover every visual state")
+  Assert.keySet(assert(female.states), expectedKeySet, "female states cover every visual state")
+  Assert.deepEqual(male.states, maleStates, "male state visuals")
+  Assert.deepEqual(female.states, femaleStates, "female state visuals")
+
+  local indexed = {}
+  local previous
+  for _, spriteId in ipairs(bundle.index.spriteIds) do
+    indexed[spriteId] = true
+    Assert.isTrue(previous == nil or spriteId > previous, "selected sprite IDs stay sorted")
+    previous = spriteId
+  end
+  for _, states in ipairs({ maleStates, femaleStates }) do
+    for state, spriteId in pairs(states) do
+      Assert.isTrue(indexed[spriteId] == true, state .. " visual " .. spriteId .. " must be selected")
+      Assert.notNil(bundle.visuals[spriteId], state .. " visual " .. spriteId .. " must be compiled")
+    end
+  end
+  Assert.isTrue(indexed[200] == true, "heal male visual is selected through the state map")
+  Assert.isTrue(indexed[201] == true, "heal female visual is selected through the state map")
+  Assert.notNil(bundle.visuals[200], "heal male visual is compiled")
+  Assert.notNil(bundle.visuals[201], "heal female visual is compiled")
 end
 
 function T.compilation_is_deterministic_and_writes_a_ready_cache(romFs, version)

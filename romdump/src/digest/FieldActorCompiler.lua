@@ -28,6 +28,7 @@ local FieldActorFrames = require("romdump.src.digest.FieldActorFrames")
 local FieldActorModel = require("romdump.src.digest.FieldActorModel")
 local FieldActorStaticModel = require("romdump.src.digest.FieldActorStaticModel")
 local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")
+local PlayerAvatar = require("romdump.src.reference.hgss.player_avatar")
 local PoseContract = require("libs.assets.src.PoseContract")
 local manifest = require("romdump.src.config.FieldActors")
 
@@ -62,19 +63,29 @@ local GESTURE_BINDINGS = {
 }
 
 -- Source: pret/pokeheartgold 0985, ov01_02209A38. Families 16 and 17 reach
--- ov01_021F8D80's taskless path and ov01_021F8FC0 bob; the other encountered
--- families use callbacks without that follower idle behavior.
+-- ov01_021F8D80's taskless path and ov01_021F8FC0 bob; the other families use
+-- callbacks without that follower idle behavior. The callback-struct table
+-- itself shows the split: 16/17 share one distinct struct while every other
+-- family, including the player-state families below, uses a callback struct.
 local IDLE_MODE_BY_ACTOR_FAMILY = {
   [0] = "static",
   [1] = "static",
   [3] = "static",
+  [4] = "static",
+  [5] = "static",
+  [6] = "static",
+  [7] = "static",
+  [8] = "static",
+  [9] = "static",
   [10] = "static",
+  [11] = "static",
   [12] = "static",
   [13] = "static",
   [15] = "static",
   [16] = "animated",
   [17] = "animated",
   [18] = "static",
+  [19] = "static",
 }
 
 ---@generic T
@@ -88,8 +99,10 @@ local function must(value, err)
   return value
 end
 
--- The configured player graphics plus every object-event sprite used by any map
--- in the catalog. Variable sprite IDs are
+-- The configured player state visuals plus every object-event sprite used by
+-- any map in the catalog. Player sprites resolve through the producer
+-- player-avatar reference by gender, so every visual state is an ordinary
+-- compiled field actor. Variable sprite IDs are
 -- resolved by the runtime to a player graphic and are never compiled directly.
 local function selectedSpriteIds(romFs)
   local variable = manifest.variableSpriteRange
@@ -102,10 +115,10 @@ local function selectedSpriteIds(romFs)
     order[#order + 1] = spriteId
   end
   for _, avatar in ipairs(manifest.avatars) do
-    add(avatar.spriteId)
-  end
-  for _, spriteId in ipairs(manifest.gestureSpriteIds or {}) do
-    add(spriteId)
+    local states = PlayerAvatar.statesForGender(avatar.gender)
+    for _, state in ipairs(PlayerAvatar.visualStates) do
+      add(states[state])
+    end
   end
 
   local archive = must(romFs:openNarc("zone_events"), "zone_event archive is unavailable")
@@ -133,6 +146,20 @@ local function selectedSpriteIds(romFs)
   end
   table.sort(deferred)
   return order, deferred
+end
+
+-- One semantic state capability per configured playable identity: the
+-- gender's complete visual-state map with compiled sprite IDs.
+local function avatarCapabilities()
+  local capabilities = {}
+  for _, avatar in ipairs(manifest.avatars) do
+    capabilities[#capabilities + 1] = {
+      id = avatar.id,
+      gender = avatar.gender,
+      states = PlayerAvatar.statesForGender(avatar.gender),
+    }
+  end
+  return capabilities
 end
 
 ---@param pack table
@@ -646,12 +673,12 @@ local function _compile(romFs)
     -- lookup; every value they take is one of the compiled player graphics.
     variableSprites = variableSprites,
     recordCount = graphics.recordCount,
-    -- The runtime-facing actor configuration: avatar selection and the
-    -- variable-sprite policy come from this generated block, never from the
-    -- source manifest. The manifest's addresses, archive paths, and table
-    -- layouts stay in romdump.
+    -- The runtime-facing actor configuration: the semantic avatar state
+    -- capabilities and the variable-sprite policy come from this generated
+    -- block, never from the source manifest. The manifest's addresses,
+    -- archive paths, and table layouts stay in romdump.
     runtime = {
-      avatars = manifest.avatars,
+      avatars = avatarCapabilities(),
       variableSprites = {
         first = manifest.variableSpriteRange.first,
         last = manifest.variableSpriteRange.last,

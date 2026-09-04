@@ -21,12 +21,44 @@ end
 
 -- Field-actor index and visuals
 
+local AVATAR_STATE_KEYS = {
+  "walking",
+  "cycling",
+  "surfing",
+  "rocket",
+  "watering",
+  "fishing",
+  "poketch",
+  "saving",
+  "heal",
+  "ladder",
+  "rocket_heal",
+  "pokeathlon",
+  "apricorn_shake",
+  "rocket_saving",
+}
+
 local function writeActorIndex(c, spriteIds)
+  local states = {}
+  local available = 0
+  if type(spriteIds) == "table" then
+    available = #spriteIds
+  end
+  for i, name in ipairs(AVATAR_STATE_KEYS) do
+    states[name] = available > 0 and spriteIds[((i - 1) % available) + 1] or 0
+  end
+  local function capability(id, gender)
+    local own = {}
+    for name, spriteId in pairs(states) do
+      own[name] = spriteId
+    end
+    return { id = id, gender = gender, states = own }
+  end
   c:writeLua(FieldActorCache.indexPath(), {
     schema = FieldActorCache.INDEX_SCHEMA,
     spriteIds = spriteIds,
     runtime = {
-      avatars = { { id = "hero", spriteId = 0, gender = 0 } },
+      avatars = { capability("hero", 0), capability("heroine", 1) },
       variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
     },
   })
@@ -233,6 +265,109 @@ function T.actor_index_avatar_without_gender_is_not_ready()
   })
   c:write(FieldActorCache.markerPath(), "m")
   Assert.isFalse(FieldActorCache.isReady(c, "m"), "avatar gender is required by the current actor contract")
+end
+
+local function avatarStateMap(firstSpriteId)
+  local states = {}
+  for i, name in ipairs(AVATAR_STATE_KEYS) do
+    states[name] = firstSpriteId + i - 1
+  end
+  return states
+end
+
+local function completeAvatarSetup()
+  local heroStates = avatarStateMap(0)
+  local heroineStates = avatarStateMap(20)
+  local spriteIds = {}
+  for _, states in ipairs({ heroStates, heroineStates }) do
+    for _, name in ipairs(AVATAR_STATE_KEYS) do
+      spriteIds[#spriteIds + 1] = states[name]
+    end
+  end
+  table.sort(spriteIds)
+  local avatars = {
+    { id = "hero", gender = 0, states = heroStates },
+    { id = "heroine", gender = 1, states = heroineStates },
+  }
+  return spriteIds, avatars
+end
+
+local function writeAvatarStateIndex(c, spriteIds, avatars)
+  c:writeLua(FieldActorCache.indexPath(), {
+    schema = FieldActorCache.INDEX_SCHEMA,
+    spriteIds = spriteIds,
+    runtime = {
+      avatars = avatars,
+      variableSprites = { first = 101, last = 117, variableBase = 0x4020 },
+    },
+  })
+  c:write(FieldActorCache.markerPath(), "m")
+end
+
+local function writeVisualsFor(c, spriteIds)
+  for _, spriteId in ipairs(spriteIds) do
+    writeActorVisual(c, spriteId)
+  end
+end
+
+function T.actor_index_with_complete_avatar_state_maps_is_ready()
+  local c = cache()
+  local spriteIds, avatars = completeAvatarSetup()
+  writeAvatarStateIndex(c, spriteIds, avatars)
+  writeVisualsFor(c, spriteIds)
+  Assert.isTrue(FieldActorCache.isReady(c, "m"), "complete gendered state maps must be ready")
+end
+
+function T.actor_index_with_malformed_avatar_state_maps_is_not_ready()
+  do
+    local c = cache()
+    local spriteIds, avatars = completeAvatarSetup()
+    avatars[1].states.heal = nil
+    writeAvatarStateIndex(c, spriteIds, avatars)
+    writeVisualsFor(c, spriteIds)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "a missing state must fail readiness")
+  end
+  do
+    local c = cache()
+    local spriteIds, avatars = completeAvatarSetup()
+    avatars[1].states.extra = avatars[1].states.walking
+    writeAvatarStateIndex(c, spriteIds, avatars)
+    writeVisualsFor(c, spriteIds)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "an unknown state must fail readiness")
+  end
+  do
+    local c = cache()
+    local spriteIds, avatars = completeAvatarSetup()
+    avatars[1].states.heal = "0"
+    writeAvatarStateIndex(c, spriteIds, avatars)
+    writeVisualsFor(c, spriteIds)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "a non-integer state sprite must fail readiness")
+  end
+  do
+    local c = cache()
+    local spriteIds, avatars = completeAvatarSetup()
+    writeAvatarStateIndex(c, spriteIds, { avatars[1] })
+    writeVisualsFor(c, spriteIds)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "a missing gender must fail readiness")
+  end
+  do
+    local c = cache()
+    local spriteIds, avatars = completeAvatarSetup()
+    writeAvatarStateIndex(c, spriteIds, {
+      { id = "hero", gender = 0, states = avatars[1].states },
+      { id = "heroine", gender = 0, states = avatars[2].states },
+    })
+    writeVisualsFor(c, spriteIds)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "a duplicate gender must fail readiness")
+  end
+  do
+    local c = cache()
+    local spriteIds, avatars = completeAvatarSetup()
+    avatars[1].states.heal = 9999
+    writeAvatarStateIndex(c, spriteIds, avatars)
+    writeVisualsFor(c, spriteIds)
+    Assert.isFalse(FieldActorCache.isReady(c, "m"), "a state sprite absent from the index must fail readiness")
+  end
 end
 
 function T.actor_visual_with_wrong_schema_is_not_ready()
