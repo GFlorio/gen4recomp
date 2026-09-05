@@ -842,6 +842,23 @@ function T.map_lifecycle_events_are_queued_and_drained_before_frame_checks()
   })
 end
 
+function T.map_entry_lifecycle_has_a_dedicated_session_owner()
+  local session = FieldSession.new(baseOptions({
+    initController = {
+      hasLifecycle = function()
+        return false
+      end,
+      startLifecycle = function()
+        return false
+      end,
+    },
+  }))
+
+  Assert.notNil(session.mapEntryController, "map-entry phase state must have one explicit owner")
+  Assert.equal(type(session.mapEntryController.advance), "function")
+  Assert.equal(type(session.mapEntryController.begin), "function")
+end
+
 function T.destination_presentability_is_monotonic_through_map_entry()
   local controller = {
     hasLifecycle = function(_, lifecycle)
@@ -859,32 +876,32 @@ function T.destination_presentability_is_monotonic_through_map_entry()
   s:beginMapEntry()
   Assert.isFalse(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.equal(s.mapEntryStage, "transition_running")
+  Assert.equal(s.mapEntryController:currentStage(), "transition_running")
   Assert.isFalse(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.equal(s.mapEntryStage, "actors")
+  Assert.equal(s.mapEntryController:currentStage(), "actors")
   Assert.isFalse(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.equal(s.mapEntryStage, "load")
+  Assert.equal(s.mapEntryController:currentStage(), "load")
   Assert.isFalse(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.equal(s.mapEntryStage, "load_running")
+  Assert.equal(s.mapEntryController:currentStage(), "load_running")
   Assert.isFalse(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.equal(s.mapEntryStage, "await_presentation")
+  Assert.equal(s.mapEntryController:currentStage(), "await_presentation")
   Assert.isTrue(s:destinationWorldPresentable())
 
   s:acknowledgeDestinationPresentation()
-  Assert.equal(s.mapEntryStage, "resume")
+  Assert.equal(s.mapEntryController:currentStage(), "resume")
   Assert.isTrue(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.equal(s.mapEntryStage, "resume_running")
+  Assert.equal(s.mapEntryController:currentStage(), "resume_running")
   Assert.isTrue(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.equal(s.mapEntryStage, "ready")
+  Assert.equal(s.mapEntryController:currentStage(), "ready")
   Assert.isTrue(s:destinationWorldPresentable())
   s:updateFixed({})
-  Assert.isNil(s.mapEntryStage)
+  Assert.isNil(s.mapEntryController:currentStage())
   Assert.isTrue(s:destinationWorldPresentable())
 end
 
@@ -947,10 +964,10 @@ function T.lifecycle_start_retry_keeps_the_entry_stage_pending()
   s:updateFixed({})
   Assert.equal(starts, 1)
   Assert.equal(entered, 0)
-  Assert.equal(s.mapEntryStage, "transition")
+  Assert.equal(s.mapEntryController:currentStage(), "transition")
   s:updateFixed({})
   Assert.equal(starts, 2)
-  Assert.equal(s.mapEntryStage, "transition_running")
+  Assert.equal(s.mapEntryController:currentStage(), "transition_running")
   Assert.equal(entered, 0)
 end
 
@@ -1006,7 +1023,7 @@ function T.new_map_entry_discards_previous_generation_requests()
   }))
   s:beginMapEntry()
   s:beginMapEntry()
-  Assert.equal(s.mapEntryStage, "transition")
+  Assert.equal(s.mapEntryController:currentStage(), "transition")
 end
 
 function T.distinct_resume_requests_execute_separately()

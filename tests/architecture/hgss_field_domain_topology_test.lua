@@ -70,6 +70,7 @@ local FIELD_COORDINATION = {
   "FieldErrors",
   "FieldEventState",
   "FieldInput",
+  "FieldMapEntryController",
   "FieldSession",
   "FieldWindowStyles",
   "MapInitScriptController",

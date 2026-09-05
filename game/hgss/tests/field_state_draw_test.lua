@@ -915,6 +915,14 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
       },
       scriptClient = { consume = function() end },
       enterMapActors = function() end,
+      initController = {
+        hasLifecycle = function(_, lifecycle)
+          return lifecycle == "on_resume"
+        end,
+        startLifecycle = function()
+          return true
+        end,
+      },
       menuHost = {
         isModal = function()
           return false
@@ -965,7 +973,7 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
         end,
       },
     })
-    session.mapEntryStage = "transition"
+    session:beginMapEntry()
     local runtime = {
       runtimeMap = { sceneRuntime = { mapDraws = {}, staticBuildingDraws = {}, animatedBuildingDraws = {} } },
       fieldEntranceIndicator = {
@@ -1048,13 +1056,16 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
   })
   state:draw()
   Assert.equal(draws, 0)
-  session.mapEntryStage = "await_presentation"
+  session.mapEntryController:advance(1)
+  session.mapEntryController:advance(2)
+  session.mapEntryController:advance(3)
   state:draw()
   Assert.equal(draws, 1)
   Assert.equal(session.mapEntryStage, "resume")
-  session.mapEntryStage = "resume_running"
+  session.mapEntryController:advance(4)
   state:draw()
-  session.mapEntryStage = nil
+  session.mapEntryController:advance(5)
+  session.mapEntryController:advance(6)
   state:draw()
   Assert.equal(draws, 3)
 
@@ -1065,7 +1076,9 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
       error("destination renderer failed")
     end,
   })
-  failedSession.mapEntryStage = "await_presentation"
+  failedSession.mapEntryController:advance(1)
+  failedSession.mapEntryController:advance(2)
+  failedSession.mapEntryController:advance(3)
   Assert.throws(function()
     failedState:draw()
   end)

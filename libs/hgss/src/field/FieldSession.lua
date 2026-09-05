@@ -28,6 +28,7 @@ local TransitionTrigger = require("libs.hgss.src.transition.TransitionTrigger")
 local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
 local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
 local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
+local FieldMapEntryController = require("libs.hgss.src.field.FieldMapEntryController")
 
 ---@class FieldSessionOptions
 ---@field versionId string
@@ -84,18 +85,26 @@ local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
 ---@field playerAvatar FieldPlayerAvatarState? surf-phase owner stepped once per fixed tick
 ---@field audio { updateField: fun(self: table<string, unknown>), play: fun(self: table<string, unknown>, idOrSymbol: string) }?
 ---@field initController table<string, unknown>|nil
----@field enterMapActors fun()?
----@field mapEntryStage string?
+---@field mapEntryStage FieldMapEntryStage? read-only view of mapEntryController state
+---@field mapEntryController FieldMapEntryController
 ---@field childResumePending boolean
----@field autoAcknowledgePresentation boolean
 ---@field tick integer
 ---@field accumulator number
 ---@field navigationBoundary table<string, unknown>?
 ---@field _boundaryMovementDirection FieldDirection?
----@field _mapEntryMode "full"|"connection"|nil
----@field _connectionArrivalPending boolean
 local FieldSession = {}
-FieldSession.__index = FieldSession
+
+---@param self FieldSession
+---@param key string
+---@return unknown
+local function fieldSessionIndex(self, key)
+  if key == "mapEntryStage" then
+    return self.mapEntryController:currentStage()
+  end
+  return FieldSession[key]
+end
+
+FieldSession.__index = fieldSessionIndex
 
 -- The DS field cadence: 30 fixed ticks per second, owned here.
 FieldSession.FIXED_HZ = 30
@@ -105,14 +114,6 @@ FieldSession.MAX_CATCH_UP_TICKS = 5
 -- Float slack so a render delta that lands exactly on a tick boundary does
 -- not leave a stale full tick in the accumulator.
 local ACCUMULATOR_EPSILON = 1e-12
-
-local HIDDEN_ENTRY_STAGES = {
-  transition = true,
-  transition_running = true,
-  actors = true,
-  load = true,
-  load_running = true,
-}
 
 local DIRECTION_DELTAS = {
   north = { x = 0, z = -1 },
@@ -233,35 +234,23 @@ function FieldSession.new(options)
     playerAvatar = options.playerAvatar,
     audio = options.audio,
     initController = options.initController,
-    enterMapActors = options.enterMapActors,
-    mapEntryStage = nil,
+    mapEntryController = FieldMapEntryController.new({
+      scriptScheduler = options.scriptScheduler,
+      initController = options.initController,
+      enterMapActors = options.enterMapActors,
+      autoAcknowledgePresentation = options.autoAcknowledgePresentation == true,
+    }),
     childResumePending = false,
-    autoAcknowledgePresentation = options.autoAcknowledgePresentation == true,
     navigationBoundary = options.navigationBoundary,
     tick = 0,
     accumulator = 0,
     _boundaryMovementDirection = nil,
-    _mapEntryMode = nil,
-    _connectionArrivalPending = false,
   }, FieldSession)
   return session
 end
 
--- The two map-entry modes share the transition and actor stages. A full entry
--- (initial boot or warp) continues into load, presentation acknowledgement,
--- and resume; a seamless connection entry reaches ready straight after actor
--- activation.
----@param self FieldSession
----@param mode "full"|"connection"
-local function beginMapEntry(self, mode)
-  assert(type(self.enterMapActors) == "function", "map actor entry capability required")
-  assert(self.initController and self.initController.startLifecycle, "map lifecycle controller required")
-  self._mapEntryMode = mode
-  self.mapEntryStage = "transition"
-end
-
 function FieldSession:beginMapEntry()
-  beginMapEntry(self, "full")
+  self.mapEntryController:begin("full")
 end
 
 function FieldSession:onChildApplicationResume()
@@ -272,99 +261,11 @@ end
 -- transition and remains presentable for its whole lifecycle. Only a full
 -- entry hides the destination until it has been presented.
 function FieldSession:destinationWorldPresentable()
-  if self._mapEntryMode == "connection" then
-    return true
-  end
-  return not HIDDEN_ENTRY_STAGES[self.mapEntryStage]
+  return self.mapEntryController:destinationWorldPresentable()
 end
 
 function FieldSession:acknowledgeDestinationPresentation()
-  if self.mapEntryStage == "await_presentation" then
-    self.mapEntryStage = "resume"
-  end
-end
-
-local function hasEntryLifecycle(self, lifecycle)
-  return self.initController:hasLifecycle(lifecycle)
-end
-
--- Advances one map-entry boundary. A running lifecycle is left for the normal
--- scheduler phase, which remains the sole script execution point.
-function FieldSession:_advanceMapEntryBoundary()
-  local stage = self.mapEntryStage
-  if not stage then
-    return false
-  end
-  if stage == "transition" then
-    if foregroundEnvironmentId(self.scriptScheduler) ~= nil then
-      return false
-    end
-    if hasEntryLifecycle(self, "on_transition") then
-      if self.initController:startLifecycle("on_transition", self.tick + 1) then
-        self.mapEntryStage = "transition_running"
-      end
-    else
-      self.mapEntryStage = "actors"
-    end
-    return true
-  elseif stage == "transition_running" then
-    if foregroundEnvironmentId(self.scriptScheduler) ~= nil then
-      return false
-    end
-    self.mapEntryStage = "actors"
-    return true
-  elseif stage == "actors" then
-    self.enterMapActors()
-    self.mapEntryStage = self._mapEntryMode == "connection" and "ready" or "load"
-    return true
-  elseif stage == "load" then
-    if foregroundEnvironmentId(self.scriptScheduler) ~= nil then
-      return false
-    end
-    if hasEntryLifecycle(self, "on_load") then
-      if self.initController:startLifecycle("on_load", self.tick + 1) then
-        self.mapEntryStage = "load_running"
-      end
-    else
-      self.mapEntryStage = "await_presentation"
-    end
-    return true
-  elseif stage == "load_running" then
-    if foregroundEnvironmentId(self.scriptScheduler) ~= nil then
-      return false
-    end
-    self.mapEntryStage = "await_presentation"
-    return true
-  elseif stage == "await_presentation" then
-    if self.autoAcknowledgePresentation then
-      self:acknowledgeDestinationPresentation()
-      return true
-    end
-    return false
-  elseif stage == "resume" then
-    if foregroundEnvironmentId(self.scriptScheduler) ~= nil then
-      return false
-    end
-    if hasEntryLifecycle(self, "on_resume") then
-      if self.initController:startLifecycle("on_resume", self.tick + 1) then
-        self.mapEntryStage = "resume_running"
-      end
-    else
-      self.mapEntryStage = "ready"
-    end
-    return true
-  elseif stage == "resume_running" then
-    if foregroundEnvironmentId(self.scriptScheduler) ~= nil then
-      return false
-    end
-    self.mapEntryStage = "ready"
-    return true
-  elseif stage == "ready" then
-    self.mapEntryStage = nil
-    self._mapEntryMode = nil
-    return false
-  end
-  error("unknown map entry stage " .. tostring(stage))
+  self.mapEntryController:acknowledgeDestinationPresentation()
 end
 
 function FieldSession:actorTarget()
@@ -517,6 +418,98 @@ local function consumePassiveIntent(self, intent)
   settleArrivalTile(self)
 end
 
+---@alias FieldTickOutcome "continue"|"consumed"
+local TICK_CONTINUES = "continue"
+local TICK_CONSUMED = "consumed"
+
+---@param self FieldSession
+---@return FieldTickOutcome
+local function finishTick(self)
+  self:_advanceTick()
+  return TICK_CONSUMED
+end
+
+---@param self FieldSession
+---@return FieldTickOutcome
+local function advancePreSchedulerBoundary(self)
+  if self.mapEntryController:isActive() then
+    if self.mapEntryController:advance(self.tick + 1) then
+      return finishTick(self)
+    end
+  elseif self.childResumePending and foregroundEnvironmentId(self.scriptScheduler) == nil then
+    self.childResumePending = false
+    if self.initController:hasLifecycle("on_resume") then
+      assert(self.initController:startLifecycle("on_resume", self.tick + 1))
+    end
+    return finishTick(self)
+  elseif
+    self.initController
+    and not self.initController.startLifecycle
+    and self.initController:evaluate(self.tick + 1)
+  then
+    return finishTick(self)
+  end
+  return TICK_CONTINUES
+end
+
+---@param self FieldSession
+---@return FieldTickOutcome
+local function advancePostSchedulerBoundary(self)
+  if self.mapEntryController:isActive() then
+    if self.mapEntryController:advance(self.tick + 1) or self.mapEntryController:isActive() then
+      return finishTick(self)
+    end
+  end
+  if self.mapEntryController:takeConnectionArrival() then
+    local arrivalIntent = resolveCoordinate(self)
+    if arrivalIntent then
+      consumeCoordinateIntent(self, arrivalIntent)
+      return finishTick(self)
+    end
+    local arrivalPassiveIntent = resolvePassiveSign(self)
+    if arrivalPassiveIntent then
+      consumePassiveIntent(self, arrivalPassiveIntent)
+      return finishTick(self)
+    end
+  end
+  return TICK_CONTINUES
+end
+
+---@param self FieldSession
+---@param inputSnapshot table<string, unknown>
+---@return boolean playerInputOwnedAtTickStart
+local function runScriptPhase(self, inputSnapshot)
+  local playerInputOwnedAtTickStart = playerInputOwned(self.scriptScheduler)
+  local schedulerInput = {
+    heldDirection = inputSnapshot.heldDirection,
+    pressedDirection = inputSnapshot.pressedDirection,
+    pressedAction = inputSnapshot.actionPressed,
+    pressedCancel = inputSnapshot.cancelPressed,
+  }
+  local menuModal = self.menuHost:isModal()
+  local contextChoiceModal = self.contextChoice:isActive()
+  if menuModal or contextChoiceModal then
+    local uiEvents = self.input:uiSnapshot(self.tick + 1)
+    if menuModal then
+      schedulerInput.menuEvents = self.menuHost:inputEvents(uiEvents)
+    else
+      schedulerInput.uiEvents = uiEvents
+    end
+    schedulerInput.pressedDirection = nil
+    schedulerInput.pressedAction = nil
+    schedulerInput.pressedCancel = nil
+  end
+  self.scriptScheduler:step(self.tick + 1, schedulerInput)
+  self.menuHost:advance(self.tick + 1)
+  local contextChoiceNowModal = self.contextChoice:isActive()
+  if not contextChoiceModal and contextChoiceNowModal then
+    self.input:beginUi(self.tick + 1)
+  elseif contextChoiceModal and not contextChoiceNowModal then
+    self.input:clearUi()
+  end
+  return playerInputOwnedAtTickStart
+end
+
 function FieldSession:updateFixed(inputSnapshot)
   -- Ordinary field-audio policy runs for same-zone completed steps. Map-entry
   -- and changed-zone audio are owned by FieldAudioController:enterMap and
@@ -618,91 +611,13 @@ function FieldSession:updateFixed(inputSnapshot)
   -- neighbor coverage runtime. No other module steps it.
   self.currentMap:updateAnimated()
 
-  if self.mapEntryStage then
-    assert(self.initController and self.initController.hasLifecycle, "map lifecycle presence query required")
-    if self:_advanceMapEntryBoundary() then
-      self:_advanceTick()
-      return
-    end
-  elseif self.childResumePending and foregroundEnvironmentId(self.scriptScheduler) == nil then
-    self.childResumePending = false
-    if self.initController:hasLifecycle("on_resume") then
-      assert(self.initController:startLifecycle("on_resume", self.tick + 1))
-    end
-    self:_advanceTick()
-    return
-  elseif
-    self.initController
-    and not self.initController.startLifecycle
-    and self.initController:evaluate(self.tick + 1)
-  then
-    self:_advanceTick()
+  if advancePreSchedulerBoundary(self) == TICK_CONSUMED then
     return
   end
 
-  -- Script phase : the field-script scheduler
-  -- advances script-owned asynchronous work, polls tasks, promotes completed
-  -- handoffs, runs ready contexts to yield, and resolves at most one new
-  -- interaction. The session never steps the scheduler twice per tick.
-  -- Sampled before the scheduler runs this tick, so it reflects the
-  -- pre-scheduler combined-ownership state even though the scheduler step
-  -- below can itself release ownership (explicit unlock or environment
-  -- teardown on completion); the post-scheduler observation right below the
-  -- step call is a second, deliberately distinct read. ORing the two samples
-  -- means a root that completes during this tick's scheduler step still
-  -- suppresses manual input for this same tick.
-  local playerInputOwnedAtTickStart = playerInputOwned(self.scriptScheduler)
-  local schedulerInput = {
-    heldDirection = inputSnapshot.heldDirection,
-    pressedDirection = inputSnapshot.pressedDirection,
-    pressedAction = inputSnapshot.actionPressed,
-    pressedCancel = inputSnapshot.cancelPressed,
-  }
-  local menuModal = self.menuHost:isModal()
-  local contextChoiceModal = self.contextChoice:isActive()
-  if menuModal or contextChoiceModal then
-    local uiEvents = self.input:uiSnapshot(self.tick + 1)
-    if menuModal then
-      schedulerInput.menuEvents = self.menuHost:inputEvents(uiEvents)
-    else
-      schedulerInput.uiEvents = uiEvents
-    end
-    schedulerInput.pressedDirection = nil
-    schedulerInput.pressedAction = nil
-    schedulerInput.pressedCancel = nil
-  end
-  self.scriptScheduler:step(self.tick + 1, schedulerInput)
-  self.menuHost:advance(self.tick + 1)
-  local contextChoiceNowModal = self.contextChoice:isActive()
-  if not contextChoiceModal and contextChoiceNowModal then
-    self.input:beginUi(self.tick + 1)
-  elseif contextChoiceModal and not contextChoiceNowModal then
-    self.input:clearUi()
-  end
-  if self.mapEntryStage then
-    if self:_advanceMapEntryBoundary() or self.mapEntryStage ~= nil then
-      self:_advanceTick()
-      return
-    end
-  end
-
-  -- The seam arrival deferred by a connection entry resolves here, once, on
-  -- the first ordinary boundary after destination actor activation and ahead
-  -- of any frame-init evaluation or manual input.
-  if self._connectionArrivalPending and not self.mapEntryStage then
-    self._connectionArrivalPending = false
-    local arrivalIntent = resolveCoordinate(self)
-    if arrivalIntent then
-      consumeCoordinateIntent(self, arrivalIntent)
-      self:_advanceTick()
-      return
-    end
-    local arrivalPassiveIntent = resolvePassiveSign(self)
-    if arrivalPassiveIntent then
-      consumePassiveIntent(self, arrivalPassiveIntent)
-      self:_advanceTick()
-      return
-    end
+  local playerInputOwnedAtTickStart = runScriptPhase(self, inputSnapshot)
+  if advancePostSchedulerBoundary(self) == TICK_CONSUMED then
+    return
   end
 
   local playerInputOwnedAfterScheduler = isPlayerInputOwned(self.scriptScheduler)
@@ -932,8 +847,7 @@ function FieldSession:updateFixed(inputSnapshot)
         -- own the next ticks, and the arrival tile's event -- its coordinate
         -- event, or the passive sign it faces -- waits for them instead of
         -- resolving against a map that is not live yet.
-        beginMapEntry(self, "connection")
-        self._connectionArrivalPending = true
+        self.mapEntryController:begin("connection")
       end
     end
     self:_emitTerrainResponse()
