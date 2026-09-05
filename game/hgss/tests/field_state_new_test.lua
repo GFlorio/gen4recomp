@@ -146,9 +146,16 @@ end
 
 function T.state_constructs_the_field_ui_renderers()
   local state = bootWithCapturedRuntimeOptions(fieldStateOptions())
-  Assert.notNil(state.signpostRenderer, "the state constructs the signpost renderer")
-  Assert.notNil(state.startMenuRenderer, "the state constructs the start menu renderer")
-  Assert.notNil(state.trainerCardRenderer, "the state constructs the trainer card renderer")
+  Assert.notNil(state.presentationResources.signpostRenderer, "the state constructs the signpost renderer")
+  Assert.notNil(state.presentationResources.startMenuRenderer, "the state constructs the start menu renderer")
+  Assert.notNil(state.presentationResources.trainerCardRenderer, "the state constructs the trainer card renderer")
+  state:dispose()
+end
+
+function T.state_composes_explicit_presentation_owners()
+  local state = bootWithCapturedRuntimeOptions(fieldStateOptions())
+  Assert.notNil(state.presentationResources, "FieldState owns a presentation resource aggregate")
+  Assert.notNil(state.actorPresentation, "FieldState owns an actor presentation aggregate")
   state:dispose()
 end
 
@@ -167,14 +174,15 @@ function T.update_forwards_to_the_runtime()
       },
       playerVisual = { spriteId = 0 },
     },
-    presentationActorAssets = {
-      acquire = function() end,
-      release = function() end,
+    actorPresentation = {
+      sync = function(self)
+        self.synced = true
+      end,
     },
-    _presentationSpriteRefs = {},
   }, FieldState)
   state:update(0.016)
   Assert.equal(updates, 1)
+  Assert.isTrue((state.actorPresentation --[[@as any]]).synced)
 end
 
 -- A presentation boot with a missing generated UI asset is a typed error: a

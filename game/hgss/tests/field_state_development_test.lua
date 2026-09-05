@@ -85,21 +85,27 @@ local function drawableState(development)
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    renderer = { draw = function() end },
-    fieldEntranceIndicatorRenderer = {
+    presentationResources = {
+      renderer = { draw = function() end },
+      fieldEntranceIndicatorRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
+      fieldEmoteRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
+    },
+    actorPresentation = {
       drawItems = function()
         return {}
       end,
-    },
-    fieldEmoteRenderer = {
-      drawItems = function()
+      records = function()
         return {}
       end,
     },
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-    _actorAssetLookup = function()
-      error("no actor in this scenario is visible, so the asset lookup must not run")
-    end,
   }, FieldState)
 end
 

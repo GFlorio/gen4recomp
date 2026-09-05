@@ -407,7 +407,8 @@ local function bootCoveredField(scope)
       state:dispose()
     end,
   })
-  state.renderer = {
+  local testState = state --[[@as any]]
+  testState.renderer = {
     draw = function() end,
     release = function() end,
   }

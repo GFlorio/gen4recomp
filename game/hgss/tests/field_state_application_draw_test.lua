@@ -164,26 +164,32 @@ local function drawableState(options)
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    renderer = recordingRenderer("world", sink),
-    dialogueRenderer = recordingRenderer("dialogue", sink),
-    signpostRenderer = recordingRenderer("signpost", sink),
-    startMenuRenderer = recordingRenderer("menu", sink),
-    trainerCardRenderer = recordingRenderer("card", sink),
-    menuRenderer = recordingRenderer("script-menu", sink),
-    fieldEntranceIndicatorRenderer = {
+    presentationResources = {
+      renderer = recordingRenderer("world", sink),
+      dialogueRenderer = recordingRenderer("dialogue", sink),
+      signpostRenderer = recordingRenderer("signpost", sink),
+      startMenuRenderer = recordingRenderer("menu", sink),
+      trainerCardRenderer = recordingRenderer("card", sink),
+      menuRenderer = recordingRenderer("script-menu", sink),
+      fieldEntranceIndicatorRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
+      fieldEmoteRenderer = {
+        drawItems = function()
+          return {}
+        end,
+      },
+    },
+    actorPresentation = {
       drawItems = function()
         return {}
       end,
-    },
-    fieldEmoteRenderer = {
-      drawItems = function()
+      records = function()
         return {}
       end,
     },
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-    _actorAssetLookup = function()
-      error("no actor in this scenario is visible, so the asset lookup must not run")
-    end,
   }, FieldState)
   return state, sink
 end

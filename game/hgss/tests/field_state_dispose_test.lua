@@ -5,6 +5,8 @@
 local Assert = require("tests.support.Assert")
 local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 local FieldState = require("game.hgss.src.field.FieldState")
+local FieldActorPresentation = require("game.hgss.src.field.FieldActorPresentation")
+local FieldPresentationResources = require("game.hgss.src.field.FieldPresentationResources")
 
 local T = {}
 
@@ -92,9 +94,16 @@ local function disposableState()
     signpostRenderer = fakeResource("release"),
     startMenuRenderer = fakeResource("release"),
     trainerCardRenderer = fakeResource("release"),
+    fieldEntranceIndicatorRenderer = fakeResource("dispose"),
+    fieldSurfRenderer = fakeResource("dispose"),
+    fieldTerrainEffectRenderer = fakeResource("dispose"),
+    fieldEntranceIndicatorPool = fakeResource("release"),
+    fieldEmoteRenderer = fakeResource("dispose"),
+    fieldEmotePool = fakeResource("release"),
     messageProvider = fakeResource("dispose"),
     actors = fakeResource("dispose"),
     actorAssets = fakeAssetProvider(),
+    presentationActorAssets = fakeAssetProvider(),
     renderer = fakeResource("release"),
     mapLoader = fakeResource("release"),
     saveStore = fakeResource("save"),
@@ -120,13 +129,26 @@ local function disposableState()
       end,
     },
   }, FieldRuntime)
-  local state = setmetatable({
-    runtime = runtime,
+  local presentationResources = setmetatable({
     dialogueRenderer = resources.dialogueRenderer,
     signpostRenderer = resources.signpostRenderer,
     startMenuRenderer = resources.startMenuRenderer,
     trainerCardRenderer = resources.trainerCardRenderer,
+    fieldEntranceIndicatorRenderer = resources.fieldEntranceIndicatorRenderer,
+    fieldSurfRenderer = resources.fieldSurfRenderer,
+    fieldTerrainEffectRenderer = resources.fieldTerrainEffectRenderer,
+    fieldEntranceIndicatorPool = resources.fieldEntranceIndicatorPool,
+    fieldEmoteRenderer = resources.fieldEmoteRenderer,
+    fieldEmotePool = resources.fieldEmotePool,
     renderer = resources.renderer,
+  }, FieldPresentationResources)
+  local actorPresentation = FieldActorPresentation.new(runtime, {
+    assets = resources.presentationActorAssets --[[@as FieldActorPresentationAssets]],
+  })
+  local state = setmetatable({
+    runtime = runtime,
+    presentationResources = presentationResources,
+    actorPresentation = actorPresentation,
   }, FieldState)
   return state, resources
 end
@@ -145,6 +167,8 @@ function T.dispose_releases_each_resource_without_saving()
   Assert.equal(resources.actors.calls, 1)
   Assert.equal(resources.actorAssets.releaseCalls, 0, "no fixed simulation-side avatar reference remains to release")
   Assert.equal(resources.actorAssets.calls, 1)
+  Assert.equal(resources.presentationActorAssets.releaseCalls, 0, "presentation ownership has no fixed actor reference")
+  Assert.equal(resources.presentationActorAssets.calls, 1, "presentation actor assets are disposed by their owner")
   Assert.equal(resources.renderer.calls, 1)
   Assert.equal(resources.mapLoader.calls, 1)
   Assert.equal(resources.saveStore.calls, 0, "disposal never writes a checkpoint")

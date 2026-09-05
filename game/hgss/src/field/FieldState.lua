@@ -1,24 +1,11 @@
 -- Interactive presentation over the non-rendering field runtime.
 
-local WindowConfig = require("game.src.WindowConfig")
-local FieldPresentationConfig = require("game.hgss.src.field.FieldPresentationConfig")
 local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
-local FieldActorAssetProvider = require("libs.hgss.src.presentation.FieldActorAssetProvider")
-local FieldActorDraw = require("libs.hgss.src.presentation.FieldActorDraw")
-local FieldDialogueRenderer = require("libs.hgss.src.ui.FieldDialogueRenderer")
+local FieldActorPresentation = require("game.hgss.src.field.FieldActorPresentation")
+local FieldPresentationResources = require("game.hgss.src.field.FieldPresentationResources")
 local DialoguePresentationLayout = require("libs.hgss.src.ui.DialoguePresentationLayout")
-local FieldMenuRenderer = require("libs.hgss.src.ui.FieldMenuRenderer")
-local FieldSignpostRenderer = require("libs.hgss.src.ui.FieldSignpostRenderer")
-local FieldTextRenderer = require("libs.hgss.src.ui.FieldTextRenderer")
-local FieldStaticEffectRenderer = require("libs.hgss.src.presentation.FieldStaticEffectRenderer")
-local FieldActorEmoteRenderer = require("libs.hgss.src.presentation.FieldActorEmoteRenderer")
-local FieldTerrainEffectRenderer = require("libs.hgss.src.presentation.FieldTerrainEffectRenderer")
-local GpuAssetPool = require("libs.hgss.src.presentation.GpuAssetPool")
-local FieldRenderer = require("libs.hgss.src.presentation.FieldRenderer")
 local ScreenTopology = require("libs.hgss.src.ui.ScreenTopology")
 local StandardFade = require("libs.hgss.src.presentation.StandardFade")
-local StartMenuRenderer = require("libs.hgss.src.ui.StartMenuRenderer")
-local TrainerCardRenderer = require("libs.hgss.src.ui.TrainerCardRenderer")
 
 local KEY_DIRECTIONS =
   { w = "north", up = "north", s = "south", down = "south", a = "west", left = "west", d = "east", right = "east" }
@@ -35,26 +22,11 @@ local GAMEPAD_DIRECTIONS = { dpup = "north", dpdown = "south", dpleft = "west", 
 
 ---@class FieldState
 ---@field runtime FieldRuntime?
----@field renderer any
----@field dialogueRenderer any
----@field menuRenderer FieldMenuRenderer?
----@field signpostRenderer FieldSignpostRenderer?
----@field startMenuRenderer StartMenuRenderer?
----@field trainerCardRenderer TrainerCardRenderer?
----@field textRenderer FieldTextRenderer? the one shared glyph atlas the UI renderers draw through
+---@field presentationResources FieldPresentationResources?
+---@field actorPresentation FieldActorPresentation?
 ---@field _lastGeometrySignature string? the structural presentation-geometry signature the last sync consumed
 ---@field _pollPresentationTopology boolean whether injected topology changes are polled during draw
----@field presentationActorAssets FieldActorAssetProvider?
----@field _presentationSpriteRefs table<integer, boolean>
----@field _lastActorManager any?
----@field _lastActorVisualRevision integer?
----@field _lastPlayerSpriteId integer?
----@field _actorRecords table[]
----@field _actorDrawStorage FieldActorDrawStorage
----@field _actorAssetLookup fun(spriteId: integer): table<string, unknown>
 ---@field worldParts table[][] ordered map, static building, animated building, neighbor, entrance-indicator, actor, movement-emote, and terrain-effect draw arrays
----@field fieldSurfRenderer table<string, unknown>? persistent player-relative surf attachment presenter
----@field _surfPresentation table<string, unknown>? borrowed generated surf attachment presentation configuration for yaw lookup
 ---@field worldActorItems table[] persistent actor items kept in the world raster
 ---@field spriteItems table[] persistent presentation-resolution actor sprites
 ---@field _entryFade StandardFade? one-shot covered-entry reveal, nil when inactive or complete
@@ -110,12 +82,6 @@ function FieldState.new(game, options)
     development = options.development == true,
     topologyProvider = options.topologyProvider or defaultScreenTopology,
     _pollPresentationTopology = options.topologyProvider ~= nil,
-    _presentationSpriteRefs = {},
-    _lastActorManager = nil,
-    _lastActorVisualRevision = nil,
-    _lastPlayerSpriteId = nil,
-    _actorRecords = {},
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
@@ -123,67 +89,7 @@ function FieldState.new(game, options)
     _entryAccumulator = 0,
   }, FieldState)
   local ok, err = pcall(function()
-    self.renderer = FieldRenderer.new({
-      clearColor = WindowConfig.BACKGROUND_COLOR,
-      worldRasterScale = FieldPresentationConfig.WORLD_3D_RASTER_SCALE,
-    })
-    -- The one shared field-font atlas: dialogue, signpost, and Trainer Card
-    -- text all draw through it; the state owns and releases it exactly once.
-    self.textRenderer = FieldTextRenderer.new({ cacheFs = runtime.cacheFs })
-    self.dialogueRenderer = FieldDialogueRenderer.new({
-      cacheFs = runtime.cacheFs,
-      manifest = runtime.uiManifest,
-      text = self.textRenderer,
-    })
-    self.menuRenderer = FieldMenuRenderer.new()
-    -- The composition: the signpost renderer resolves its per-type geometry
-    -- through the immutable window style catalogue, and the Start Menu and
-    -- Trainer Card renderers draw the generated application surfaces. Every
-    -- renderer consumes the one manifest the runtime already validated;
-    -- none of them reloads it. The state owns and releases their GPU
-    -- resources; controllers stay pure.
-    self.signpostRenderer = FieldSignpostRenderer.new({
-      cacheFs = runtime.cacheFs,
-      manifest = runtime.uiManifest,
-      text = self.textRenderer,
-      windowStyles = runtime.windowStyles,
-    })
-    self.startMenuRenderer = StartMenuRenderer.new({
-      cacheFs = runtime.cacheFs,
-      manifest = runtime.uiManifest,
-    })
-    self.trainerCardRenderer = TrainerCardRenderer.new({
-      cacheFs = runtime.cacheFs,
-      manifest = runtime.uiManifest,
-      text = self.textRenderer,
-    })
-    self.fieldEntranceIndicatorPool = GpuAssetPool.new(runtime.cacheFs)
-    self.fieldEntranceIndicatorRenderer =
-      FieldStaticEffectRenderer.new(runtime.fieldEntranceIndicatorAsset.model, self.fieldEntranceIndicatorPool)
-    -- The persistent player surf attachment shares the field-effect pool; the
-    -- renderer owns no pool lifetime and draws only while surf is active. A
-    -- ready cache always carries the compiled attachment, so a missing one
-    -- fails the boot loudly instead of drawing an invisibly missing surf.
-    local surfEffects = runtime.fieldEntranceIndicatorAsset and runtime.fieldEntranceIndicatorAsset.effects
-    local surfAttachment =
-      assert(surfEffects and surfEffects.surf_attachment, "field-effect cache is missing surf_attachment")
-    self._surfPresentation = assert(surfAttachment.presentation, "field-effect cache is missing surf presentation")
-    self.fieldSurfRenderer = FieldStaticEffectRenderer.new(surfAttachment.model, self.fieldEntranceIndicatorPool)
-    self.fieldEmotePool = GpuAssetPool.new(runtime.cacheFs)
-    self.fieldEmoteRenderer = FieldActorEmoteRenderer.new(runtime.fieldEmoteModels, self.fieldEmotePool)
-    if runtime.fieldEffectAssets and runtime.fieldEffectAssets.effects then
-      self.fieldTerrainEffectRenderer =
-        FieldTerrainEffectRenderer.new(runtime.fieldEffectAssets, self.fieldEntranceIndicatorPool)
-      runtime.fieldTerrainEffectController:setModelFactory(function(kind)
-        return self.fieldTerrainEffectRenderer:newInstance(kind)
-      end)
-    else
-      local function drawItems()
-        return {}
-      end
-      local function dispose() end
-      self.fieldTerrainEffectRenderer = { drawItems = drawItems, dispose = dispose }
-    end
+    self.presentationResources = FieldPresentationResources.new(runtime)
     local width, height = love.graphics.getDimensions()
     -- The initial presentation-geometry sync: pointer input must work
     -- before the user has resized the window, so the runtime computes and
@@ -194,13 +100,8 @@ function FieldState.new(game, options)
       local font = love.graphics.getFont() --[[@as FieldState.Font]]
       return font:getWidth(text)
     end)
-    self.presentationActorAssets = FieldActorAssetProvider.new(runtime.cacheFs)
-    local function actorAssetLookup(spriteId)
-      local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
-      return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
-    end
-    self._actorAssetLookup = actorAssetLookup
-    self:_syncPresentationAssets()
+    self.actorPresentation = FieldActorPresentation.new(runtime)
+    self.actorPresentation:sync()
   end)
   if not ok then
     self:dispose()
@@ -212,19 +113,18 @@ end
 function FieldState:update(dt)
   self.runtime:update(dt)
   self:_advanceEntryCover(dt)
-  self:_syncPresentationAssets()
+  assert(self.actorPresentation, "field actor presentation is unavailable"):sync()
 end
 
 -- Advances the one-shot covered-entry reveal on the source-frame cadence,
 -- never per host-render frame. Simulation timing is untouched; excess time
 -- beyond the catch-up budget is discarded like the field fixed tick.
 function FieldState:_advanceEntryCover(dt)
-  local fade = self._entryFade
+  local fade, steps = self._entryFade, 0
   if fade == nil then
     return
   end
   self._entryAccumulator = self._entryAccumulator + dt
-  local steps = 0
   while self._entryAccumulator + ENTRY_EPSILON >= ENTRY_SOURCE_FRAME and steps < ENTRY_MAX_CATCH_UP do
     self._entryAccumulator = self._entryAccumulator - ENTRY_SOURCE_FRAME
     steps = steps + 1
@@ -249,79 +149,11 @@ function FieldState:_entryCoverActive()
   return self._entryFade ~= nil
 end
 
--- Keep one presentation-provider reference per distinct sprite needed by the
--- current actor set and player. Resource construction is change-driven; draw
--- only reads the provider's active residency.
-function FieldState:_syncPresentationAssets()
-  local runtime = assert(self.runtime, "field runtime is unavailable")
-  local assets = assert(self.presentationActorAssets, "field presentation assets are unavailable")
-  local actors = assert(runtime.actors, "field actor manager is unavailable")
-  local playerVisual = assert(runtime.playerVisual, "field player visual is unavailable")
-  local actorRevision = actors:visualRevision()
-  local playerSpriteId = assert(playerVisual.spriteId, "field player visual has no spriteId")
-  if
-    self._lastActorManager == actors
-    and self._lastActorVisualRevision == actorRevision
-    and self._lastPlayerSpriteId == playerSpriteId
-  then
-    return
-  end
-
-  local needed = {}
-  needed[playerSpriteId] = true
-  actors:collectSpriteIds(needed)
-
-  local acquired = {}
-  local ok, err = pcall(function()
-    for spriteId in pairs(needed) do
-      if not self._presentationSpriteRefs[spriteId] then
-        assets:acquire(spriteId)
-        acquired[#acquired + 1] = spriteId
-      end
-    end
-  end)
-  if not ok then
-    for _, spriteId in ipairs(acquired) do
-      assets:release(spriteId)
-    end
-    error(err, 0)
-  end
-
-  local released = {}
-  for spriteId in pairs(self._presentationSpriteRefs) do
-    if not needed[spriteId] then
-      released[#released + 1] = spriteId
-    end
-  end
-  for _, spriteId in ipairs(released) do
-    assets:release(spriteId)
-    self._presentationSpriteRefs[spriteId] = nil
-  end
-  for _, spriteId in ipairs(acquired) do
-    self._presentationSpriteRefs[spriteId] = true
-  end
-  self._lastActorVisualRevision = actorRevision
-  self._lastActorManager = actors
-  self._lastPlayerSpriteId = playerSpriteId
-end
-
 -- Every actor the frame draws: the ROM-derived player billboard first, then the
 -- object actors the manager considers present. Records stay presentation-neutral;
 -- FieldActorDraw turns them into world draw items against the resident visuals.
 function FieldState:_actorDraws(alpha)
-  local records = self._actorRecords or {}
-  self._actorRecords = records
-  records[1] = self.runtime.playerVisual:drawRecord(alpha)
-  local actorRecords = self.runtime.actors:drawRecords()
-  for index, record in ipairs(actorRecords) do
-    records[index + 1] = record
-  end
-  for index = #records, #actorRecords + 2, -1 do
-    records[index] = nil
-  end
-  local storage = assert(self._actorDrawStorage, "field actor draw storage is unavailable")
-  local assetLookup = assert(self._actorAssetLookup, "field actor asset lookup is unavailable")
-  return FieldActorDraw.itemsInto(records, assetLookup, storage)
+  return assert(self.actorPresentation, "field actor presentation is unavailable"):drawItems(alpha)
 end
 
 -- The surf attachment follows the player's interpolated render position, so
@@ -330,7 +162,8 @@ end
 ---@param alpha number
 ---@return table[]
 function FieldState:_surfDrawItems(alpha)
-  local renderer = self.fieldSurfRenderer
+  local resources = assert(self.presentationResources, "field presentation resources are unavailable")
+  local renderer = resources.fieldSurfRenderer
   if renderer == nil then
     return NO_DRAWS
   end
@@ -344,7 +177,7 @@ function FieldState:_surfDrawItems(alpha)
     return NO_DRAWS
   end
   local anchor = runtime.player:renderPosition(alpha)
-  local surfPresentation = assert(self._surfPresentation, "surf presentation is unavailable")
+  local surfPresentation = assert(resources.surfPresentation, "surf presentation is unavailable")
   local yaw = assert(surfPresentation.yawDegrees[runtime.player.facing], "surf presentation is missing facing yaw")
   return renderer:drawItems({
     visible = true,
@@ -364,6 +197,7 @@ end
 -- then actors and transient effects. Logical scene geometry is retained for
 -- environment and discontinuous maps but is never drawn alongside cells.
 function FieldState:_worldParts(alpha)
+  local resources = assert(self.presentationResources, "field presentation resources are unavailable")
   local runtimeMap = self.runtime.runtimeMap
   local worldParts = self.worldParts
   if runtimeMap.coverage then
@@ -379,7 +213,7 @@ function FieldState:_worldParts(alpha)
     worldParts[4] = runtimeMap.neighborRuntime and runtimeMap.neighborRuntime.draws or NO_DRAWS
   end
   local indicator = assert(self.runtime.fieldEntranceIndicator, "field entrance indicator is unavailable")
-  worldParts[5] = self.fieldEntranceIndicatorRenderer:drawItems(indicator:status())
+  worldParts[5] = resources.fieldEntranceIndicatorRenderer:drawItems(indicator:status())
   local actorItems = self:_actorDraws(alpha)
   local worldActorItems = self.worldActorItems
   local spriteItems = self.spriteItems
@@ -400,12 +234,12 @@ function FieldState:_worldParts(alpha)
   for _, item in ipairs(self:_surfDrawItems(alpha)) do
     worldActorItems[#worldActorItems + 1] = item
   end
-  -- _actorDraws (above) refreshed self._actorRecords with this frame's
+  -- _actorDraws (above) refreshed the actor presentation records with this frame's
   -- presentation-neutral records, which is the only place activeEmoteKind
   -- survives; FieldActorDraw's rendered items do not carry it.
-  worldParts[7] = self.fieldEmoteRenderer:drawItems(self._actorRecords)
+  worldParts[7] = resources.fieldEmoteRenderer:drawItems(assert(self.actorPresentation):records())
   local terrain = self.runtime.fieldTerrainEffectController
-  local terrainRenderer = self.fieldTerrainEffectRenderer
+  local terrainRenderer = resources.fieldTerrainEffectRenderer
   worldParts[8] = terrainRenderer and terrainRenderer:drawItems(terrain:status(), self.runtime.runtimeMap) or NO_DRAWS
   return worldParts
 end
@@ -449,8 +283,45 @@ function FieldState:resize(width, height)
   end
 end
 
+function FieldState:_drawFieldAttachedUi(resources, hostStatus, alpha)
+  if hostStatus.menu or hostStatus.application then
+    return
+  end
+  local fieldScale = self.runtime.viewport:logicalPixelScale(self.runtime.camera.zoom)
+  local bounds = self.runtime.viewport.worldViewport
+  if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
+    bounds = self.runtime.viewport.referenceFrame
+  end
+  if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
+    bounds = {
+      x = 0,
+      y = 0,
+      width = assert(self.runtime.viewport.width),
+      height = assert(self.runtime.viewport.height),
+    }
+  end
+  bounds = {
+    x = bounds.x,
+    y = bounds.y,
+    width = math.max(bounds.width, 256 * fieldScale),
+    height = math.max(bounds.height, 48 * fieldScale),
+  }
+  if self.runtime.dialogue:isModal() then
+    local manifestPlacement = assert(self.runtime.uiManifest).dialogueFrames.continueCursor.placement
+    local presentation = DialoguePresentationLayout.compute(bounds, {
+      scale = fieldScale,
+      cursorPlacement = manifestPlacement,
+    })
+    resources.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale, presentation)
+  end
+  if self.runtime.signpost:isModal() then
+    resources.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha, fieldScale)
+  end
+end
+
 function FieldState:draw()
   local lg = love.graphics
+  local resources = assert(self.presentationResources, "field presentation resources are unavailable")
   if self.runtime.errorText then
     lg.setColor(1, 0.5, 0.5)
     lg.print("Field runtime failed:", 24, 24)
@@ -489,7 +360,7 @@ function FieldState:draw()
     return
   end
   local alpha = self.runtime.session:renderAlpha()
-  self.renderer:draw(
+  resources.renderer:draw(
     self.runtime.runtimeMap.sceneRuntime,
     self.runtime.camera,
     self:_worldParts(alpha),
@@ -528,58 +399,20 @@ function FieldState:draw()
     lg.setColor(transitionOverlay.r, transitionOverlay.g, transitionOverlay.b, transitionOverlay.a)
     lg.rectangle("fill", rectangle.x, rectangle.y, rectangle.width, rectangle.height)
   end
-  -- Dialogue or signpost attached to the world surface, and only while the
-  -- application host presents no modal surface: during a full application
-  -- neither is drawn underneath it. The session's at-most-one-owner assert
-  -- keeps at most one of the two live in a tick. Both field-attached
-  -- surfaces share the same field logical pixel scale (the viewport's
-  -- logicalPixelScale of the runtime's effective camera zoom), computed once
-  -- per frame and bottom-centered in the viewport reference frame.
-  if not hostStatus.menu and not hostStatus.application then
-    local fieldScale = self.runtime.viewport:logicalPixelScale(self.runtime.camera.zoom)
-    local bounds = self.runtime.viewport.worldViewport
-    if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
-      bounds = self.runtime.viewport.referenceFrame
-    end
-    if type(bounds) ~= "table" or type(bounds.width) ~= "number" or type(bounds.height) ~= "number" then
-      bounds = {
-        x = 0,
-        y = 0,
-        width = assert(self.runtime.viewport.width),
-        height = assert(self.runtime.viewport.height),
-      }
-    end
-    bounds = {
-      x = bounds.x,
-      y = bounds.y,
-      width = math.max(bounds.width, 256 * fieldScale),
-      height = math.max(bounds.height, 48 * fieldScale),
-    }
-    local dialogueModal = self.runtime.dialogue:isModal()
-    local dialoguePresentation
-    if dialogueModal then
-      local manifestPlacement = assert(self.runtime.uiManifest).dialogueFrames.continueCursor.placement
-      dialoguePresentation = DialoguePresentationLayout.compute(bounds, {
-        scale = fieldScale,
-        cursorPlacement = manifestPlacement,
-      })
-      self.dialogueRenderer:draw(self.runtime.dialogue, self.runtime.viewport, fieldScale, dialoguePresentation)
-    end
-    if self.runtime.signpost:isModal() then
-      self.signpostRenderer:draw(self.runtime.signpost, self.runtime.viewport, alpha, fieldScale)
-    end
-  end
+  -- Attached dialogue and signposts share the field scale and yield to modal
+  -- application surfaces.
+  self:_drawFieldAttachedUi(resources, hostStatus, alpha)
   -- The one active application surface: the Start Menu through the runtime's
   -- placement record (the same record the host maps pointer input through),
   -- or the Trainer Card in the viewport; never both.
   if hostStatus.menu then
-    self.startMenuRenderer:draw(hostStatus.menu, assert(self.runtime.startMenuPlacement))
+    resources.startMenuRenderer:draw(hostStatus.menu, assert(self.runtime.startMenuPlacement))
   elseif hostStatus.application then
-    self.trainerCardRenderer:draw(hostStatus.application, self.runtime.viewport)
+    resources.trainerCardRenderer:draw(hostStatus.application, self.runtime.viewport)
   end
   local presentation = self.runtime.menuHost:presentation()
   if presentation then
-    assert(self.menuRenderer, "field menu renderer is unavailable"):draw(presentation)
+    resources.menuRenderer:draw(presentation)
   end
   self:_drawEntryCoverIfNeeded(width, height)
   if self.development then
@@ -965,32 +798,7 @@ end
 function FieldState:dispose()
   self._entryFade = nil
   self._entryAccumulator = 0
-  if self.dialogueRenderer then
-    self.dialogueRenderer:release()
-    self.dialogueRenderer = nil
-  end
-  if self.signpostRenderer then
-    self.signpostRenderer:release()
-    self.signpostRenderer = nil
-  end
-  if self.startMenuRenderer then
-    self.startMenuRenderer:release()
-    self.startMenuRenderer = nil
-  end
-  if self.trainerCardRenderer then
-    self.trainerCardRenderer:release()
-    self.trainerCardRenderer = nil
-  end
-  if self.textRenderer then
-    self.textRenderer:release()
-    self.textRenderer = nil
-  end
   self._lastGeometrySignature = nil
-  -- Draw items borrow provider-owned GPU objects; they must not outlive the
-  -- presentation residency that made those objects valid.
-  self._actorRecords = nil
-  self._actorDrawStorage = nil
-  self._actorAssetLookup = nil
   if self.worldParts then
     self.worldParts[5] = nil
     self.worldParts[7] = nil
@@ -998,41 +806,13 @@ function FieldState:dispose()
   end
   self.worldActorItems = nil
   self.spriteItems = nil
-  if self.presentationActorAssets then
-    for spriteId in pairs(self._presentationSpriteRefs or {}) do
-      self.presentationActorAssets:release(spriteId)
-    end
-    self._presentationSpriteRefs = {}
-    self.presentationActorAssets:dispose()
-    self.presentationActorAssets = nil
+  if self.actorPresentation then
+    self.actorPresentation:dispose()
+    self.actorPresentation = nil
   end
-  if self.fieldEntranceIndicatorRenderer then
-    self.fieldEntranceIndicatorRenderer:dispose()
-    self.fieldEntranceIndicatorRenderer = nil
-  end
-  if self.fieldSurfRenderer then
-    self.fieldSurfRenderer:dispose()
-    self.fieldSurfRenderer = nil
-  end
-  if self.fieldTerrainEffectRenderer then
-    self.fieldTerrainEffectRenderer:dispose()
-    self.fieldTerrainEffectRenderer = nil
-  end
-  if self.fieldEntranceIndicatorPool then
-    self.fieldEntranceIndicatorPool:release()
-    self.fieldEntranceIndicatorPool = nil
-  end
-  if self.fieldEmoteRenderer then
-    self.fieldEmoteRenderer:dispose()
-    self.fieldEmoteRenderer = nil
-  end
-  if self.fieldEmotePool then
-    self.fieldEmotePool:release()
-    self.fieldEmotePool = nil
-  end
-  if self.renderer then
-    self.renderer:release()
-    self.renderer = nil
+  if self.presentationResources then
+    self.presentationResources:dispose()
+    self.presentationResources = nil
   end
   if self.runtime then
     self.runtime:dispose()

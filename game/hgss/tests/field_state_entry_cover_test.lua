@@ -187,7 +187,7 @@ local function boot(withCover)
     error(state, 0)
   end
   local worlds = 0
-  state.renderer = {
+  state.presentationResources.renderer = {
     draw = function()
       worlds = worlds + 1
     end,

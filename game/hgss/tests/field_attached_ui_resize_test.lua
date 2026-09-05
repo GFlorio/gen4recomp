@@ -80,13 +80,23 @@ local function drawState(topologyProvider, pollTopology)
     runtime = runtime,
     topologyProvider = topologyProvider,
     _pollPresentationTopology = pollTopology == true,
-    renderer = {
-      draw = function(_, _, _, _, _, viewport)
-        rendererObservations[#rendererObservations + 1] = {
-          width = viewport.width,
-          height = viewport.height,
-          resizeCalls = runtime.resizeCalls or 0,
-        }
+    presentationResources = {
+      renderer = {
+        draw = function(_, _, _, _, _, viewport)
+          rendererObservations[#rendererObservations + 1] = {
+            width = viewport.width,
+            height = viewport.height,
+            resizeCalls = runtime.resizeCalls or 0,
+          }
+        end,
+      },
+    },
+    actorPresentation = {
+      drawItems = function()
+        return {}
+      end,
+      records = function()
+        return {}
       end,
     },
     worldParts = {},
@@ -296,15 +306,19 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
         role = "world",
       })
     end,
-    renderer = { draw = function() end },
+    presentationResources = { renderer = { draw = function() end } },
+    actorPresentation = {
+      drawItems = function()
+        return {}
+      end,
+      records = function()
+        return {}
+      end,
+    },
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
     _lastGeometrySignature = "1280:600:main:world:0:0:1280:600",
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-    _actorAssetLookup = function()
-      error("no actor lookup")
-    end,
   }, FieldState)
   state._worldParts = function()
     return {}
@@ -313,7 +327,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
   -- Current signature: dialogue:draw(controller, viewport), signpost:draw(controller, viewport, alpha)
   -- Future should be: dialogue:draw(controller, viewport, fieldScale), signpost:draw(controller, viewport, alpha, fieldScale)
   -- Capture any numeric that equals expected.
-  state.dialogueRenderer = {
+  state.presentationResources.dialogueRenderer = {
     draw = function(_, a, b, c)
       for _, v in ipairs({ a, b, c }) do
         if type(v) == "number" and math.abs(v - expected) < 1e-9 then
@@ -325,7 +339,8 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
       end
     end,
   }
-  rawset(state, "signpostRenderer", {
+  local presentationResources = state.presentationResources --[[@as any]]
+  presentationResources.signpostRenderer = {
     draw = function(_, a, b, c, d)
       for _, v in ipairs({ a, b, c, d }) do
         if type(v) == "number" and math.abs(v - expected) < 1e-9 then
@@ -339,7 +354,7 @@ function T.field_state_draw_sends_same_scale_to_both_renderers()
         gotSignpost = c
       end
     end,
-  })
+  }
   local oldGetDimensions = love.graphics.getDimensions
   rawset(love.graphics, "getDimensions", function()
     return 1280, 600

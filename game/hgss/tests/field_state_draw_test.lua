@@ -7,6 +7,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldState = require("game.hgss.src.field.FieldState")
+local FieldActorPresentation = require("game.hgss.src.field.FieldActorPresentation")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
@@ -49,8 +50,10 @@ local function presentationAssets(entries)
     entries = entries,
     acquisitions = {},
     releases = {},
+    active = {},
     acquire = function(self, spriteId)
       self.acquisitions[spriteId] = (self.acquisitions[spriteId] or 0) + 1
+      self.active[spriteId] = true
       return assert(self.entries[spriteId])
     end,
     resident = function(self, spriteId)
@@ -58,10 +61,39 @@ local function presentationAssets(entries)
     end,
     release = function(self, spriteId)
       self.releases[spriteId] = (self.releases[spriteId] or 0) + 1
+      self.active[spriteId] = nil
     end,
     dispose = function(self)
       self.disposed = true
     end,
+  }
+end
+
+local function actorPresentationStub()
+  return {
+    drawItems = function()
+      return {}
+    end,
+    records = function()
+      return {}
+    end,
+  }
+end
+
+local function presentationResourcesStub(renderer)
+  return {
+    renderer = renderer,
+    fieldEntranceIndicatorRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    fieldEmoteRenderer = {
+      drawItems = function()
+        return {}
+      end,
+    },
+    dispose = function() end,
   }
 end
 
@@ -92,29 +124,16 @@ local function presentationState(assets, actorIds)
       end,
     },
   }
+  local actorPresentation = FieldActorPresentation.new(runtime, {
+    assets = assets --[[@as FieldActorPresentationAssets]],
+  })
   return setmetatable({
     runtime = runtime,
-    presentationActorAssets = assets,
-    _presentationSpriteRefs = {},
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-    _actorAssetLookup = function(spriteId)
-      return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
-    end,
+    actorPresentation = actorPresentation,
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    fieldEntranceIndicatorRenderer = {
-      drawItems = function()
-        return {}
-      end,
-      dispose = function() end,
-    },
-    fieldEmoteRenderer = {
-      drawItems = function()
-        return {}
-      end,
-      dispose = function() end,
-    },
+    presentationResources = presentationResourcesStub(),
   }, FieldState),
     actors,
     runtime
@@ -233,21 +252,12 @@ local function stateWith(runtime)
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    renderer = {
+    presentationResources = presentationResourcesStub({
       draw = function()
         error("renderer should be stubbed by the test")
       end,
-    },
-    fieldEntranceIndicatorRenderer = {
-      drawItems = function()
-        return {}
-      end,
-    },
-    fieldEmoteRenderer = {
-      drawItems = function()
-        return {}
-      end,
-    },
+    }),
+    actorPresentation = actorPresentationStub(),
   }, FieldState)
 end
 
@@ -376,28 +386,15 @@ function T.draw_passes_the_scene_runtime_and_queries_the_menu_host()
         role = "world",
       })
     end,
-    renderer = {
+    presentationResources = presentationResourcesStub({
       draw = function(_, scene, camera, worldParts)
         received = { scene = scene, camera = camera, worldParts = worldParts }
       end,
-    },
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-    _actorAssetLookup = function()
-      error("no actor in this scenario is visible, so the asset lookup must not run")
-    end,
+    }),
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    fieldEntranceIndicatorRenderer = {
-      drawItems = function()
-        return {}
-      end,
-    },
-    fieldEmoteRenderer = {
-      drawItems = function()
-        return {}
-      end,
-    },
+    actorPresentation = actorPresentationStub(),
   }, FieldState)
   state:draw()
   Assert.equal(received.scene, sceneRuntime, "the renderer receives the runtime map's scene runtime")
@@ -481,24 +478,15 @@ function T.draw_sends_static_actor_models_to_world_and_billboards_to_presentatio
         role = "world",
       })
     end,
-    renderer = {
+    presentationResources = presentationResourcesStub({
       draw = function(_, _, _, worldParts, spriteItems)
         received = { worldParts = worldParts, spriteItems = spriteItems }
       end,
-    },
+    }),
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    fieldEntranceIndicatorRenderer = {
-      drawItems = function()
-        return {}
-      end,
-    },
-    fieldEmoteRenderer = {
-      drawItems = function()
-        return {}
-      end,
-    },
+    actorPresentation = actorPresentationStub(),
   }, FieldState)
   state._actorDraws = function()
     return { staticModel, sprite }
@@ -583,7 +571,8 @@ function T.draw_without_a_menu_host_is_a_programming_error()
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    renderer = { draw = function() end },
+    presentationResources = presentationResourcesStub({ draw = function() end }),
+    actorPresentation = actorPresentationStub(),
   }, FieldState)
   Assert.throws(function()
     state:draw()
@@ -667,7 +656,7 @@ function T.presentation_sync_releases_partial_acquisition_on_failure()
   Assert.isTrue(tostring(err):find("injected presentation acquire failure", 1, true) ~= nil)
   Assert.equal(acquireCalls, 2)
   Assert.equal(released, 1, "the earlier acquisition is released after a later failure")
-  Assert.isNil(next(state._presentationSpriteRefs))
+  Assert.isNil(next(assets.active), "a failed synchronization leaves no acquired presentation residency")
 end
 
 function T.presentation_sync_restarts_for_a_replaced_actor_manager()
@@ -687,7 +676,8 @@ function T.presentation_sync_restarts_for_a_replaced_actor_manager()
   state:update(0.016)
 
   Assert.equal(assets.releases[34], 1, "the old manager's sprite is released")
-  Assert.equal(state._lastActorManager, replacement)
+  state:update(0.016)
+  Assert.equal(assets.releases[34], 1, "the replacement manager remains synchronized without churn")
   Assert.equal(actors.revision, 0)
 end
 
@@ -702,6 +692,20 @@ function T.draw_rejects_a_sprite_without_presentation_residency()
       return nil
     end,
   }
+  local actorPresentation = FieldActorPresentation.new({
+    playerVisual = {
+      drawRecord = function()
+        return actorRecord("field:player", 99)
+      end,
+    },
+    actors = {
+      drawRecords = function()
+        return {}
+      end,
+    },
+  }, {
+    assets = assets --[[@as FieldActorPresentationAssets]],
+  })
   local state = setmetatable({
     runtime = {
       playerVisual = {
@@ -715,11 +719,7 @@ function T.draw_rejects_a_sprite_without_presentation_residency()
         end,
       },
     },
-    presentationActorAssets = assets,
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-    _actorAssetLookup = function(spriteId)
-      return assert(assets:resident(spriteId), "field actor presentation visual is not resident")
-    end,
+    actorPresentation = actorPresentation,
   }, FieldState)
   Assert.throws(function()
     state:_actorDraws(0)
@@ -745,9 +745,14 @@ function T.actor_draws_reuse_state_storage_without_acquiring_assets()
   Assert.equal(updated[2].transform[13], 7)
   Assert.isNil(assets.acquisitions[99], "draw reads residency without acquiring assets")
 
+  local owner = assert(state.actorPresentation)
   state:dispose()
-  Assert.isNil(state._actorRecords, "disposal drops borrowed actor records")
-  Assert.isNil(state._actorDrawStorage, "disposal drops borrowed draw items")
+  Assert.throws(function()
+    owner:records()
+  end, "disposal drops borrowed actor records")
+  Assert.throws(function()
+    owner:drawItems(0.5)
+  end, "disposal drops borrowed draw items")
 end
 
 -- Presentation reads must go through the explicit `runtime` reference: the
@@ -835,18 +840,15 @@ function T.destination_world_is_not_drawn_before_entry_presentation_is_ready()
         role = "world",
       })
     end,
-    renderer = {
+    presentationResources = presentationResourcesStub({
       draw = function()
         draws = draws + 1
       end,
-    },
+    }),
     worldParts = {},
     worldActorItems = {},
     spriteItems = {},
-    _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-    _actorAssetLookup = function()
-      return {}
-    end,
+    actorPresentation = actorPresentationStub(),
   }, FieldState)
 
   state:draw()
@@ -1026,24 +1028,11 @@ function T.destination_frames_draw_and_acknowledge_only_after_successful_present
     local state = setmetatable({
       runtime = runtime,
       _pollPresentationTopology = false,
-      renderer = renderer,
+      presentationResources = presentationResourcesStub(renderer),
       worldParts = {},
       worldActorItems = {},
       spriteItems = {},
-      _actorDrawStorage = { items = {}, actorSlots = {}, generation = 0 },
-      _actorAssetLookup = function()
-        return {}
-      end,
-      fieldEntranceIndicatorRenderer = {
-        drawItems = function()
-          return {}
-        end,
-      },
-      fieldEmoteRenderer = {
-        drawItems = function()
-          return {}
-        end,
-      },
+      actorPresentation = actorPresentationStub(),
     }, FieldState)
     return state, session
   end
@@ -1172,14 +1161,16 @@ function T.surf_draw_items_adapt_active_state_and_bypass_inactive_surf()
       },
       player = player,
     },
-    _surfPresentation = {
-      yawDegrees = { north = 211, south = 17, west = 293, east = 137 },
-    },
-    fieldSurfRenderer = {
-      drawItems = function(_, status)
-        capturedStatuses[#capturedStatuses + 1] = status
-        return drawItems
-      end,
+    presentationResources = {
+      surfPresentation = {
+        yawDegrees = { north = 211, south = 17, west = 293, east = 137 },
+      },
+      fieldSurfRenderer = {
+        drawItems = function(_, status)
+          capturedStatuses[#capturedStatuses + 1] = status
+          return drawItems
+        end,
+      },
     },
   }, FieldState)
 
