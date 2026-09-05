@@ -13,14 +13,11 @@ local FieldApplicationIds = require("libs.hgss.src.field.FieldApplicationIds")
 local FieldApplicationRegistry = require("libs.hgss.src.field.FieldApplicationRegistry")
 local FieldCamera = require("libs.hgss.src.field.FieldCamera")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
 local FieldFontLoader = require("libs.hgss.src.ui.FieldFontLoader")
 local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local LocalClock = require("game.src.LocalClock")
 local PlayerData = require("libs.hgss.src.save.PlayerData")
-local GameSaveValidation = require("game.hgss.src.save.GameSaveValidation")
 local FieldCameraCache = require("libs.assets.src.field.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
 local FieldInput = require("libs.hgss.src.field.FieldInput")
@@ -36,23 +33,19 @@ local FieldPlayerVisual = require("libs.hgss.src.actors.FieldPlayerVisual")
 local FieldZoneIdentity = require("libs.hgss.src.world.FieldZoneIdentity")
 local GameSave = require("libs.hgss.src.save.GameSave")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
-local FieldScripts = require("game.hgss.src.field.FieldScripts")
 local FieldScriptScreenFade = require("libs.hgss.src.transition.FieldScriptScreenFade")
 local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
 local FieldSignpostController = require("libs.hgss.src.interaction.FieldSignpostController")
-local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
 local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local FieldWindowStyles = require("libs.hgss.src.field.FieldWindowStyles")
 local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
-local FieldZoom = require("libs.hgss.src.presentation.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
 local NeighborRing = require("libs.hgss.src.presentation.NeighborRing")
 local MapProps = require("libs.hgss.src.world.MapProps")
 local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
-local ScriptSave = require("libs.script.src.ScriptSave")
 local FieldWeatherCache = require("libs.assets.src.field.FieldWeatherCache")
 local FieldWeatherResolver = require("libs.hgss.src.world.FieldWeatherResolver")
 local StartMenuController = require("libs.hgss.src.ui.StartMenuController")
@@ -62,84 +55,11 @@ local TrainerCardController = require("libs.hgss.src.ui.TrainerCardController")
 local FieldAudio = require("game.hgss.src.audio.FieldAudio")
 local FieldEntranceIndicatorRuntime = require("game.hgss.src.field.FieldEntranceIndicatorRuntime")
 local FieldActorEmoteRuntime = require("game.hgss.src.field.FieldActorEmoteRuntime")
-local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
-local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.hgss.src.presentation.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
-local RepoFs = require("game.src.RepoFs")
-local WindowConfig = require("game.src.WindowConfig")
-
-local function runtimeProfileEffect(runtime, profile, phase)
-  assert(type(profile) == "number", "field transition profile required")
-  runtime.player.facing = phase == "enter" and runtime.transition.destinationFacing or runtime.transition.facing
-end
-
-local function runtimeCameraAdjust(runtime, profile, adjustment, player)
-  assert(runtime.camera and type(runtime.camera.adjustTransition) == "function", "field transition camera required")
-  if player and type(runtime.camera.setTransitionPlayer) == "function" then
-    runtime.camera:setTransitionPlayer(player)
-  end
-  runtime.camera:adjustTransition(profile, adjustment)
-end
-
-local function runtimePanelEffect(runtime, phase)
-  runtime.transitionPanel = phase
-  local screen = runtime.scriptHosts and runtime.scriptHosts.screen
-  if screen and type(screen.setPanelTransition) == "function" then
-    screen:setPanelTransition(phase)
-  end
-end
-
-local function createFieldTransition(runtime, doorAt, escalatorAt, resolveDestination)
-  local function prepare(resolution, facing)
-    return runtime:_prepareSwap(resolution, facing)
-  end
-  local function disposePrepared(resolution, prepared)
-    runtime:_disposePreparedSwap(resolution, prepared)
-  end
-  local function commit(resolution, facing, prepared)
-    runtime:_commitSwap(resolution, facing, prepared)
-  end
-  local function onStart(_, trigger)
-    if runtime.audio then
-      runtime.audio:beginWarp(trigger.warp.destinationMapId)
-    end
-  end
-  local function playSound(soundRef)
-    local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
-    assert(audio and type(audio.play) == "function", "field transition audio host required")
-    audio:play(soundRef)
-  end
-  local function stopSound(soundRef)
-    local audio = runtime.audio or (runtime.scriptHosts and runtime.scriptHosts.audio)
-    assert(audio and type(audio.stop) == "function", "field transition audio host required")
-    audio:stop(soundRef)
-  end
-  local function onProfile(profile, phase, _)
-    runtimeProfileEffect(runtime, profile, phase)
-  end
-  local function cameraAdjust(profile, adjustment, player)
-    runtimeCameraAdjust(runtime, profile, adjustment, player)
-  end
-  local function onPanel(phase)
-    runtimePanelEffect(runtime, phase)
-  end
-  return FieldTransition.new({
-    loader = runtime.mapLoader,
-    prepare = prepare,
-    disposePrepared = disposePrepared,
-    commit = commit,
-    doorAt = doorAt,
-    escalatorAt = escalatorAt,
-    resolveDestination = resolveDestination,
-    onStart = onStart,
-    playSound = playSound,
-    stopSound = stopSound,
-    onProfile = onProfile,
-    cameraAdjust = cameraAdjust,
-    onPanel = onPanel,
-  })
-end
+local FieldRuntimeComposition = require("game.hgss.src.field.FieldRuntimeComposition")
+local FieldWorldSwapCoordinator = require("game.hgss.src.field.FieldWorldSwapCoordinator")
+local FieldSaveCoordinator = require("game.hgss.src.field.FieldSaveCoordinator")
 
 ---@class FieldRuntimeOptions
 ---@field zoomConfig table<string, unknown>?
@@ -409,20 +329,6 @@ local function defaultWeatherClock(localClock)
   }
 end
 
-local function canCapture(session, allowMenu)
-  return session
-    and session.player
-    and session.player.motion == "idle"
-    and (not session.transition or session.transition.phase == FieldTransition.PHASES.idle)
-    and (not session.dialogue or not session.dialogue:isModal())
-    and (not session.signpost or not session.signpost:isModal())
-    and (
-      not session.applicationHost
-      or not session.applicationHost:isActive()
-      or (allowMenu and session.applicationHost:status().phase == FieldApplicationHost.PHASES.menu)
-    )
-end
-
 local function closestSurface(runtimeMap, localX, localZ, savedY)
   local best
   local bestDistance
@@ -545,30 +451,10 @@ local function headlessMapProps(runtimeMap, cacheFs)
 end
 
 function FieldRuntime.new(game, options)
-  assert(type(game) == "table", "field runtime requires a finalized or loaded game")
-  assert(type(game.versionId) == "string" and game.versionId ~= "", "field runtime game version is required")
-  options = options or {}
-  local effectiveOverrideFs = options.overrideFs or RepoFs.new(love.filesystem.getSourceBaseDirectory())
-  local self = setmetatable({
-    game = game,
-    versionId = game.versionId,
-    saveId = game.saveId,
-    viewportWidth = options.viewportWidth or WindowConfig.REFERENCE_WIDTH,
-    viewportHeight = options.viewportHeight or WindowConfig.REFERENCE_HEIGHT,
-    screenTopology = options.screenTopology,
-    overrideFs = effectiveOverrideFs,
-    presentation = options.presentation == true,
-    scriptHosts = options.scriptHosts,
-    dayNight = options.dayNight,
-    audioOutput = options.audioOutput,
-    saveStore = options.saveStore,
-    saveValidation = options.saveValidation or GameSaveValidation.new({ overrideFs = effectiveOverrideFs }),
-    savePublished = false,
-    localClock = options.localClock or LocalClock.system(),
-    weatherClock = options.weatherClock,
-    errorText = nil,
-    zoom = FieldZoom.new(options.zoomConfig or FieldPresentation.zoom),
-  }, FieldRuntime)
+  local composition = FieldRuntimeComposition.compose(game, options)
+  local self = setmetatable(composition.runtimeState, FieldRuntime)
+  self.saveCoordinator = FieldSaveCoordinator.new(self)
+  self.worldSwapCoordinator = FieldWorldSwapCoordinator.new(self)
   self.weatherClock = self.weatherClock or defaultWeatherClock(self.localClock)
   self:_load()
   return self
@@ -806,7 +692,7 @@ function FieldRuntime:_load()
       doorAt = resolveDoorAt
       escalatorAt = resolveEscalatorAt
     end
-    self.transition = createFieldTransition(self, doorAt, escalatorAt, function(_, sourceMap, warp)
+    self.transition = self.worldSwapCoordinator:createTransition(self, doorAt, escalatorAt, function(_, sourceMap, warp)
       local physical
       local ok, result = pcall(function()
         local function loadDestination(_, mapId)
@@ -985,58 +871,15 @@ function FieldRuntime:_load()
     -- its script bucket.
     -- The override files live in the repo tree outside the LÖVE source dir,
     -- so the loader reads them through the io-backed repo filesystem.
-    local function requestStartMenuReopen()
-      self.applicationHost:requestReopen()
-    end
-    local function applyAvatarTransitionsForScripts()
-      return self:applyAvatarTransitions()
-    end
-    local function changeWeather(_, weatherId)
-      self:_setLiveWeather(assert(self.runtimeMap), weatherId)
-    end
-    self.scripts = FieldScripts.new({
+    local scriptComposition = require("game.hgss.src.field.FieldScriptComposition").compose(self, {
       cacheFs = cacheFs,
-      overrideFs = self.overrideFs,
-      eventState = self.eventState,
-      actors = self.actors,
-      player = self.player,
-      playerAvatar = self.playerAvatar,
-      avatarApplier = applyAvatarTransitionsForScripts,
-      profile = self.playerData.profile,
-      dialogue = self.dialogue,
-      messageProvider = self.messageProvider,
-      layout = layoutMessage,
+      layoutMessage = layoutMessage,
       fontDef = fontDef,
-      frameIndex = self.playerData.options.textFrame,
-      signpost = self.signpost,
-      windowStyles = self.windowStyles,
-      transition = self.transition,
-      mapLoader = self.mapLoader,
-      sourceMap = self.runtimeMap,
-      seedText = self.versionId .. ":" .. self.runtimeMap.mapId,
-      effects = self.fieldTerrainEffectController,
-      audio = audioService,
-      weather = {
-        change = changeWeather,
-      },
-      camera = self.scriptHosts and self.scriptHosts.camera,
-      -- Always the production semantic screen-fade controller: a script
-      -- fade/covered-swap capability is never limited to test composition.
-      screen = self.screenFade,
-      events = self.scriptHosts and self.scriptHosts.events,
-      auxiliaryUi = self.auxiliaryFieldUi,
-      contextChoice = self.contextChoiceProvider,
-      menu = self.menuHost,
-      startMenuReopen = { request = requestStartMenuReopen },
+      audioService = audioService,
+      loadedGame = loadedGame,
     })
-    -- A loaded game carries strict world and script buckets, so restore is
-    -- unconditional after GameSave validation.
-    if loadedGame then
-      ScriptSave.restore(loadedGame.scripts, self.scripts.scheduler, 0, {
-        expectedRegistryFingerprint = self.scripts:registryFingerprint(),
-      })
-      self.scripts.worldState:restoreRng(loadedGame.world)
-    end
+    self.scripts = scriptComposition.scripts
+    scriptComposition.restore()
 
     local FieldZoneController = require("libs.hgss.src.world.FieldZoneController")
     local function mapForId(mapId)
@@ -1458,50 +1301,8 @@ end
 ---@return string|table<string, unknown>? reason validation or stability failure
 ---@param allowMenu boolean?
 function FieldRuntime:_captureGameSave(allowMenu)
-  if not canCapture(self.session, allowMenu == true) then
-    return nil, "Save deferred: movement, transition, or modal state is active"
-  end
-  if self.playerAvatar and not self.playerAvatar:isStableForSave() then
-    return nil, "Save deferred: avatar transition state is not stable"
-  end
-
-  local session = self.session
-  local player = session.player
-  local runtimeMap = session.currentMap
-  assert(type(runtimeMap.terrainDependencyHash) == "string", "runtime map terrain dependency identity required")
-
-  local world = self.scripts.worldState:capture(self.actors:captureObjects())
-  local weatherState = runtimeMap --[[@as table]]
-  local snapshot = {
-    schema = GameSave.SCHEMA,
-    saveId = self.saveId,
-    versionId = self.versionId,
-    mapId = runtimeMap.mapId,
-    fieldX = player.fieldX,
-    fieldZ = player.fieldZ,
-    worldY = player.worldY,
-    surfaceId = player.surfaceId,
-    terrainDependencyHash = runtimeMap.terrainDependencyHash,
-    facing = player.facing,
-    weatherId = assert(weatherState.effectiveWeatherId, "active runtime weather is required"),
-    playTimeSeconds = self.playTime:seconds(),
-    playerData = self.playerData,
-    world = world,
-    scripts = ScriptSave.capture(self.scripts.scheduler, session.tick, {
-      registryFingerprint = self.scripts:registryFingerprint(),
-    }),
-    auxiliaryUi = self.auxiliaryFieldUi:capture(),
-    audio = FieldAudioSave.capture(self.audio),
-  }
-  if self.playerAvatar then
-    snapshot.avatar = self.playerAvatar:capture()
-  end
-
-  local valid, validationErr = self.saveValidation:validate(snapshot)
-  if not valid then
-    return nil, validationErr
-  end
-  return valid
+  self.saveCoordinator = self.saveCoordinator or FieldSaveCoordinator.new(self)
+  return self.saveCoordinator:capture(allowMenu == true)
 end
 
 function FieldRuntime:captureGameSave()
@@ -1509,22 +1310,13 @@ function FieldRuntime:captureGameSave()
 end
 
 function FieldRuntime:_captureManualSaveFromMenu()
-  if not canCapture(self.session, true) then
-    return nil, "Save deferred: the field is not stable"
-  end
-  return self:_captureGameSave(true)
+  self.saveCoordinator = self.saveCoordinator or FieldSaveCoordinator.new(self)
+  return self.saveCoordinator:captureManual()
 end
 
 function FieldRuntime:_saveCheckpoint()
-  assert(self.saveStore, "manual Save requires a save store")
-  local record, reason = self:_captureManualSaveFromMenu()
-  assert(record, reason)
-  if self.savePublished then
-    self.saveStore:save(record)
-  else
-    self.saveStore:publishFirst(record)
-    self.savePublished = true
-  end
+  self.saveCoordinator = self.saveCoordinator or FieldSaveCoordinator.new(self)
+  return self.saveCoordinator:save()
 end
 
 -- Apply effective weather to a runtime map: resolve the catalog rules
@@ -1565,30 +1357,8 @@ end
 ---@param matrixMemberId integer
 ---@return FieldRuntimePhysicalSwap
 function FieldRuntime:_stagePhysicalCoverage(logicalMap, position, matrixMemberId)
-  local destinationAnchorX = math.floor(position.fieldX / FieldGrid.CELL_TILES)
-  local destinationAnchorZ = math.floor(position.fieldZ / FieldGrid.CELL_TILES)
-  local current = self.physicalCoverage
-  if
-    current
-    and current.matrixMemberId == matrixMemberId
-    and current.anchorX == destinationAnchorX
-    and current.anchorZ == destinationAnchorZ
-  then
-    return {
-      coverage = current,
-      replacement = false,
-      previous = nil,
-      state = "prepared",
-    }
-  end
-
-  local replacement = self.mapLoader:createPhysicalCoverage(logicalMap, position)
-  return {
-    coverage = replacement,
-    replacement = true,
-    previous = current,
-    state = "prepared",
-  }
+  self.worldSwapCoordinator = self.worldSwapCoordinator or FieldWorldSwapCoordinator.new(self)
+  return self.worldSwapCoordinator:stagePhysicalCoverage(logicalMap, position, matrixMemberId)
 end
 
 -- Fallible warp preparation, run by FieldTransition while the source map is
@@ -1599,89 +1369,18 @@ end
 ---@param facing FieldDirection
 ---@return table<string, unknown> prepared destination player, camera, and player visual
 function FieldRuntime:_prepareSwap(resolution, facing)
-  -- The hidden-commit invariant accepts either cover: the ordinary
-  -- transition's own fade for a plain warp, or the source-authored script
-  -- screen fade for a covered scripted swap (the transition itself never
-  -- starts a fade there). Neither is weakened by the other's existence.
-  assert(self.transition.fadeAlpha == 1 or self.screenFade:isOpaque(), "field map swap must be hidden by fade")
-  local runtimeMap = resolution.destinationMap
-  self:_applyEffectiveWeather(runtimeMap)
-  local fieldX, fieldZ = resolution.fieldX, resolution.fieldZ
-  local surfaceId, worldY = resolution.surfaceId, resolution.worldY
-  if self.transition.sourceKind == "door" then
-    assert(resolution.destinationWarp, "door destination warp required")
-    fieldX = resolution.destinationWarp.x
-    fieldZ = resolution.destinationWarp.z - 1
-    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
-    local sample = SurfaceResolver.new(runtimeMap.terrain):resolve({
-      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
-      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-      currentY = worldY,
-    })
-    surfaceId, worldY = sample.surfaceId, sample.worldY
-  elseif runtimeMap.terrain then
-    -- Re-resolve against the destination's actual (possibly newly composed
-    -- physical-coverage) terrain: the resolution's own surfaceId/worldY may
-    -- have been computed before physical coverage composed over the map.
-    local localX, localZ = FieldCoordinates.fieldToLocal(runtimeMap, fieldX, fieldZ)
-    local surface = SurfaceResolver.new(runtimeMap.terrain):resolve({
-      localX = localX + FieldCoordinates.TILE_CENTER_OFFSET,
-      localZ = localZ + FieldCoordinates.TILE_CENTER_OFFSET,
-    })
-    surfaceId, worldY = surface.surfaceId, surface.worldY
-  end
-  local player = FieldPlayer.new({
-    currentMap = runtimeMap,
-    fieldX = fieldX,
-    fieldZ = fieldZ,
-    surfaceId = surfaceId,
-    initialWorldY = worldY,
-    facing = facing,
-    occupancy = playerOccupancy(self),
-  })
-  local profile = assert(
-    self.cameraProfiles[runtimeMap.cameraType],
-    "field camera cache has no camera type " .. runtimeMap.cameraType
-  )
-  local camera = FieldCamera.new(profile, { initialTarget = player:renderPosition() })
-  camera:setProjectionAspect(self.viewport:worldAspect())
-  camera:setZoom(self.zoom:effectiveZoom())
-  local playerVisual = FieldPlayerVisual.new({
-    player = player,
-    spriteId = assert(self.playerAvatar, "field runtime has no avatar transition owner"):currentSpriteId(),
-    playerAvatar = self.playerAvatar,
-  })
-  local physical = (resolution.physical and resolution.physical.coverage) or nil
-  local residency = assert(self.residency):prepareTransition(runtimeMap, physical)
-  return {
-    player = player,
-    camera = camera,
-    playerVisual = playerVisual,
-    physical = resolution.physical,
-    residency = residency,
-  }
+  self.worldSwapCoordinator = self.worldSwapCoordinator or FieldWorldSwapCoordinator.new(self)
+  return self.worldSwapCoordinator:prepare(resolution, facing)
 end
 
 -- Dispose only transition-owned physical state. A reused coverage remains
 -- owned by the runtime, while a staged replacement is released once on abort.
 ---@param resolution table<string, unknown>?
 ---@param prepared table<string, unknown>?
+---@return nil
 function FieldRuntime:_disposePreparedSwap(resolution, prepared)
-  local residency = prepared and prepared.residency
-  if residency then
-    assert(self.residency):discardTransition(residency)
-  end
-  local physical = (prepared and prepared.physical) or (resolution and resolution.physical)
-  if not physical or not physical.replacement then
-    return
-  end
-  if physical.state == "released" or physical.state == "committed" then
-    return
-  end
-  assert(physical.state == "prepared", "physical swap is not disposable")
-  assert(physical.coverage ~= self.physicalCoverage, "staged physical coverage is already committed")
-  physical.coverage:release()
-  physical.state = "released"
+  self.worldSwapCoordinator = self.worldSwapCoordinator or FieldWorldSwapCoordinator.new(self)
+  return self.worldSwapCoordinator:abort(resolution, prepared)
 end
 
 -- The irreversible current-map ownership transfer, run by FieldTransition
@@ -1689,48 +1388,10 @@ end
 -- published first; runtime/session pointers and physical ownership follow.
 ---@param resolution table<string, unknown>
 ---@param prepared table<string, unknown>
+---@return nil
 function FieldRuntime:_commitSwap(resolution, _, prepared)
-  local runtimeMap = resolution.destinationMap
-  local physical = (prepared and prepared.physical) or resolution.physical
-  local residency = assert(prepared and prepared.residency, "prepared residency transaction required")
-  assert(self.residency):commitTransition(residency)
-  local previousCoverage
-  if physical then
-    assert(physical.state == "prepared", "physical swap is not committable")
-    assert(physical.coverage, "physical swap coverage is required")
-    if physical.replacement then
-      assert(physical.previous == self.physicalCoverage, "physical swap source owner changed")
-      previousCoverage = self.physicalCoverage
-      self.physicalCoverage = physical.coverage
-    else
-      assert(physical.coverage == self.physicalCoverage, "reused physical coverage is not current")
-    end
-    assert(runtimeMap.coverage == self.physicalCoverage, "destination map coverage is not the committed owner")
-    physical.state = "committed"
-  end
-  self.fieldTerrainEffectController:clear()
-
-  self.runtimeMap = runtimeMap
-  self.player = prepared.player
-  self.transition.player = prepared.player
-  self.playerVisual = prepared.playerVisual
-  self.session.playerVisual = prepared.playerVisual
-  self.camera = prepared.camera
-  self.session.currentMap = runtimeMap
-  self.zoneController.currentMap = runtimeMap
-  self.session.player = prepared.player
-  self.session.camera = prepared.camera
-  -- The map-music policy follows the destination map through FieldAudioController.
-  -- enterMap updates the policy, clears the persisted override, and starts the
-  -- destination's music.
-  if self.audio then
-    self.audio:enterMap(runtimeMap, { clearMusicOverride = true, play = true })
-  end
-  self.scripts:onMapSwap(prepared.player, runtimeMap)
-  self.session:beginMapEntry()
-  if previousCoverage then
-    previousCoverage:release()
-  end
+  self.worldSwapCoordinator = self.worldSwapCoordinator or FieldWorldSwapCoordinator.new(self)
+  return self.worldSwapCoordinator:commit(resolution, _, prepared)
 end
 
 function FieldRuntime:destinationWorldPresentable()
