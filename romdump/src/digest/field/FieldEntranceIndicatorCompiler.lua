@@ -6,7 +6,7 @@ local Errors = require("libs.errors.src.Errors")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local FieldEffectPatternAnimation = require("romdump.src.digest.field.FieldEffectPatternAnimation")
 local ModelAssetCompiler = require("romdump.src.digest.model.ModelAssetCompiler")
-local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
+local DynamicModelCompiler = require("romdump.src.digest.model.DynamicModelCompiler")
 local MapPropAnimCompiler = require("romdump.src.digest.model.MapPropAnimCompiler")
 local ModelAsset = require("libs.assets.src.model.ModelAsset")
 local FieldEffectAssetCache = require("libs.assets.src.field.FieldEffectAssetCache")
@@ -246,7 +246,7 @@ local function compileDynamicEffect(
     },
   })
   local meshes, textures = {}, {}
-  local descriptor, unresolved = MapAssetCompiler.compileDynamicModel(
+  local descriptor, unresolved = DynamicModelCompiler.compile(
     model,
     decodedModel,
     decodedModel.embeddedTextures,

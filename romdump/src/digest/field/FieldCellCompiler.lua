@@ -4,7 +4,7 @@
 
 local MapCatalog = require("romdump.src.digest.map.MapCatalog")
 local MapMatrix = require("romdump.src.digest.map.MapMatrix")
-local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
+local BuildingModelCompiler = require("romdump.src.digest.map.BuildingModelCompiler")
 local MapUnits = require("romdump.src.digest.map.MapUnits")
 local AreaData = require("romdump.src.digest.map.AreaData")
 local NeighborChunkCompiler = require("romdump.src.digest.map.NeighborChunkCompiler")
@@ -75,7 +75,7 @@ local function compile(romFs)
               local buildingKey = string.format("%d:%d", source.landDataMemberId, header.areaDataMemberId)
               local building = buildingCache[buildingKey]
               if building == nil then
-                building = MapAssetCompiler.compileBuildings(romFs, chunk.area, chunk.land, {
+                building = BuildingModelCompiler.compile(romFs, chunk.area, chunk.land, {
                   mapId = source.mapHeaderId,
                   mapSymbol = header.symbol,
                   areaDataMemberId = header.areaDataMemberId,

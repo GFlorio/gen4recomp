@@ -12,6 +12,7 @@ local OLD_MODULE_PREFIX = "romdump.src.digest."
 local DOMAINS = {
   map = {
     "AreaData",
+    "BuildingModelCompiler",
     "BuildingPlacement",
     "BuildingTransform",
     "HgssBdhc",
@@ -35,6 +36,7 @@ local DOMAINS = {
   },
   model = {
     "BuildModelAnimList",
+    "DynamicModelCompiler",
     "MapPropAnimCompiler",
     "MaterialCompiler",
     "MeshCompiler",
@@ -102,6 +104,7 @@ local DOMAINS = {
     "IntroAssetCacheWriter",
     "IntroAssetCompiler",
     "IntroAssetImage",
+    "IntroRasterizer",
     "IntroObjPaletteResolver",
     "NewGameInitCacheWriter",
     "NewGameInitCompiler",

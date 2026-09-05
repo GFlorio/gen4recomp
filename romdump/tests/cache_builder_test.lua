@@ -9,6 +9,9 @@ local Errors = require("libs.errors.src.Errors")
 
 -- Every module CacheBuilder requires at load; each is replaced with a fake.
 local FAKE_PATHS = {
+  "romdump.src.build.FieldCacheBuild",
+  "romdump.src.build.ScriptAudioCacheBuild",
+  "romdump.src.build.MapCacheBuild",
   "romdump.src.source.RomFs",
   "libs.storage.src.CacheFs",
   "romdump.src.digest.map.MapAnalysis",
@@ -56,6 +59,12 @@ local FAKE_PATHS = {
   "romdump.src.DerivedCacheState",
   "romdump.src.ProducerFingerprint",
   "romdump.src.DerivedCacheAudit",
+}
+
+local REAL_BUILD_OWNERS = {
+  ["romdump.src.build.FieldCacheBuild"] = true,
+  ["romdump.src.build.ScriptAudioCacheBuild"] = true,
+  ["romdump.src.build.MapCacheBuild"] = true,
 }
 
 local T = {}
@@ -377,7 +386,9 @@ local module = {
     env = newEnv()
     local fakes = makeFakes()
     for _, path in ipairs(FAKE_PATHS) do
-      package.loaded[path] = fakes[path:match("([^%.]+)$")]
+      if not REAL_BUILD_OWNERS[path] then
+        package.loaded[path] = fakes[path:match("([^%.]+)$")]
+      end
     end
     package.loaded["romdump.src.CacheBuilder"] = nil
     CacheBuilder = require("romdump.src.CacheBuilder")

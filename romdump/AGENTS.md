@@ -11,6 +11,8 @@ and compilation into g4recomp assets.
 - Keep source-member selection, physical archive/file/member IDs, overlay addresses, packed
   source flags, and ROM-specific catalogs producer-side unless a generated asset has a
   concrete runtime/mod-facing semantic need for the fact.
+- `src/build` owns explicit per-version cache build stages; `CacheBuilder` retains batch
+  lifecycle, staged-world publication, and successful-build attestation ownership.
 - `libs/codec` supplies generic binary primitives and `libs/nds` supplies reusable Nintendo
   format mechanics; HGSS-specific interpretation stays here.
 - Build-only source manifests and provenance belong here. Generated/mod-facing schemas belong

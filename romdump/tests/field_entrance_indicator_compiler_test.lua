@@ -10,7 +10,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
     "libs.nds.src.nitro.g3d.Nsbmd",
     "romdump.src.digest.field.FieldEffectPatternAnimation",
     "romdump.src.digest.model.ModelAssetCompiler",
-    "romdump.src.digest.map.MapAssetCompiler",
+    "romdump.src.digest.model.DynamicModelCompiler",
     "romdump.src.digest.model.MapPropAnimCompiler",
     "libs.assets.src.model.ModelAsset",
     "romdump.src.digest.Hashing",
@@ -117,8 +117,8 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       }
     end,
   }
-  package.loaded["romdump.src.digest.map.MapAssetCompiler"] = {
-    compileDynamicModel = function(_, _, _, animResult, _, memberId, meshes, textures)
+  package.loaded["romdump.src.digest.model.DynamicModelCompiler"] = {
+    compile = function(_, _, _, animResult, _, memberId, meshes, textures)
       meshes["mesh"] = {}
       textures["texture"] = { width = 1, height = 1, pixels = "pixel" }
       return {
@@ -262,7 +262,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
     "libs.nds.src.nitro.g3d.Nsbmd",
     "romdump.src.digest.field.FieldEffectPatternAnimation",
     "romdump.src.digest.model.ModelAssetCompiler",
-    "romdump.src.digest.map.MapAssetCompiler",
+    "romdump.src.digest.model.DynamicModelCompiler",
     "romdump.src.digest.model.MapPropAnimCompiler",
     "libs.assets.src.model.ModelAsset",
     "romdump.src.digest.Hashing",
@@ -320,8 +320,8 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       }
     end,
   }
-  package.loaded["romdump.src.digest.map.MapAssetCompiler"] = {
-    compileDynamicModel = function(_, _, _, animResult, _, memberId, meshes, textures)
+  package.loaded["romdump.src.digest.model.DynamicModelCompiler"] = {
+    compile = function(_, _, _, animResult, _, memberId, meshes, textures)
       meshes.mesh = {}
       textures.texture = { width = 1, height = 1, pixels = "pixel" }
       return {

@@ -61,13 +61,13 @@ function T.audit_with_stale_weather_marker_requires_a_build()
 end
 
 function T.builder_treats_stale_weather_artifact_as_a_required_write()
-  local ok, CacheBuilder = pcall(require, "romdump.src.CacheBuilder")
+  local ok, FieldCacheBuild = pcall(require, "romdump.src.build.FieldCacheBuild")
   if not ok then
-    error("CacheBuilder is absent: cannot verify weather build wiring", 0)
+    error("FieldCacheBuild is absent: cannot verify weather build wiring", 0)
   end
-  -- The builder pipeline must include the weather compiler; this is a
-  -- structural check that buildVersions references the weather artifact.
-  local info = debug.getinfo(CacheBuilder.buildVersions, "S")
+  -- The field build owner must include the weather compiler; this is a
+  -- structural check that the extracted field stage references the artifact.
+  local info = debug.getinfo(FieldCacheBuild.build, "S")
   local contents = ""
   if info and info.source and info.source:sub(1, 1) == "@" then
     local handle = io.open(info.source:sub(2), "r")
