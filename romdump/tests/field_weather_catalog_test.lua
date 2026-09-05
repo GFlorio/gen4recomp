@@ -4,7 +4,7 @@
 local Assert = require("tests.support.Assert")
 
 local function requireCatalogCompiler()
-  local ok, mod = pcall(require, "romdump.src.digest.FieldWeatherCompiler")
+  local ok, mod = pcall(require, "romdump.src.digest.field.FieldWeatherCompiler")
   if not ok then
     error(
       "FieldWeatherCompiler is absent: generated weather catalog cannot be built from HgssFieldFog and source IDs",
@@ -18,7 +18,7 @@ local T = {}
 
 function T.catalog_contains_all_fourteen_fog_presets_through_the_fog_authority()
   local Compiler = requireCatalogCompiler()
-  local HgssFieldFog = require("romdump.src.digest.HgssFieldFog")
+  local HgssFieldFog = require("romdump.src.digest.field.HgssFieldFog")
   local bundle = assert(Compiler.compile())
   Assert.equal(bundle.catalog.schema, "g4-field-weather-v1")
   Assert.equal(

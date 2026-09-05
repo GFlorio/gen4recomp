@@ -6,7 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local Matrix4 = require("libs.math.src.Matrix4")
-local BuildingTransform = require("romdump.src.digest.BuildingTransform")
+local BuildingTransform = require("romdump.src.digest.map.BuildingTransform")
 
 local T = {}
 

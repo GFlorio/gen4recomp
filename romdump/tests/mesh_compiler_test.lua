@@ -5,9 +5,9 @@
 -- polygon-attr word, and rejects a missing shape or unsupported in-DL command.
 
 local Assert = require("tests.support.Assert")
-local MeshCompiler = require("romdump.src.digest.MeshCompiler")
+local MeshCompiler = require("romdump.src.digest.model.MeshCompiler")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
-local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
+local NsbmdStaticTransforms = require("romdump.src.digest.model.NsbmdStaticTransforms")
 local Matrix4 = require("libs.math.src.Matrix4")
 local NB = require("tests.support.NitroBuilder")
 

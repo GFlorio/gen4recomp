@@ -49,7 +49,7 @@ function T.confirmation_configuration_declares_source_backing_and_local_windows(
 end
 
 local function compiler()
-  local ok, module = pcall(require, "romdump.src.digest.IntroAssetCompiler")
+  local ok, module = pcall(require, "romdump.src.digest.newgame.IntroAssetCompiler")
   if not ok then
     error("the ROM-derived intro compiler is missing: " .. tostring(module), 0)
   end
@@ -138,7 +138,7 @@ local function selectorResourceTables()
 end
 
 local function syntheticCompilerSource(animationFrames, objectPalette, charDepth)
-  local decoder = require("romdump.src.digest.G2dDecoder")
+  local decoder = require("romdump.src.digest.ui.G2dDecoder")
   local original = {}
   for _, name in ipairs({ "decodeChar", "decodePalette", "decodeScreen", "decodeCell", "decodeAnimation" }) do
     original[name] = decoder[name]
@@ -421,7 +421,7 @@ local function introCache()
 end
 
 local function writer()
-  local ok, module = pcall(require, "romdump.src.digest.IntroAssetCacheWriter")
+  local ok, module = pcall(require, "romdump.src.digest.newgame.IntroAssetCacheWriter")
   if not ok then
     error("the intro cache has no failure-safe publication path: " .. tostring(module), 0)
   end

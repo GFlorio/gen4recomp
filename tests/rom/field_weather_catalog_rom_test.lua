@@ -3,7 +3,7 @@ local Assert = require("tests.support.Assert")
 local T = {}
 
 local function requireCompiler()
-  local ok, m = pcall(require, "romdump.src.digest.FieldWeatherCompiler")
+  local ok, m = pcall(require, "romdump.src.digest.field.FieldWeatherCompiler")
   if not ok then
     error("FieldWeatherCompiler is absent: ROM weather catalog cannot be validated", 0)
   end
@@ -11,7 +11,7 @@ local function requireCompiler()
 end
 
 local function requireHgssFog()
-  return require("romdump.src.digest.HgssFieldFog")
+  return require("romdump.src.digest.field.HgssFieldFog")
 end
 
 function T.catalog_is_the_only_alternate_preset_authority_with_complete_presets()
@@ -51,7 +51,7 @@ end
 
 function T.scene_base_fog_corresponds_to_catalog_preset_for_its_weatherId()
   local Compiler = requireCompiler()
-  local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+  local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
   local Catalog = Compiler.compile().catalog
   -- sample a handful of maps to prove base fog == catalog preset for weatherId
   -- Map 0 is optional: some corpora do not carry it, so it is sampled only

@@ -10,7 +10,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldTextureAnimation = require("romdump.src.digest.FieldTextureAnimation")
+local FieldTextureAnimation = require("romdump.src.digest.field.FieldTextureAnimation")
 
 local T = {}
 

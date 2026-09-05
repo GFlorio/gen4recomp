@@ -3,9 +3,9 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
-local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
-local FieldFontCacheWriter = require("romdump.src.digest.FieldFontCacheWriter")
+local FieldFontCompiler = require("romdump.src.digest.ui.FieldFontCompiler")
+local FieldFontDecoder = require("romdump.src.digest.ui.FieldFontDecoder")
+local FieldFontCacheWriter = require("romdump.src.digest.ui.FieldFontCacheWriter")
 local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")

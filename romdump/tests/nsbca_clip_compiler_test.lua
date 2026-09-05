@@ -8,7 +8,7 @@ local Assert = require("tests.support.Assert")
 local BinaryReader = require("libs.codec.src.BinaryReader")
 local NitroAnimation = require("libs.nds.src.nitro.g3d.NitroAnimation")
 local Nsbca = require("libs.nds.src.nitro.g3d.Nsbca")
-local NsbcaClipCompiler = require("romdump.src.digest.NsbcaClipCompiler")
+local NsbcaClipCompiler = require("romdump.src.digest.model.NsbcaClipCompiler")
 local CompiledNsbcaSampler = require("libs.nds.src.nitro.g3d.CompiledNsbcaSampler")
 
 local T = {}

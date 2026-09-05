@@ -42,6 +42,17 @@ and compilation into g4recomp assets.
 - A real generated contract change updates the authoritative `DerivedAssetContract` identity
   in `libs/assets`; do not use contract versions as source-code revision counters.
 
+## Digest source layout
+
+- Keep digest producers in shallow semantic domains: `map`, `model`, `actor`, `field`, `ui`,
+  and `newgame`; audio and script producers belong in their existing `audio` and `script`
+  domains.
+- Keep only proven cross-domain utilities at the digest root. Current root utilities are
+  `Hashing` and `Lz10`; do not add technical-stage directories or compatibility aliases.
+- A digest module's path reflects its semantic owner, while its module contents and generated
+  outputs remain independent of that filesystem organization. Update first-party requires and
+  tests when a producer moves.
+
 ## Tests
 
 - Pure source decoders/parsers can use synthetic unit fixtures. Keep commercial ROM bytes and

@@ -5,7 +5,7 @@
 -- the sibling field-effect model.
 
 local Assert = require("tests.support.Assert")
-local FieldActorEmoteCompiler = require("romdump.src.digest.FieldActorEmoteCompiler")
+local FieldActorEmoteCompiler = require("romdump.src.digest.actor.FieldActorEmoteCompiler")
 local RomSuite = require("tests.rom.support.RomSuite")
 
 local function testExclamationModelSurface(romFs)

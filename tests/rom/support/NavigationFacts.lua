@@ -6,8 +6,8 @@ local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
 local FieldTraversal = require("libs.hgss.src.field.FieldTraversal")
-local MapResolver = require("romdump.src.digest.MapResolver")
-local MapCatalog = require("romdump.src.digest.MapCatalog")
+local MapResolver = require("romdump.src.digest.map.MapResolver")
+local MapCatalog = require("romdump.src.digest.map.MapCatalog")
 
 local NavigationFacts = {}
 

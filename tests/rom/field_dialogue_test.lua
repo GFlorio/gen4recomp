@@ -11,8 +11,8 @@ local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueControlle
 local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
 local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
 local FieldFontCache = require("libs.assets.src.field.FieldFontCache")
-local FieldFontCompiler = require("romdump.src.digest.FieldFontCompiler")
-local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
+local FieldFontCompiler = require("romdump.src.digest.ui.FieldFontCompiler")
+local FieldFontDecoder = require("romdump.src.digest.ui.FieldFontDecoder")
 local PngReader = require("tests.support.PngReader")
 
 local T = {}

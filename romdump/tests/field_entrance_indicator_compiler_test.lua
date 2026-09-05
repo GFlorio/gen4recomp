@@ -6,12 +6,12 @@ local T = { tests = {} }
 
 T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   local names = {
-    "romdump.src.digest.FieldEntranceIndicatorCompiler",
+    "romdump.src.digest.field.FieldEntranceIndicatorCompiler",
     "libs.nds.src.nitro.g3d.Nsbmd",
-    "romdump.src.digest.FieldEffectPatternAnimation",
-    "romdump.src.digest.ModelAssetCompiler",
-    "romdump.src.digest.MapAssetCompiler",
-    "romdump.src.digest.MapPropAnimCompiler",
+    "romdump.src.digest.field.FieldEffectPatternAnimation",
+    "romdump.src.digest.model.ModelAssetCompiler",
+    "romdump.src.digest.map.MapAssetCompiler",
+    "romdump.src.digest.model.MapPropAnimCompiler",
     "libs.assets.src.model.ModelAsset",
     "romdump.src.digest.Hashing",
     "romdump.src.config.FieldEffects",
@@ -75,7 +75,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       }
     end,
   }
-  package.loaded["romdump.src.digest.FieldEffectPatternAnimation"] = {
+  package.loaded["romdump.src.digest.field.FieldEffectPatternAnimation"] = {
     FORMAT = "FIELD_EFFECT_PATTERN",
     decode = function(_, context)
       animationMembers[#animationMembers + 1] = context.memberId
@@ -93,7 +93,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       }
     end,
   }
-  package.loaded["romdump.src.digest.ModelAssetCompiler"] = {
+  package.loaded["romdump.src.digest.model.ModelAssetCompiler"] = {
     compileModel = function(_, _, _, _, context)
       return {
         unresolved = {},
@@ -102,7 +102,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       }
     end,
   }
-  package.loaded["romdump.src.digest.MapPropAnimCompiler"] = {
+  package.loaded["romdump.src.digest.model.MapPropAnimCompiler"] = {
     compileDecoded = function(decoded, opts)
       return {
         id = opts.id,
@@ -117,7 +117,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       }
     end,
   }
-  package.loaded["romdump.src.digest.MapAssetCompiler"] = {
+  package.loaded["romdump.src.digest.map.MapAssetCompiler"] = {
     compileDynamicModel = function(_, _, _, animResult, _, memberId, meshes, textures)
       meshes["mesh"] = {}
       textures["texture"] = { width = 1, height = 1, pixels = "pixel" }
@@ -155,10 +155,10 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
       return "dependency-hash"
     end,
   }
-  package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
+  package.loaded["romdump.src.digest.field.FieldEntranceIndicatorCompiler"] = nil
 
   local ok, result, compiler, romFs = pcall(function()
-    local compiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
+    local compiler = require("romdump.src.digest.field.FieldEntranceIndicatorCompiler")
     local modelNarc = {
       memberCount = function()
         return 169
@@ -191,7 +191,7 @@ T.tests["compiles source-derived renderer 8 and 12 resources"] = function()
   for _, name in ipairs(names) do
     package.loaded[name] = saved[name]
   end
-  package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
+  package.loaded["romdump.src.digest.field.FieldEntranceIndicatorCompiler"] = nil
 
   Assert.isTrue(ok, tostring(result))
   Assert.equal(#modelMembers, 5)
@@ -258,12 +258,12 @@ end
 
 T.tests["rewrites compiled geometry and texture references into the effect root"] = function()
   local names = {
-    "romdump.src.digest.FieldEntranceIndicatorCompiler",
+    "romdump.src.digest.field.FieldEntranceIndicatorCompiler",
     "libs.nds.src.nitro.g3d.Nsbmd",
-    "romdump.src.digest.FieldEffectPatternAnimation",
-    "romdump.src.digest.ModelAssetCompiler",
-    "romdump.src.digest.MapAssetCompiler",
-    "romdump.src.digest.MapPropAnimCompiler",
+    "romdump.src.digest.field.FieldEffectPatternAnimation",
+    "romdump.src.digest.model.ModelAssetCompiler",
+    "romdump.src.digest.map.MapAssetCompiler",
+    "romdump.src.digest.model.MapPropAnimCompiler",
     "libs.assets.src.model.ModelAsset",
     "romdump.src.digest.Hashing",
   }
@@ -282,7 +282,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       }
     end,
   }
-  package.loaded["romdump.src.digest.FieldEffectPatternAnimation"] = {
+  package.loaded["romdump.src.digest.field.FieldEffectPatternAnimation"] = {
     FORMAT = "FIELD_EFFECT_PATTERN",
     decode = function(_, context)
       local memberId = context and context.memberId or 0
@@ -294,7 +294,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       }
     end,
   }
-  package.loaded["romdump.src.digest.ModelAssetCompiler"] = {
+  package.loaded["romdump.src.digest.model.ModelAssetCompiler"] = {
     compileModel = function(_, _, meshes, textures)
       meshes.mesh = {}
       textures.texture = { width = 1, height = 1, pixels = "pixel" }
@@ -305,7 +305,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       }
     end,
   }
-  package.loaded["romdump.src.digest.MapPropAnimCompiler"] = {
+  package.loaded["romdump.src.digest.model.MapPropAnimCompiler"] = {
     compileDecoded = function(decoded, opts)
       return {
         id = opts.id,
@@ -320,7 +320,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       }
     end,
   }
-  package.loaded["romdump.src.digest.MapAssetCompiler"] = {
+  package.loaded["romdump.src.digest.map.MapAssetCompiler"] = {
     compileDynamicModel = function(_, _, _, animResult, _, memberId, meshes, textures)
       meshes.mesh = {}
       textures.texture = { width = 1, height = 1, pixels = "pixel" }
@@ -347,10 +347,10 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
       return "dependency-hash"
     end,
   }
-  package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
+  package.loaded["romdump.src.digest.field.FieldEntranceIndicatorCompiler"] = nil
 
   local ok, result = pcall(function()
-    local compiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
+    local compiler = require("romdump.src.digest.field.FieldEntranceIndicatorCompiler")
     local romFs = {
       openNarc = function()
         return {
@@ -371,7 +371,7 @@ T.tests["rewrites compiled geometry and texture references into the effect root"
   for _, name in ipairs(names) do
     package.loaded[name] = saved[name]
   end
-  package.loaded["romdump.src.digest.FieldEntranceIndicatorCompiler"] = nil
+  package.loaded["romdump.src.digest.field.FieldEntranceIndicatorCompiler"] = nil
   Assert.isTrue(ok, tostring(result))
   Assert.equal(result.model.batches[1].geometry, FieldEffectAssetCache.geometryPath("mesh"))
   Assert.equal(result.model.materials[1].texture, FieldEffectAssetCache.texturePath("texture"))

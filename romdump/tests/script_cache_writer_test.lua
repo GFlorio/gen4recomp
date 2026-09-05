@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local ScriptCache = require("libs.assets.src.ScriptCache")
-local ScriptCacheWriter = require("romdump.src.digest.ScriptCacheWriter")
+local ScriptCacheWriter = require("romdump.src.digest.script.ScriptCacheWriter")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 
@@ -101,7 +101,7 @@ end
 
 -- 3. A readback failure rolls the whole class back (no partial cache).
 T["readback failure rolls back"] = function()
-  local real = require("romdump.src.digest.ScriptCacheWriter")
+  local real = require("romdump.src.digest.script.ScriptCacheWriter")
   local cache = CacheFs.forVersion("heartgold", FakeCache.new())
   local bad = bundle()
   bad.resources[1].resource = { api = 1, id = "other", steps = {} }

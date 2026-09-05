@@ -6,7 +6,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
-local FieldActorModel = require("romdump.src.digest.FieldActorModel")
+local FieldActorModel = require("romdump.src.digest.actor.FieldActorModel")
 
 local T = {}
 

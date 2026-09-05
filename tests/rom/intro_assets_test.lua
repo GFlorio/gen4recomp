@@ -9,7 +9,7 @@ local RomSuite = require("tests.rom.support.RomSuite")
 local T = {}
 
 local function compiler()
-  local ok, module = pcall(require, "romdump.src.digest.IntroAssetCompiler")
+  local ok, module = pcall(require, "romdump.src.digest.newgame.IntroAssetCompiler")
   if not ok then
     error("the ROM-derived intro compiler is missing: " .. tostring(module), 0)
   end

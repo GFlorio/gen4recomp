@@ -2,7 +2,7 @@
 -- decoded matrices cover each selection outcome.
 
 local Assert = require("tests.support.Assert")
-local MapAnalysis = require("romdump.src.digest.MapAnalysis")
+local MapAnalysis = require("romdump.src.digest.map.MapAnalysis")
 
 local T = {}
 

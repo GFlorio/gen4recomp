@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
-local MapCacheWriter = require("romdump.src.digest.MapCacheWriter")
+local MapCacheWriter = require("romdump.src.digest.map.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local Bundle = require("tests.support.BundleFixture")
 

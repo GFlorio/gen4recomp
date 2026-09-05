@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local LandData = require("romdump.src.digest.LandData")
+local LandData = require("romdump.src.digest.map.LandData")
 local Builder = require("tests.support.LandDataBuilder")
 
 local T = {}

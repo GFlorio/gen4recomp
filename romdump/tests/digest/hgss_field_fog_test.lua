@@ -7,7 +7,7 @@
 -- Flash-move override.
 
 local Assert = require("tests.support.Assert")
-local HgssFieldFog = require("romdump.src.digest.HgssFieldFog")
+local HgssFieldFog = require("romdump.src.digest.field.HgssFieldFog")
 
 local T = {}
 

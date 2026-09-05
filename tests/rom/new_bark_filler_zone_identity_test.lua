@@ -4,7 +4,7 @@
 -- those coordinates -- no logical lookup for map 0 and no zone side effect.
 
 local Assert = require("tests.support.Assert")
-local MapResolver = require("romdump.src.digest.MapResolver")
+local MapResolver = require("romdump.src.digest.map.MapResolver")
 local CacheFs = require("libs.storage.src.CacheFs")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldCellCache = require("libs.assets.src.field.FieldCellCache")

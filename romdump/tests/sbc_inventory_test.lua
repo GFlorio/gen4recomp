@@ -5,7 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
-local SbcInventory = require("romdump.src.digest.SbcInventory")
+local SbcInventory = require("romdump.src.digest.model.SbcInventory")
 local Fixture = require("tests.support.NsbmdFixture")
 
 local T = {}

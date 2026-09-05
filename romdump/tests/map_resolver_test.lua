@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local MapResolver = require("romdump.src.digest.MapResolver")
+local MapResolver = require("romdump.src.digest.map.MapResolver")
 
 local T = {}
 

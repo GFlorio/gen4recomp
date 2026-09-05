@@ -3,7 +3,7 @@
 -- between them. Source: pret/pokeheartgold overlay_01_021FB878.s.
 
 local Assert = require("tests.support.Assert")
-local HgssFieldEdgeColors = require("romdump.src.digest.HgssFieldEdgeColors")
+local HgssFieldEdgeColors = require("romdump.src.digest.field.HgssFieldEdgeColors")
 
 local T = {}
 

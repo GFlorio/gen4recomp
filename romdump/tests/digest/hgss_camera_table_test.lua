@@ -1,7 +1,7 @@
 -- Exact HGSS 36-byte field-camera record decoding and unit normalization.
 
 local Assert = require("tests.support.Assert")
-local HgssCameraTable = require("romdump.src.digest.HgssCameraTable")
+local HgssCameraTable = require("romdump.src.digest.field.HgssCameraTable")
 
 local T = {}
 

@@ -10,7 +10,7 @@
 -- romdump ever sees the packed byte or the 0x80 bit.
 
 local Assert = require("tests.support.Assert")
-local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
+local HgssPermissionGrid = require("romdump.src.digest.field.HgssPermissionGrid")
 
 local T = {}
 

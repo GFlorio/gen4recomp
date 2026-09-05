@@ -7,7 +7,7 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldRegion = require("libs.hgss.src.field.FieldRegion")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 

@@ -3,8 +3,8 @@
 
 local Assert = require("tests.support.Assert")
 local Builder = require("tests.support.BdhcBuilder")
-local HgssBdhc = require("romdump.src.digest.HgssBdhc")
-local TerrainInspector = require("romdump.src.digest.TerrainInspector")
+local HgssBdhc = require("romdump.src.digest.map.HgssBdhc")
+local TerrainInspector = require("romdump.src.digest.map.TerrainInspector")
 
 local T = {}
 

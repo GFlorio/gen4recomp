@@ -6,9 +6,9 @@
 -- compile for both the loader cache and the runtime map).
 
 local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
-local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
+local FieldMapDataCompiler = require("romdump.src.digest.field.FieldMapDataCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 
 local RomRuntimeMap = {}

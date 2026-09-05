@@ -397,7 +397,7 @@ function T.app_cross_package_imports_match_exact_semantic_seams()
     { module = "romdump.src.source.RomImporter", allowed = true },
     { module = "game.hgss.src.field.FieldRuntime", allowed = false },
     { module = "game.hgss.src.field.FieldState", allowed = false },
-    { module = "romdump.src.digest.ModelAssetCompiler", allowed = false },
+    { module = "romdump.src.digest.model.ModelAssetCompiler", allowed = false },
     { module = "romdump.src.source.RomSource", allowed = false },
   }
   local mismatches = {}

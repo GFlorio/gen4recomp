@@ -3,14 +3,14 @@
 -- metadata and the geometric traversal path before FieldPlayer consumes it.
 
 local Assert = require("tests.support.Assert")
-local MapResolver = require("romdump.src.digest.MapResolver")
-local LandData = require("romdump.src.digest.LandData")
-local HgssBdhc = require("romdump.src.digest.HgssBdhc")
+local MapResolver = require("romdump.src.digest.map.MapResolver")
+local LandData = require("romdump.src.digest.map.LandData")
+local HgssBdhc = require("romdump.src.digest.map.HgssBdhc")
 local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
 local FieldCamera = require("libs.hgss.src.field.FieldCamera")
 local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local Hashing = require("romdump.src.digest.Hashing")
 
 local T = {}

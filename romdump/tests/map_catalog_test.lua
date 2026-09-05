@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local MapCatalog = require("romdump.src.digest.MapCatalog")
+local MapCatalog = require("romdump.src.digest.map.MapCatalog")
 
 local T = {}
 

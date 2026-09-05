@@ -3,7 +3,7 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local FieldEmoteAssetCache = require("libs.assets.src.field.FieldEmoteAssetCache")
-local Writer = require("romdump.src.digest.FieldActorEmoteCacheWriter")
+local Writer = require("romdump.src.digest.actor.FieldActorEmoteCacheWriter")
 local ModelAsset = require("libs.assets.src.model.ModelAsset")
 
 local T = { tests = {} }

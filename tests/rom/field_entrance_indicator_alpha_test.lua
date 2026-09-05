@@ -5,7 +5,7 @@
 local Assert = require("tests.support.Assert")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")
-local FieldEntranceIndicatorCompiler = require("romdump.src.digest.FieldEntranceIndicatorCompiler")
+local FieldEntranceIndicatorCompiler = require("romdump.src.digest.field.FieldEntranceIndicatorCompiler")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local RomSuite = require("tests.rom.support.RomSuite")
 

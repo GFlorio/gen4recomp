@@ -5,7 +5,7 @@
 -- pack does not define is reported, not fatal.
 
 local Assert = require("tests.support.Assert")
-local NeighborChunkCompiler = require("romdump.src.digest.NeighborChunkCompiler")
+local NeighborChunkCompiler = require("romdump.src.digest.map.NeighborChunkCompiler")
 local LandDataBuilder = require("tests.support.LandDataBuilder")
 local BdhcBuilder = require("tests.support.BdhcBuilder")
 local NsbmdFixture = require("tests.support.NsbmdFixture")

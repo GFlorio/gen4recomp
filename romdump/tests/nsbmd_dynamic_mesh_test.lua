@@ -8,8 +8,8 @@
 
 local Assert = require("tests.support.Assert")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
-local MeshCompiler = require("romdump.src.digest.MeshCompiler")
-local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
+local MeshCompiler = require("romdump.src.digest.model.MeshCompiler")
+local NsbmdDynamicModel = require("romdump.src.digest.model.NsbmdDynamicModel")
 local NsbmdSbcEvaluator = require("libs.assets.src.model.NsbmdSbcEvaluator")
 local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")
 local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")

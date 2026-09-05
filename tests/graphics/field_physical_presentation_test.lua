@@ -8,7 +8,7 @@ local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local GameVersion = require("romdump.src.source.GameVersion")
 local RomImporter = require("romdump.src.source.RomImporter")
-local MapCatalog = require("romdump.src.digest.MapCatalog")
+local MapCatalog = require("romdump.src.digest.map.MapCatalog")
 local GraphicsSmoke = require("tests.support.GraphicsSmoke")
 
 local T = {}

@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local AreaData = require("romdump.src.digest.AreaData")
+local AreaData = require("romdump.src.digest.map.AreaData")
 
 local T = {}
 

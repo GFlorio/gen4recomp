@@ -4,19 +4,19 @@
 -- and asserts the externally observable resolution and container conditions.
 
 local Assert = require("tests.support.Assert")
-local MapResolver = require("romdump.src.digest.MapResolver")
-local AreaData = require("romdump.src.digest.AreaData")
-local LandData = require("romdump.src.digest.LandData")
-local HgssPermissionGrid = require("romdump.src.digest.HgssPermissionGrid")
+local MapResolver = require("romdump.src.digest.map.MapResolver")
+local AreaData = require("romdump.src.digest.map.AreaData")
+local LandData = require("romdump.src.digest.map.LandData")
+local HgssPermissionGrid = require("romdump.src.digest.field.HgssPermissionGrid")
 local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local TextureDecoder = require("libs.nds.src.gx.TextureDecoder")
-local MapAssetInspector = require("romdump.src.digest.MapAssetInspector")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetInspector = require("romdump.src.digest.map.MapAssetInspector")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local InventoryAssert = require("tests.support.InventoryAssert")
 local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
-local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
-local FieldActorCompiler = require("romdump.src.digest.FieldActorCompiler")
+local FieldMapDataCompiler = require("romdump.src.digest.field.FieldMapDataCompiler")
+local FieldActorCompiler = require("romdump.src.digest.actor.FieldActorCompiler")
 local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 
 local T = {}

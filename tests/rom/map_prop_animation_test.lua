@@ -10,7 +10,7 @@
 
 local Assert = require("tests.support.Assert")
 local Hashing = require("romdump.src.digest.Hashing")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 
 local T = {}
 

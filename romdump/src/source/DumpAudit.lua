@@ -11,7 +11,7 @@
 local CacheFs = require("libs.storage.src.CacheFs")
 local RomFs = require("romdump.src.source.RomFs")
 local HgssArchives = require("romdump.src.config.HgssArchives")
-local MapMatrix = require("romdump.src.digest.MapMatrix")
+local MapMatrix = require("romdump.src.digest.map.MapMatrix")
 local Errors = require("libs.errors.src.Errors")
 
 local DumpAudit = {}

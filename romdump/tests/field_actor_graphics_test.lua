@@ -6,7 +6,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local Fixture = require("tests.support.FieldActorFixture")
-local FieldActorGraphics = require("romdump.src.digest.FieldActorGraphics")
+local FieldActorGraphics = require("romdump.src.digest.actor.FieldActorGraphics")
 
 local T = {}
 

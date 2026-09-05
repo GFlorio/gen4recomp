@@ -5,9 +5,9 @@ local T = { tests = {} }
 
 T.tests["rewrites compiled geometry and texture references into the emote root"] = function()
   local names = {
-    "romdump.src.digest.FieldActorEmoteCompiler",
+    "romdump.src.digest.actor.FieldActorEmoteCompiler",
     "libs.nds.src.nitro.g3d.Nsbmd",
-    "romdump.src.digest.ModelAssetCompiler",
+    "romdump.src.digest.model.ModelAssetCompiler",
     "libs.assets.src.model.ModelAsset",
     "libs.assets.src.field.FieldEmoteAssetCache",
     "romdump.src.digest.Hashing",
@@ -23,7 +23,7 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
       return { models = { {} }, embeddedTextures = {} }
     end,
   }
-  package.loaded["romdump.src.digest.ModelAssetCompiler"] = {
+  package.loaded["romdump.src.digest.model.ModelAssetCompiler"] = {
     compileModel = function(_, _, meshes, textures)
       meshes.mesh = {}
       textures.texture = { width = 1, height = 1, pixels = "pixel" }
@@ -52,10 +52,10 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
       return "dependency-hash"
     end,
   }
-  package.loaded["romdump.src.digest.FieldActorEmoteCompiler"] = nil
+  package.loaded["romdump.src.digest.actor.FieldActorEmoteCompiler"] = nil
 
   local ok, result = pcall(function()
-    local compiler = require("romdump.src.digest.FieldActorEmoteCompiler")
+    local compiler = require("romdump.src.digest.actor.FieldActorEmoteCompiler")
     local romFs = {
       openNarc = function()
         return {
@@ -76,7 +76,7 @@ T.tests["rewrites compiled geometry and texture references into the emote root"]
   for _, name in ipairs(names) do
     package.loaded[name] = saved[name]
   end
-  package.loaded["romdump.src.digest.FieldActorEmoteCompiler"] = nil
+  package.loaded["romdump.src.digest.actor.FieldActorEmoteCompiler"] = nil
   Assert.isTrue(ok, tostring(result))
   Assert.equal(seenMemberId, 118, "the exclamation billboard is sourced from field_static_models member 118")
   Assert.equal(result.model.schema, "g4-field-emote-v1")
@@ -88,7 +88,7 @@ end
 
 T.tests["raises when the archive has no member 118"] = function()
   local ok, err = pcall(function()
-    local compiler = require("romdump.src.digest.FieldActorEmoteCompiler")
+    local compiler = require("romdump.src.digest.actor.FieldActorEmoteCompiler")
     local romFs = {
       openNarc = function()
         return {

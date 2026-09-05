@@ -4,7 +4,7 @@
 -- selection is FieldLightProfile's (libs/assets).
 
 local Assert = require("tests.support.Assert")
-local HgssFieldLighting = require("romdump.src.digest.HgssFieldLighting")
+local HgssFieldLighting = require("romdump.src.digest.field.HgssFieldLighting")
 
 local T = {}
 

@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local ScriptHeader = require("romdump.src.digest.ScriptHeader")
+local ScriptHeader = require("romdump.src.digest.script.ScriptHeader")
 
 local T = {}
 

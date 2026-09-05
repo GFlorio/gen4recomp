@@ -65,7 +65,7 @@ function T.source_palette_table_allocates_the_pinned_oak_absolute_banks(romFs)
 end
 
 function T.shrink_frames_are_portrait_compositions(romFs)
-  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local IntroAssetCompiler = require("romdump.src.digest.newgame.IntroAssetCompiler")
   local IntroAssets = require("romdump.src.config.IntroAssets")
   local bundle = assert(IntroAssetCompiler.compile(romFs))
 
@@ -98,7 +98,7 @@ local sourcePaletteByAsset = {
 }
 
 function T.oak_speech_selectors_match_pinned_source_sprite_templates(romFs)
-  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local IntroAssetCompiler = require("romdump.src.digest.newgame.IntroAssetCompiler")
   local IntroAssets = require("romdump.src.config.IntroAssets")
 
   for id, expected in pairs(sourcePaletteByAsset) do
@@ -121,7 +121,7 @@ function T.oak_speech_selectors_match_pinned_source_sprite_templates(romFs)
 end
 
 function T.critical_widget_geometry_and_centers_survive_palette_resolution(romFs)
-  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
+  local IntroAssetCompiler = require("romdump.src.digest.newgame.IntroAssetCompiler")
   local bundle = assert(IntroAssetCompiler.compile(romFs))
   local widgets = bundle.manifest.widgets
 

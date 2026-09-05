@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local IntroObjPaletteResolver = require("romdump.src.digest.IntroObjPaletteResolver")
+local IntroObjPaletteResolver = require("romdump.src.digest.newgame.IntroObjPaletteResolver")
 
 local T = {}
 

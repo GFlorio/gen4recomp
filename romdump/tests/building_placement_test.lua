@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local BuildingPlacement = require("romdump.src.digest.BuildingPlacement")
+local BuildingPlacement = require("romdump.src.digest.map.BuildingPlacement")
 
 local T = {}
 

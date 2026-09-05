@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local Material = require("libs.nds.src.gx.Material")
-local HgssFieldMaterial = require("romdump.src.digest.HgssFieldMaterial")
+local HgssFieldMaterial = require("romdump.src.digest.field.HgssFieldMaterial")
 
 local T = {}
 

@@ -1,7 +1,7 @@
 -- ROM-conformance test for canonical New Bark and Elm's Lab event members.
 
 local Assert = require("tests.support.Assert")
-local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
+local FieldMapDataCompiler = require("romdump.src.digest.field.FieldMapDataCompiler")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 
 local T = {}

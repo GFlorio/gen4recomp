@@ -5,9 +5,9 @@
 -- records.
 
 local Assert = require("tests.support.Assert")
-local FieldCameraCompiler = require("romdump.src.digest.FieldCameraCompiler")
-local FieldCameraDiscovery = require("romdump.src.digest.FieldCameraDiscovery")
-local HgssCameraTable = require("romdump.src.digest.HgssCameraTable")
+local FieldCameraCompiler = require("romdump.src.digest.field.FieldCameraCompiler")
+local FieldCameraDiscovery = require("romdump.src.digest.field.FieldCameraDiscovery")
+local HgssCameraTable = require("romdump.src.digest.field.HgssCameraTable")
 
 local T = {}
 

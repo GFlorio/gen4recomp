@@ -4,7 +4,7 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
-local FieldFontDecoder = require("romdump.src.digest.FieldFontDecoder")
+local FieldFontDecoder = require("romdump.src.digest.ui.FieldFontDecoder")
 
 local T = {}
 

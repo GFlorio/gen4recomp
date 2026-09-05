@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local FieldEffectPatternAnimation = require("romdump.src.digest.FieldEffectPatternAnimation")
+local FieldEffectPatternAnimation = require("romdump.src.digest.field.FieldEffectPatternAnimation")
 
 local T = { tests = {} }
 local unpack = table.unpack or unpack

@@ -2,7 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
-local HgssObjectMovement = require("romdump.src.digest.HgssObjectMovement")
+local HgssObjectMovement = require("romdump.src.digest.field.HgssObjectMovement")
 
 local T = {}
 

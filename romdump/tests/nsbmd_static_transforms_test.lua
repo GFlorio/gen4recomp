@@ -5,7 +5,7 @@
 -- built by NsbmdModelFixture.
 
 local Assert = require("tests.support.Assert")
-local NsbmdStaticTransforms = require("romdump.src.digest.NsbmdStaticTransforms")
+local NsbmdStaticTransforms = require("romdump.src.digest.model.NsbmdStaticTransforms")
 local ModelFixture = require("tests.support.NsbmdModelFixture")
 local Matrix4 = require("libs.math.src.Matrix4")
 local NB = require("tests.support.NitroBuilder")

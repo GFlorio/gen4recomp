@@ -2,7 +2,7 @@
 
 local Assert = require("tests.support.Assert")
 local Builder = require("tests.support.BdhcBuilder")
-local HgssBdhc = require("romdump.src.digest.HgssBdhc")
+local HgssBdhc = require("romdump.src.digest.map.HgssBdhc")
 
 local T = {}
 

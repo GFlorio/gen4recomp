@@ -10,7 +10,7 @@
 -- scenario compiles a synthetic map through the real production compiler.
 
 local Assert = require("tests.support.Assert")
-local FieldMapDataCompiler = require("romdump.src.digest.FieldMapDataCompiler")
+local FieldMapDataCompiler = require("romdump.src.digest.field.FieldMapDataCompiler")
 local Fixture = require("tests.support.FieldMapDataFixture")
 local Builder = require("tests.support.SoundplateBuilder")
 local fieldAudio = require("romdump.src.reference.hgss.field_audio")

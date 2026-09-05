@@ -2,7 +2,7 @@
 -- Each tile distinguishable; rect 48x32, palette per source type.
 
 local Assert = require("tests.support.Assert")
-local FieldUiCompiler = require("romdump.src.digest.FieldUiCompiler")
+local FieldUiCompiler = require("romdump.src.digest.ui.FieldUiCompiler")
 local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local PngReader = require("tests.support.PngReader")
 

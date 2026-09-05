@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local WorldManifest = require("romdump.src.digest.WorldManifest")
+local WorldManifest = require("romdump.src.digest.map.WorldManifest")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")

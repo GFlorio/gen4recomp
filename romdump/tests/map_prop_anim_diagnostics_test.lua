@@ -10,7 +10,7 @@ local Assert = require("tests.support.Assert")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local Errors = require("libs.errors.src.Errors")
 local AnimationFixture = require("tests.support.AnimationFixture")
-local MapPropAnimCompiler = require("romdump.src.digest.MapPropAnimCompiler")
+local MapPropAnimCompiler = require("romdump.src.digest.model.MapPropAnimCompiler")
 
 local T = {}
 
@@ -77,7 +77,7 @@ function T.compiling_a_broken_resource_through_the_map_compile_is_fatal()
   -- The same guarantee at the full map-compile boundary: a fixture ROM whose
   -- anim-list record references a garbage resource compiles to an explicit
   -- structured error, not to a silently static model.
-  local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+  local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
   local MapRomFixture = require("tests.support.MapRomFixture")
   local romFs = MapRomFixture.build({
     interiorBuildAnimList = { [MapRomFixture.BUILDING_MODEL_MEMBER_ID] = referencingRecord({ 0 }) },
@@ -96,7 +96,7 @@ end
 -- diagnostic; a programming fault is not -- it propagates loudly as itself
 -- so a real compiler bug is never misreported as corrupt ROM data.
 local function withClipCompilerStub(impl, fn)
-  local mod = require("romdump.src.digest.NsbcaClipCompiler")
+  local mod = require("romdump.src.digest.model.NsbcaClipCompiler")
   local original = mod.compile
   mod.compile = impl
   local ok, err = pcall(fn)

@@ -2,7 +2,7 @@
 -- category combinations, exact consumption, and malformed source offsets.
 
 local Assert = require("tests.support.Assert")
-local ZoneEvents = require("romdump.src.digest.ZoneEvents")
+local ZoneEvents = require("romdump.src.digest.map.ZoneEvents")
 local Builder = require("tests.support.ZoneEventsBuilder")
 
 local T = {}

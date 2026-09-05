@@ -6,7 +6,7 @@
 
 local Assert = require("tests.support.Assert")
 local AudioCache = require("libs.assets.src.audio.AudioCache")
-local AudioCacheWriter = require("romdump.src.digest.AudioCacheWriter")
+local AudioCacheWriter = require("romdump.src.digest.audio.AudioCacheWriter")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local AudioFixture = require("tests.support.AudioFixture")

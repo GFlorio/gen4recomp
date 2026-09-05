@@ -44,8 +44,8 @@ check_forbidden_phrases() {
 check_target_specific() {
   local modules=(
     "libs/nds/src/nitro/g3d/Nsbmd.lua"
-    "romdump/src/digest/MaterialCompiler.lua"
-    "romdump/src/digest/MeshCompiler.lua"
+    "romdump/src/digest/model/MaterialCompiler.lua"
+    "romdump/src/digest/model/MeshCompiler.lua"
     "libs/nds/src/love/GxRenderer.lua"
     "libs/nds/src/love/shaders/map.glsl"
   )

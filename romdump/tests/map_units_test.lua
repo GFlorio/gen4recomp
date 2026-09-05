@@ -2,7 +2,7 @@
 -- indoor and multi-cell map scales, and rejection of degenerate models.
 
 local Assert = require("tests.support.Assert")
-local MapUnits = require("romdump.src.digest.MapUnits")
+local MapUnits = require("romdump.src.digest.map.MapUnits")
 local Errors = require("libs.errors.src.Errors")
 
 local T = {}

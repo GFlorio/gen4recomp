@@ -10,11 +10,11 @@
 -- exemplar only; production behavior takes no per-material branch.
 
 local Assert = require("tests.support.Assert")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 
 local T = {}
 
-local CONFORMER_MODULE = "romdump.src.digest.TerrainBoundaryConformer"
+local CONFORMER_MODULE = "romdump.src.digest.map.TerrainBoundaryConformer"
 
 local function conformer()
   local ok, mod = pcall(require, CONFORMER_MODULE)

@@ -4,7 +4,7 @@
 -- libs/assets FieldLightProfile.
 
 local Assert = require("tests.support.Assert")
-local HgssFieldLightProfile = require("romdump.src.digest.HgssFieldLightProfile")
+local HgssFieldLightProfile = require("romdump.src.digest.field.HgssFieldLightProfile")
 
 local T = {}
 

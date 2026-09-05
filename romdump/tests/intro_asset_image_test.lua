@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local IntroAssetImage = require("romdump.src.digest.IntroAssetImage")
+local IntroAssetImage = require("romdump.src.digest.newgame.IntroAssetImage")
 
 local T = {}
 

@@ -5,8 +5,8 @@
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local Fixture = require("tests.support.FieldActorFixture")
-local FieldActorFrames = require("romdump.src.digest.FieldActorFrames")
-local FieldActorTimeline = require("romdump.src.digest.FieldActorTimeline")
+local FieldActorFrames = require("romdump.src.digest.actor.FieldActorFrames")
+local FieldActorTimeline = require("romdump.src.digest.actor.FieldActorTimeline")
 
 local T = {}
 

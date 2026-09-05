@@ -20,7 +20,7 @@ local VertexFormat = require("libs.assets.src.model.VertexFormat")
 
 local T = {}
 
-local CONFORMER_MODULE = "romdump.src.digest.TerrainBoundaryConformer"
+local CONFORMER_MODULE = "romdump.src.digest.map.TerrainBoundaryConformer"
 
 local function conformer()
   local ok, mod = pcall(require, CONFORMER_MODULE)

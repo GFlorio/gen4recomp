@@ -18,7 +18,7 @@
 local Errors = require("libs.errors.src.Errors")
 local Narc = require("libs.nds.src.nitro.Narc")
 local CacheFs = require("libs.storage.src.CacheFs")
-local MapMatrix = require("romdump.src.digest.MapMatrix")
+local MapMatrix = require("romdump.src.digest.map.MapMatrix")
 local RawDumpContract = require("romdump.src.source.RawDumpContract")
 
 local RomExtractor = {}

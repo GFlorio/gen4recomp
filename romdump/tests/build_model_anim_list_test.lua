@@ -13,7 +13,7 @@
 -- no-animation sentinel (first header u16 0xFFFF) yields empty ids.
 
 local Assert = require("tests.support.Assert")
-local BuildModelAnimList = require("romdump.src.digest.BuildModelAnimList")
+local BuildModelAnimList = require("romdump.src.digest.model.BuildModelAnimList")
 
 local T = {}
 

@@ -5,7 +5,7 @@
 -- Runs against every ready dump through the ROM layer.
 
 local Assert = require("tests.support.Assert")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local MeshWriter = require("libs.assets.src.model.MeshWriter")
 local SceneMesh = require("libs.hgss.src.presentation.SceneMesh")
 

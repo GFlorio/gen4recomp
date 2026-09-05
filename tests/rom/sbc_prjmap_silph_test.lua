@@ -7,7 +7,7 @@
 -- PRJMAP command and evaluate to the same draw set.
 
 local Assert = require("tests.support.Assert")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local NsbmdSbcEvaluator = require("libs.assets.src.model.NsbmdSbcEvaluator")
 
 local T = {}

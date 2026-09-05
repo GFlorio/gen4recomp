@@ -12,9 +12,9 @@
 
 local Assert = require("tests.support.Assert")
 local Hashing = require("romdump.src.digest.Hashing")
-local MeshCompiler = require("romdump.src.digest.MeshCompiler")
+local MeshCompiler = require("romdump.src.digest.model.MeshCompiler")
 local MeshWriter = require("libs.assets.src.model.MeshWriter")
-local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
+local ModelAssetCompiler = require("romdump.src.digest.model.ModelAssetCompiler")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
@@ -23,7 +23,7 @@ local Tex0Fixture = require("tests.support.Tex0Fixture")
 
 local T = {}
 
-local CONFORMER_MODULE = "romdump.src.digest.TerrainBoundaryConformer"
+local CONFORMER_MODULE = "romdump.src.digest.map.TerrainBoundaryConformer"
 
 local function conformer()
   local ok, mod = pcall(require, CONFORMER_MODULE)

@@ -11,7 +11,7 @@
 -- SOUNDPLATE_* errors carrying the caller's source context.
 
 local Assert = require("tests.support.Assert")
-local HgssSoundplate = require("romdump.src.digest.HgssSoundplate")
+local HgssSoundplate = require("romdump.src.digest.field.HgssSoundplate")
 local Builder = require("tests.support.SoundplateBuilder")
 
 local T = {}

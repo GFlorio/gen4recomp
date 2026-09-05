@@ -15,7 +15,7 @@ local Assert = require("tests.support.Assert")
 local BinaryWriter = require("libs.codec.src.BinaryWriter")
 local Hashing = require("romdump.src.digest.Hashing")
 local AnimationFixture = require("tests.support.AnimationFixture")
-local MapAssetCompiler = require("romdump.src.digest.MapAssetCompiler")
+local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local MapRomFixture = require("tests.support.MapRomFixture")
 
 local T = {}

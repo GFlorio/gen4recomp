@@ -9,7 +9,7 @@
 -- decoded from attr0/attr1 with flips read from attr1 bits 12/13.
 
 local Assert = require("tests.support.Assert")
-local G2dDecoder = require("romdump.src.digest.G2dDecoder")
+local G2dDecoder = require("romdump.src.digest.ui.G2dDecoder")
 
 local T = {}
 

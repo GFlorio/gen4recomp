@@ -7,8 +7,8 @@ local RomSuite = require("tests.rom.support.RomSuite")
 local T = {}
 
 function T.compiled_frames_reflect_decoded_placement(romFs)
-  local IntroAssetCompiler = require("romdump.src.digest.IntroAssetCompiler")
-  local G2dDecoder = require("romdump.src.digest.G2dDecoder")
+  local IntroAssetCompiler = require("romdump.src.digest.newgame.IntroAssetCompiler")
+  local G2dDecoder = require("romdump.src.digest.ui.G2dDecoder")
   local IntroAssets = require("romdump.src.config.IntroAssets")
   local Lz10 = require("romdump.src.digest.Lz10")
   local BinaryReader = require("libs.codec.src.BinaryReader")

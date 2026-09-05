@@ -15,14 +15,14 @@ local FieldTexAnimFixture = require("tests.support.FieldTextureAnimationFixture"
 local Hashing = require("romdump.src.digest.Hashing")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapRomFixture = require("tests.support.MapRomFixture")
-local ModelAssetCompiler = require("romdump.src.digest.ModelAssetCompiler")
+local ModelAssetCompiler = require("romdump.src.digest.model.ModelAssetCompiler")
 local Nsbmd = require("libs.nds.src.nitro.g3d.Nsbmd")
-local NsbmdDynamicModel = require("romdump.src.digest.NsbmdDynamicModel")
+local NsbmdDynamicModel = require("romdump.src.digest.model.NsbmdDynamicModel")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
 local TF = require("tests.support.TextureFixtures")
 local Tex0Fixture = require("tests.support.Tex0Fixture")
-local TerrainAnimationCompiler = require("romdump.src.digest.TerrainAnimationCompiler")
+local TerrainAnimationCompiler = require("romdump.src.digest.map.TerrainAnimationCompiler")
 
 local T = {}
 

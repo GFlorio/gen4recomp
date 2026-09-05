@@ -5,7 +5,7 @@ local SignpostCommands = require("romdump.src.reference.hgss.signpost_commands")
 local PlayerAvatar = require("romdump.src.reference.hgss.player_avatar")
 local MenuProtocol = require("libs.assets.src.MenuProtocol")
 local Errors = require("libs.errors.src.Errors")
-local HgssObjectMovement = require("romdump.src.digest.HgssObjectMovement")
+local HgssObjectMovement = require("romdump.src.digest.field.HgssObjectMovement")
 
 -- Field-only operand normalization follows the pinned field direction table,
 -- message-symbol format, and scrcmd.h actor specials.

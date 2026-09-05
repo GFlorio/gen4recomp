@@ -5,7 +5,7 @@
 -- a texture format or address of its own for a failed bind to fall back on.
 
 local Assert = require("tests.support.Assert")
-local MaterialCompiler = require("romdump.src.digest.MaterialCompiler")
+local MaterialCompiler = require("romdump.src.digest.model.MaterialCompiler")
 local Nsbtx = require("libs.nds.src.nitro.g3d.Nsbtx")
 local TexFixture = require("tests.support.Tex0Fixture")
 

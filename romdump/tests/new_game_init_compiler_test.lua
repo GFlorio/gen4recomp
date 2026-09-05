@@ -169,7 +169,7 @@ end
 local T = {}
 
 function T.compiles_the_real_standard_init_script_with_ordered_operations()
-  local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
+  local NewGameInitCompiler = require("romdump.src.digest.newgame.NewGameInitCompiler")
   local vars = FieldScriptSymbols.variablesByName
 
   local artifact = NewGameInitCompiler.compile({
@@ -218,7 +218,7 @@ function T.compiles_the_real_standard_init_script_with_ordered_operations()
 end
 
 function T.non_field_side_effect_is_explicit_and_bounded_to_loto_id_set()
-  local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
+  local NewGameInitCompiler = require("romdump.src.digest.newgame.NewGameInitCompiler")
   local vars = FieldScriptSymbols.variablesByName
 
   local artifact = NewGameInitCompiler.compile({
@@ -256,7 +256,7 @@ function T.non_field_side_effect_is_explicit_and_bounded_to_loto_id_set()
 end
 
 function T.unknown_lottery_symbols_fail_explicitly()
-  local NewGameInitCompiler = require("romdump.src.digest.NewGameInitCompiler")
+  local NewGameInitCompiler = require("romdump.src.digest.newgame.NewGameInitCompiler")
   throwsCode("NEW_GAME_INIT_SOURCE_INVALID", function()
     NewGameInitCompiler.compile({
       versionId = "heartgold",

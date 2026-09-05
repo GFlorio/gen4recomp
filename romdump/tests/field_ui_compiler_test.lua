@@ -8,15 +8,15 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldUiCompiler = require("romdump.src.digest.FieldUiCompiler")
-local FieldUiCacheWriter = require("romdump.src.digest.FieldUiCacheWriter")
+local FieldUiCompiler = require("romdump.src.digest.ui.FieldUiCompiler")
+local FieldUiCacheWriter = require("romdump.src.digest.ui.FieldUiCacheWriter")
 local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local LuaWriter = require("libs.codec.src.LuaWriter")
 local PngReader = require("tests.support.PngReader")
 local Lz10 = require("romdump.src.digest.Lz10")
-local G2dDecoder = require("romdump.src.digest.G2dDecoder")
+local G2dDecoder = require("romdump.src.digest.ui.G2dDecoder")
 
 local T = {}
 

@@ -5,7 +5,7 @@
 -- them every animation frame.
 
 local Assert = require("tests.support.Assert")
-local NsbmdTransformProgram = require("romdump.src.digest.NsbmdTransformProgram")
+local NsbmdTransformProgram = require("romdump.src.digest.model.NsbmdTransformProgram")
 
 local T = {}
 

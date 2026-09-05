@@ -4,7 +4,7 @@
 local Assert = require("tests.support.Assert")
 local NsbmdFixture = require("tests.support.NsbmdFixture")
 local Tex0Fixture = require("tests.support.Tex0Fixture")
-local FieldActorStaticModel = require("romdump.src.digest.FieldActorStaticModel")
+local FieldActorStaticModel = require("romdump.src.digest.actor.FieldActorStaticModel")
 
 local T = {}
 
