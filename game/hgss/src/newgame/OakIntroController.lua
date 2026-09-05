@@ -162,10 +162,14 @@ function OakIntroController:press(action)
       self._timeline:beginGenderConfirm(1)
       return true
     elseif action == "left" then
-      self._profile:focusGender(0)
+      if self._profile:focusGender(0) then
+        self._timeline:resetGenderFocus()
+      end
       return true
     elseif action == "right" then
-      self._profile:focusGender(1)
+      if self._profile:focusGender(1) then
+        self._timeline:resetGenderFocus()
+      end
       return true
     elseif action == "confirm" or action == "yes" then
       local gender = self._profile:gender()

@@ -300,6 +300,11 @@ function OakIntroTimeline:focusTimer()
   return self._focusTimer, self._focusBlinkDelta
 end
 
+function OakIntroTimeline:resetGenderFocus()
+  self._focusTimer = 0
+  self._focusBlinkDelta = 0
+end
+
 function OakIntroTimeline:profileComposition()
   return self._genderCompositionProgress, self._nameCompositionProgress
 end
@@ -590,6 +595,8 @@ end
 
 function OakIntroTimeline:beginGenderConfirm(gender)
   self._phase = "gender_confirm"
+  self._focusTimer = 0
+  self._focusBlinkDelta = 0
   self:_setMessage(gender == 0 and "profile.gender_confirm.male" or "profile.gender_confirm.female")
 end
 

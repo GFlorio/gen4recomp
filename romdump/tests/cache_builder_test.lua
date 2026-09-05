@@ -168,6 +168,7 @@ local function newEnv()
     messageBundle = { marker = "msg-v1", index = { bankIds = { 4, 8 } } },
     scriptBundle = { marker = "scr-v1", index = { resourceCount = 2, scriptMemberCount = 9 } },
     audioBundle = { marker = "audio-v1", index = {} },
+    audioError = nil,
     fieldCellBundle = { marker = "cells-v1", index = {}, cells = {} },
   }
 end
@@ -341,7 +342,7 @@ local function makeFakes()
     return env.scriptBundle
   end
   fakes.AudioCompiler.compile = function()
-    return env.audioBundle
+    return env.audioBundle, env.audioError
   end
   fakes.FieldCellCompiler.compile = function()
     return env.fieldCellBundle
@@ -629,6 +630,22 @@ function T.a_failed_ui_compile_reports_and_skips_the_ui_publish()
   end
   Assert.equal(env.worldPublishes, 0, "a later version failure must keep the staged world unpublished")
   Assert.equal(env.worldAborts, 1, "the staged world of the failed batch is discarded")
+end
+
+-- A typed audio compile failure is reported by the audio stage rather than
+-- being mistaken for the earlier script stage's (nil) error.
+function T.a_failed_audio_compile_reports_and_skips_the_remaining_stages()
+  env = newEnv()
+  env.audioBundle = nil
+  env.audioError = Errors.new("AUDIO_SOURCE_INVALID", "unsupported sample data")
+  local capture = collectLog()
+  local report, err = CacheBuilder.buildVersions({ "heartgold" }, { log = capture.log })
+  Assert.isNil(report)
+  Assert.equal(err, "cache preparation failed")
+  Assert.equal(capture.lines[13], "build-cache: heartgold scripts current")
+  Assert.equal(capture.lines[14], "build-cache: heartgold failed: AUDIO_SOURCE_INVALID: unsupported sample data")
+  Assert.equal(env.worldPublishes, 0, "a failed audio compile must not publish a world")
+  Assert.equal(env.worldAborts, 0, "a failed audio compile stages no world to discard")
 end
 
 -- An open failure is logged like any per-version failure, closes nothing, and

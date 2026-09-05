@@ -44,7 +44,7 @@ function ScriptAudioCacheBuild.build(context)
   local audioBundle, audioErr = AudioCompiler.compile(context.romFs)
   local audio = requireBundle(audioBundle, audioErr)
   if not audio then
-    return nil, err
+    return nil, audioErr
   end
   if context.forced or not AudioCacheWriter.isReady(context.cacheFs, audio.marker) then
     AudioCacheWriter.write(context.cacheFs, audio)

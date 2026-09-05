@@ -412,6 +412,20 @@ function T.confirmation_direction_and_semantic_actions_follow_each_choice_orient
   end
 end
 
+function T.gender_activation_restarts_the_selection_blink()
+  local state = genderSelection()
+  state:tick(5)
+  Assert.equal(state:view().focusTimer, 5)
+  Assert.isTrue(state:press("right"))
+  Assert.equal(state:view().genderFocus, 1)
+  Assert.equal(state:view().focusTimer, 0)
+  Assert.equal(state:view().focusBlinkDelta, 0)
+  Assert.isTrue(state:press("confirm"))
+  Assert.equal(state:view().phase, "gender_confirm")
+  Assert.equal(state:view().focusTimer, 0)
+  Assert.equal(state:view().focusBlinkDelta, 0)
+end
+
 function T.greeting_policy_uses_each_source_boundary()
   local cases = {
     { 3, 59, "midnight" },
