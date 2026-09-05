@@ -15,10 +15,12 @@ local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
 local FieldObjectActor = require("libs.hgss.src.actors.FieldObjectActor")
 local FieldActorAutonomy = require("libs.hgss.src.actors.FieldActorAutonomy")
 local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
-local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
+local FieldActorOccupancy = require("libs.hgss.src.actors.FieldActorOccupancy")
+local FieldActorPersistence = require("libs.hgss.src.actors.FieldActorPersistence")
+local FieldActorStore = require("libs.hgss.src.actors.FieldActorStore")
 
 -- Pinned HGSS special object ids: the field camera target and the walking
 -- partner (the object table pins these ids; see
@@ -98,6 +100,8 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 
 ---@class FieldActorManager
 ---@field assets FieldActorAssets
+---@field store FieldActorStore
+---@field persistence FieldActorPersistence
 ---@field variableSprites FieldActorManager.VariableSprites
 ---@field variableVarBase integer
 ---@field maps table<integer, FieldActorManager.Entry>
@@ -164,17 +168,11 @@ local AUTONOMOUS_STEP_TICKS = assert(MovementCalibration.SPEED_TICKS.normal)
 
 ---@class FieldActorManager.Entry
 ---@field runtimeMap RuntimeFieldMap
----@field published boolean
----@field actors table<string, FieldActorManager.Actor>
----@field order FieldActorManager.Actor[]
----@field occupancy table<string, FieldActorManager.Actor[]>
----@field reservations table<string, { actorId: string, candidate: FieldOccupancyCandidate }>
+---@field store FieldActorStore
+---@field storeMap FieldActorStore.Map
+---@field occupancy FieldActorOccupancy
 ---@field autonomousActions table<string, table<string, unknown>>
 ---@field autonomousPresentationCarry table<string, boolean>
----@field byFlag table<integer, FieldActorEvent[]>
----@field byIndex table<integer, string>
----@field managerSlots table<integer, FieldActorManager.Actor>
----@field managerSlotByActorId table<string, integer>
 
 ---@class FieldActorManager.Position
 ---@field fieldX integer
@@ -255,6 +253,8 @@ function FieldActorManager.new(opts)
   ---@cast variableSprites FieldActorManager.VariableSprites
   local manager = setmetatable({
     assets = opts.assets,
+    store = FieldActorStore.new(),
+    persistence = FieldActorPersistence.new(),
     variableSprites = variableSprites,
     variableVarBase = variableSprites.variableBase,
     maps = {},
@@ -299,18 +299,6 @@ local function stableSurfaceIdentity(runtimeMap, candidate)
   return "local", surfaceId, nil
 end
 
----@param runtimeMap RuntimeFieldMap
----@param mapId integer
----@param candidate FieldOccupancyCandidate
----@return string
-local function occupancyKey(runtimeMap, mapId, candidate)
-  local kind, first, second = stableSurfaceIdentity(runtimeMap, candidate)
-  if kind == "source" then
-    return string.format("%d:%d:%d:source:%s:%d", mapId, candidate.fieldX, candidate.fieldZ, first, second)
-  end
-  return string.format("%d:%d:%d:local:%d", mapId, candidate.fieldX, candidate.fieldZ, first)
-end
-
 local function sameSurfaceIdentity(leftKind, leftFirst, leftSecond, rightKind, rightFirst, rightSecond)
   return leftKind == rightKind and leftFirst == rightFirst and leftSecond == rightSecond
 end
@@ -329,118 +317,33 @@ local function candidateForActor(actor)
   }
 end
 
-local function occupancyWinner(entry, key)
-  local bucket = entry.occupancy[key]
-  return bucket and bucket[1] or nil
-end
-
-local function bucketContains(bucket, actor)
-  if bucket == nil then
-    return false
-  end
-  for _, candidate in ipairs(bucket) do
-    if candidate == actor then
-      return true
-    end
-  end
-  return false
-end
-
-local function occupancyContains(entry, key, actor)
-  return bucketContains(entry.occupancy[key], actor)
-end
-
-local function firstFreeManagerSlot(entry)
-  local slot = 0
-  while entry.managerSlots[slot] ~= nil do
-    slot = slot + 1
-  end
-  return slot
-end
-
 local function managerSlot(entry, actor)
-  local slot = entry.managerSlotByActorId[actor.actorId]
-  assert(slot ~= nil, "actor manager slot is missing for " .. tostring(actor.actorId))
-  assert(entry.managerSlots[slot] == actor, "actor manager slot forward map disagrees")
-  return slot
+  return entry.store:managerSlot(entry.storeMap, actor)
 end
-
 local function assignManagerSlot(entry, actor, requestedSlot)
-  assert(entry.managerSlotByActorId[actor.actorId] == nil, "actor already has a manager slot")
-  local slot
-  if requestedSlot ~= nil then
-    assert(
-      type(requestedSlot) == "number" and requestedSlot % 1 == 0 and requestedSlot >= 0,
-      "requested manager slot is invalid"
-    )
-    assert(entry.managerSlots[requestedSlot] == nil, "requested manager slot is occupied")
-    slot = requestedSlot
-  else
-    slot = firstFreeManagerSlot(entry)
-  end
-  entry.managerSlots[slot] = actor
-  entry.managerSlotByActorId[actor.actorId] = slot
-  return slot
+  return entry.store:assignManagerSlot(entry.storeMap, actor, requestedSlot)
 end
 
 local function releaseManagerSlot(entry, actor)
-  local slot = entry.managerSlotByActorId[actor.actorId]
-  assert(slot ~= nil, "actor manager slot is missing on release for " .. tostring(actor.actorId))
-  assert(entry.managerSlots[slot] == actor, "actor manager slot forward map disagrees on release")
-  entry.managerSlots[slot] = nil
-  entry.managerSlotByActorId[actor.actorId] = nil
+  entry.store:releaseManagerSlot(entry.storeMap, actor)
 end
 
-local function insertOccupant(entry, occupancy, key, actor)
-  local bucket = occupancy[key]
-  if bucket == nil then
-    occupancy[key] = { actor }
-    return
-  end
-  if bucketContains(bucket, actor) then
-    return
-  end
-  local actorSlot = managerSlot(entry, actor)
-  local insertPos = #bucket + 1
-  for index, occupant in ipairs(bucket) do
-    local occupantSlot = managerSlot(entry, occupant)
-    if occupantSlot > actorSlot then
-      insertPos = index
-      break
-    end
-  end
-  table.insert(bucket, insertPos, actor)
-end
-
-local function occupancyAdd(entry, key, actor)
-  insertOccupant(entry, entry.occupancy, key, actor)
+local function occupancyAdd(entry, _, actor, candidate)
+  entry.occupancy:claim(actor, candidate or {
+    fieldX = actor.fieldX,
+    fieldZ = actor.fieldZ,
+    surfaceId = actor.surfaceId,
+    cellKey = actor.cellKey,
+    sourceSurfaceId = actor.sourceSurfaceId,
+  })
 end
 
 local function actorsByManagerSlot(entry)
-  local list = {}
-  for _, actor in pairs(entry.actors) do
-    list[#list + 1] = actor
-  end
-  table.sort(list, function(a, b)
-    return managerSlot(entry, a) < managerSlot(entry, b)
-  end)
-  return list
+  return entry.store:actorsByManagerSlot(entry.storeMap)
 end
 
 local function occupancyRemove(entry, key, actor)
-  local bucket = entry.occupancy[key]
-  if bucket == nil then
-    return
-  end
-  for index, candidate in ipairs(bucket) do
-    if candidate == actor then
-      table.remove(bucket, index)
-      if #bucket == 0 then
-        entry.occupancy[key] = nil
-      end
-      return
-    end
-  end
+  entry.occupancy:releaseByKey(actor, key)
 end
 
 ---@param entry FieldActorManager.Entry
@@ -449,14 +352,14 @@ end
 local function publishResolvedPosition(entry, actor, position)
   local oldKey
   if actor.resident and actor.solid then
-    oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
+    oldKey = entry.occupancy:key(candidateForActor(actor))
   end
   local newKey
   if position.resident and actor.solid then
-    newKey = occupancyKey(entry.runtimeMap, actor.mapId, position --[[@as FieldOccupancyCandidate]])
+    newKey = entry.occupancy:key(position --[[@as FieldOccupancyCandidate]])
   end
   if oldKey and newKey and oldKey == newKey then
-    if not occupancyContains(entry, oldKey, actor) then
+    if not entry.occupancy:containsByKey(oldKey, actor) then
       occupancyAdd(entry, newKey, actor)
     end
   else
@@ -464,7 +367,7 @@ local function publishResolvedPosition(entry, actor, position)
       occupancyRemove(entry, oldKey, actor)
     end
     if newKey then
-      occupancyAdd(entry, newKey, actor)
+      occupancyAdd(entry, newKey, actor, position --[[@as FieldOccupancyCandidate]])
     end
   end
   actor:setPosition(position)
@@ -608,7 +511,7 @@ end
 function FieldActorManager:_instantiate(entry, event, eventState)
   local runtimeMap = entry.runtimeMap
   local actorId = FieldObjectActor.actorId(runtimeMap.mapId, event.objectEventId)
-  if entry.actors[actorId] then
+  if entry.store:getActor(entry.storeMap, actorId) then
     Errors.raise(
       FieldErrors.ACTOR_DUPLICATE_ID,
       "map " .. runtimeMap.mapId .. " declares object event " .. event.objectEventId .. " more than once",
@@ -657,8 +560,8 @@ function FieldActorManager:_instantiate(entry, event, eventState)
 
     assignManagerSlot(entry, actor)
     if actor.resident then
-      local key = occupancyKey(runtimeMap, runtimeMap.mapId, candidateForActor(actor))
-      local occupant = occupancyWinner(entry, key)
+      local key = entry.occupancy:key(candidateForActor(actor))
+      local occupant = entry.occupancy:winnerByKey(key)
       if actor.solid and occupant then
         Errors.raise(
           FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
@@ -677,31 +580,24 @@ function FieldActorManager:_instantiate(entry, event, eventState)
         occupancyAdd(entry, key, actor)
       end
     end
-    entry.actors[actorId] = actor
-    entry.byIndex[actor.objectEventId] = actorId
-    entry.order[#entry.order + 1] = actor
+    entry.store:addActor(entry.storeMap, actor)
     self.autonomy:attach(actorId, actor.movementType, event)
     autonomyAttached = true
-    if entry.published then
+    if entry.store:isPublished(entry.storeMap) then
       self._visualRevision = self._visualRevision + 1
     end
   end)
   if not ok then
     if actor then
       if actor.resident and actor.solid then
-        local key = occupancyKey(runtimeMap, actor.mapId, candidateForActor(actor))
+        local key = entry.occupancy:key(candidateForActor(actor))
         occupancyRemove(entry, key, actor)
       end
-      if entry.managerSlotByActorId[actor.actorId] ~= nil then
+      if entry.store:hasManagerSlot(entry.storeMap, actor.actorId) then
         releaseManagerSlot(entry, actor)
       end
-      entry.actors[actorId] = nil
-      entry.byIndex[actor.objectEventId] = nil
-      for index, candidate in ipairs(entry.order) do
-        if candidate == actor then
-          table.remove(entry.order, index)
-          break
-        end
+      if entry.store:getActor(entry.storeMap, actorId) then
+        entry.store:removeActor(entry.storeMap, actor)
       end
     end
     if autonomyAttached then
@@ -720,9 +616,9 @@ function FieldActorManager:_destroy(entry, actor)
   entry.autonomousPresentationCarry[actor.actorId] = nil
   local action = entry.autonomousActions[actor.actorId]
   if action then
-    local reservation = entry.reservations[action.reservationKey]
+    local reservation = entry.occupancy:reservationByKey(action.reservationKey)
     assert(reservation and reservation.actorId == actor.actorId, "actor reservation owner disagrees")
-    entry.reservations[action.reservationKey] = nil
+    entry.occupancy:cancelReservation(reservation.candidate, actor.actorId)
     entry.autonomousActions[actor.actorId] = nil
     actor:cancelAction()
   end
@@ -732,23 +628,16 @@ function FieldActorManager:_destroy(entry, actor)
   -- vacate it: a non-solid or stale actor must never erase another actor's
   -- occupancy entry by coordinate.
   if actor.resident and actor.solid then
-    local key = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
+    local key = entry.occupancy:key(candidateForActor(actor))
     occupancyRemove(entry, key, actor)
   end
-  if entry.managerSlotByActorId[actor.actorId] ~= nil then
+  if entry.store:hasManagerSlot(entry.storeMap, actor.actorId) then
     releaseManagerSlot(entry, actor)
   end
-  entry.actors[actor.actorId] = nil
-  entry.byIndex[actor.objectEventId] = nil
-  for index, candidate in ipairs(entry.order) do
-    if candidate == actor then
-      table.remove(entry.order, index)
-      break
-    end
-  end
+  entry.store:removeActor(entry.storeMap, actor)
   self.assets:release(actor.spriteId)
   self._drawRecordByActorId[actor.actorId] = nil
-  if entry.published then
+  if entry.store:isPublished(entry.storeMap) then
     self._visualRevision = self._visualRevision + 1
   end
 end
@@ -782,30 +671,38 @@ local function bindEventState(self, eventState)
   end
 end
 
+---@param manager FieldActorManager
 ---@param runtimeMap RuntimeFieldMap
 ---@return FieldActorManager.Entry
-local function newEntry(runtimeMap)
-  return {
+local function newEntry(manager, runtimeMap)
+  local storeMap = manager.store:createMap(runtimeMap)
+  local entry = {
     runtimeMap = runtimeMap,
-    published = false,
-    actors = {},
-    order = {},
-    occupancy = {},
-    reservations = {},
+    store = manager.store,
+    storeMap = storeMap,
     autonomousActions = {},
     autonomousPresentationCarry = {},
-    byFlag = {},
-    byIndex = {},
-    managerSlots = {},
-    managerSlotByActorId = {},
-  } ---@type FieldActorManager.Entry
+  }
+  ---@cast entry FieldActorManager.Entry
+  local function managerSlotForEntry(_, actor)
+    return managerSlot(entry, actor)
+  end
+  entry.occupancy = FieldActorOccupancy.new({
+    runtimeMap = runtimeMap,
+    managerSlot = managerSlotForEntry,
+  })
+  return entry
 end
 
 ---@param self FieldActorManager
 ---@param entry FieldActorManager.Entry
 local function destroyEntry(self, entry)
-  while #entry.order > 0 do
-    self:_destroy(entry, entry.order[#entry.order])
+  while true do
+    local order = entry.store:orderedActors(entry.storeMap)
+    if #order == 0 then
+      return
+    end
+    self:_destroy(entry, order[#order])
   end
 end
 
@@ -824,9 +721,7 @@ local function populateEntry(self, entry, eventState)
     local objects = fieldData.events.objects ---@type FieldActorEvent[]
     assert(type(objects) == "table", "enterMap requires the compiled object collection")
     for _, event in ipairs(objects) do
-      local flagged = entry.byFlag[event.eventFlag] or {}
-      flagged[#flagged + 1] = event
-      entry.byFlag[event.eventFlag] = flagged
+      entry.store:indexEvent(entry.storeMap, event)
       if not eventState:isFlagSet(event.eventFlag) then
         self:_instantiate(entry, event, eventState)
       end
@@ -908,55 +803,47 @@ local function savedDestination(entry, actor, point)
 end
 
 function FieldActorManager:_restoreEntry(entry, snapshot)
-  if snapshot == nil or snapshot.actors == nil or next(snapshot.actors) == nil then
+  local function getActor(actorId)
+    return entry.store:getActor(entry.storeMap, actorId)
+  end
+  local function projectActor(actor, record)
+    return savedProjection(entry, actor, record)
+  end
+  local function projectDestination(actor, point)
+    return savedDestination(entry, actor, point)
+  end
+  local staged =
+    self.persistence:stageRestore(snapshot, entry.runtimeMap.mapId, getActor, projectActor, projectDestination)
+  local plans = staged.plans
+  local records = staged.records
+  if #records == 0 then
     return
   end
-  local plans = {}
-  local records = {}
-  for actorId, record in pairs(snapshot.actors) do
-    if record.mapId == entry.runtimeMap.mapId then
-      local actor = entry.actors[actorId]
-      if actor == nil then
-        Errors.raise(
-          ScriptErrors.SCRIPT_ACTOR_NOT_FOUND,
-          "saved actor " .. actorId .. " is not present in the loaded field",
-          { actorId = actorId }
-        )
+
+  local previousOrdered = actorsByManagerSlot(entry)
+  local assignments = {}
+  for index, actorId in ipairs(records) do
+    assignments[index - 1] = plans[actorId].actor
+  end
+  for _, actor in ipairs(previousOrdered) do
+    if not plans[actor.actorId] then
+      local slot = 0
+      while assignments[slot] ~= nil do
+        slot = slot + 1
       end
-      actor = assert(actor)
-      actor.sourceEvent = assert(actor.sourceEvent)
-      if actor.objectEventId ~= record.objectEventId or actor.sourceEvent.movementType ~= record.sourceMovementType then
-        Errors.raise(
-          ScriptErrors.SCRIPT_TASK_UNSERIALIZABLE,
-          "saved actor source definition changed",
-          { actorId = actorId }
-        )
-      end
-      local projection = savedProjection(entry, actor, record)
-      plans[actorId] = { actor = actor, record = record, projection = projection }
-      records[#records + 1] = actorId
+      assignments[slot] = actor
     end
   end
-  table.sort(records, function(a, b)
-    return plans[a].record.managerOrder < plans[b].record.managerOrder
-  end)
+  entry.store:replaceManagerSlots(entry.storeMap, assignments)
 
-  if #records > 0 then
-    local previousOrdered = actorsByManagerSlot(entry)
-    entry.managerSlots = {}
-    entry.managerSlotByActorId = {}
-    for index, actorId in ipairs(records) do
-      assignManagerSlot(entry, plans[actorId].actor, index - 1)
-    end
-    for _, actor in ipairs(previousOrdered) do
-      if not plans[actor.actorId] then
-        assignManagerSlot(entry, actor)
-      end
-    end
+  local function managerSlotForEntry(_, actor)
+    return managerSlot(entry, actor)
   end
-
-  local occupancy = {}
-  for _, actor in ipairs(entry.order) do
+  local occupancy = FieldActorOccupancy.new({
+    runtimeMap = entry.runtimeMap,
+    managerSlot = managerSlotForEntry,
+  })
+  for _, actor in ipairs(entry.store:orderedActors(entry.storeMap)) do
     local plan = plans[actor.actorId]
     local projection = plan and plan.projection
       or (
@@ -974,13 +861,11 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
       cellKey = projection.cellKey,
       sourceSurfaceId = projection.sourceSurfaceId,
     }
-    if actor.solid and projection.resident ~= false and occupancyKey(entry.runtimeMap, actor.mapId, candidate) then
-      local key = occupancyKey(entry.runtimeMap, actor.mapId, candidate)
-      insertOccupant(entry, occupancy, key, actor)
+    if actor.solid and projection.resident ~= false then
+      occupancy:claim(actor, candidate)
     end
   end
 
-  local reservations = {}
   for _, actorId in ipairs(records) do
     local plan = plans[actorId]
     local action = plan.record.action
@@ -999,7 +884,7 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
           { actorId = actorId }
         )
       end
-      local destination = savedDestination(entry, plan.actor, action.destination)
+      local destination = assert(plan.destination)
       local candidate = {
         fieldX = destination.fieldX,
         fieldZ = destination.fieldZ,
@@ -1007,21 +892,20 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
         cellKey = destination.cellKey,
         sourceSurfaceId = destination.sourceSurfaceId,
       }
-      local key = occupancyKey(entry.runtimeMap, plan.actor.mapId, candidate)
-      if (occupancy[key] and #occupancy[key] > 0) or reservations[key] then
+      local key = occupancy:key(candidate)
+      if occupancy:winnerByKey(key) ~= nil or occupancy:reservation(candidate) then
         Errors.raise(
           FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
           "saved autonomous reservations conflict",
           { actorId = actorId }
         )
       end
-      reservations[key] = { actorId = actorId, candidate = candidate }
+      occupancy:reserve(actorId, candidate)
       plan.destination = destination
       plan.reservationKey = key
     end
   end
 
-  local stagedReservations = {}
   local stagedActions = {}
   local restoredActors = {}
   local restored, restoreErr = pcall(function()
@@ -1055,16 +939,6 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
           durationTicks = AUTONOMOUS_STEP_TICKS,
         }, action.owner)
         actor:advanceAction(action.progressTicks, AUTONOMOUS_STEP_TICKS)
-        stagedReservations[plan.reservationKey] = {
-          actorId = actorId,
-          candidate = {
-            fieldX = plan.destination.fieldX,
-            fieldZ = plan.destination.fieldZ,
-            surfaceId = plan.destination.surfaceId,
-            cellKey = plan.destination.cellKey,
-            sourceSurfaceId = plan.destination.sourceSurfaceId,
-          },
-        }
         stagedActions[actorId] = {
           reservationKey = plan.reservationKey,
           progressTicks = action.progressTicks,
@@ -1080,7 +954,6 @@ function FieldActorManager:_restoreEntry(entry, snapshot)
     error(restoreErr, 0)
   end
   entry.occupancy = occupancy
-  entry.reservations = stagedReservations
   entry.autonomousActions = stagedActions
 end
 
@@ -1097,11 +970,12 @@ local function retireEntry(self, entry)
       self.currentMapId = nil
     end
   end
-  entry.published = false
-  if #entry.order > 0 then
+  entry.store:setPublished(entry.storeMap, false)
+  if #entry.store:orderedActors(entry.storeMap) > 0 then
     self._visualRevision = self._visualRevision + 1
   end
   destroyEntry(self, entry)
+  self.store:removeMap(entry.storeMap)
 end
 
 -- The one production activation seam: the destination entry is built and
@@ -1122,9 +996,10 @@ function FieldActorManager:enterMap(runtimeMap, eventState, restoredObjects)
     assert(restoredObjects == nil, "restored objects cannot be applied to an active map")
     bindEventState(self, eventState)
     self.currentMapId = mapId
+    self.store:setCurrentMapId(mapId)
     return
   end
-  local entry = newEntry(runtimeMap)
+  local entry = newEntry(self, runtimeMap)
   populateEntry(self, entry, eventState)
   local restored, restoreErr = pcall(self._restoreEntry, self, entry, restoredObjects)
   if not restored then
@@ -1141,10 +1016,11 @@ function FieldActorManager:enterMap(runtimeMap, eventState, restoredObjects)
   end
 
   local previous = self.currentMapId and self.maps[self.currentMapId] or nil
-  entry.published = true
+  entry.store:setPublished(entry.storeMap, true)
+  self.store:publishMap(entry.storeMap)
   self.maps[mapId] = entry
   self.currentMapId = mapId
-  if #entry.order > 0 then
+  if #entry.store:orderedActors(entry.storeMap) > 0 then
     self._visualRevision = self._visualRevision + 1
   end
   if existing then
@@ -1153,76 +1029,52 @@ function FieldActorManager:enterMap(runtimeMap, eventState, restoredObjects)
   if previous and previous ~= existing then
     retireEntry(self, previous)
   end
+  self.store:setCurrentMapId(mapId)
+end
+
+local function captureAutonomousAction(entry, actor)
+  local action = entry.autonomousActions[actor.actorId]
+  if action == nil then
+    return nil
+  end
+  assert(actor.resident, "active autonomous action actor must be resident")
+  assert(
+    actor.cellKey ~= nil and actor.sourceSurfaceId ~= nil,
+    "active autonomous action actor needs a physical identity"
+  )
+  local motion = assert(actor:scriptedMotionState())
+  return {
+    owner = assert(motion.owner),
+    kind = assert(motion.action),
+    direction = assert(motion.direction),
+    start = {
+      fieldX = motion.startFieldX,
+      fieldZ = motion.startFieldZ,
+      cellKey = assert(actor.cellKey),
+      sourceSurfaceId = assert(actor.sourceSurfaceId),
+    },
+    destination = {
+      fieldX = action.destination.fieldX,
+      fieldZ = action.destination.fieldZ,
+      cellKey = assert(action.destination.cellKey),
+      sourceSurfaceId = assert(action.destination.sourceSurfaceId),
+    },
+    progressTicks = action.progressTicks,
+  }
 end
 
 ---@return table<string, unknown>
 function FieldActorManager:captureObjects()
-  local actors = {}
-  local mapIds = {}
-  for mapId in pairs(self.maps) do
-    mapIds[#mapIds + 1] = mapId
+  local function captureController(actorId)
+    return self.autonomy:capture(actorId)
   end
-  table.sort(mapIds)
-  for _, mapId in ipairs(mapIds) do
-    local entry = assert(self.maps[mapId])
-    local orderedActors = actorsByManagerSlot(entry)
-    for ordinal, actor in ipairs(orderedActors) do
-      local sourceEvent = actor.sourceEvent
-      if sourceEvent and actor.objectEventId ~= nil then
-        local controller = self.autonomy:capture(actor.actorId)
-        local record = {
-          actorId = actor.actorId,
-          mapId = actor.mapId,
-          objectEventId = actor.objectEventId,
-          sourceMovementType = assert(sourceEvent.movementType),
-          movementType = actor.movementType,
-          fieldX = actor.fieldX,
-          fieldZ = actor.fieldZ,
-          facing = actor.facing,
-          controller = controller,
-          -- Serialized actor ordering is dense relative active order, never a raw slot.
-          managerOrder = ordinal - 1,
-        }
-        if actor.cellKey ~= nil and actor.sourceSurfaceId ~= nil then
-          record.cellKey = actor.cellKey
-          record.sourceSurfaceId = actor.sourceSurfaceId
-        end
-        local action = entry.autonomousActions[actor.actorId]
-        if action then
-          assert(actor.resident, "active autonomous action actor must be resident")
-          assert(
-            actor.cellKey ~= nil and actor.sourceSurfaceId ~= nil,
-            "active autonomous action actor needs a physical identity"
-          )
-          local motion = assert(actor:scriptedMotionState())
-          record.action = {
-            owner = assert(motion.owner),
-            kind = assert(motion.action),
-            direction = assert(motion.direction),
-            start = {
-              fieldX = motion.startFieldX,
-              fieldZ = motion.startFieldZ,
-              cellKey = assert(actor.cellKey),
-              sourceSurfaceId = assert(actor.sourceSurfaceId),
-            },
-            destination = {
-              fieldX = action.destination.fieldX,
-              fieldZ = action.destination.fieldZ,
-              cellKey = assert(action.destination.cellKey),
-              sourceSurfaceId = assert(action.destination.sourceSurfaceId),
-            },
-            progressTicks = action.progressTicks,
-          }
-        end
-        actors[actor.actorId] = record
-      end
-    end
+  local function captureAction(entry, actor)
+    return captureAutonomousAction(entry, actor)
   end
-  return {
-    schema = FieldObjectSave.SCHEMA,
-    rng = self.autonomy:captureRng(),
-    actors = actors,
-  }
+  local function captureRng()
+    return self.autonomy:captureRng()
+  end
+  return self.persistence:capture(self.maps, actorsByManagerSlot, captureController, captureAction, captureRng)
 end
 
 ---@param mapId integer
@@ -1251,9 +1103,9 @@ end
 ---@param self FieldActorManager
 function FieldActorManager:_applyFlag(change)
   for _, entry in pairs(self.maps) do
-    for _, event in ipairs(entry.byFlag[change.id] or {}) do
+    for _, event in ipairs(entry.store:eventsForFlag(entry.storeMap, change.id)) do
       local actorId = FieldObjectActor.actorId(entry.runtimeMap.mapId, event.objectEventId)
-      local actor = entry.actors[actorId]
+      local actor = entry.store:getActor(entry.storeMap, actorId)
       if change.newValue and actor then
         self:_destroy(entry, actor)
       elseif not change.newValue and not actor then
@@ -1424,11 +1276,11 @@ function FieldActorManager:_beginAutonomousAction(entry, actor, direction, conte
     cellKey = destination.cellKey,
     sourceSurfaceId = destination.sourceSurfaceId,
   }
-  local reservationKey = occupancyKey(entry.runtimeMap, actor.mapId, destinationCandidate)
-  if entry.reservations[reservationKey] ~= nil then
+  local reservationKey = entry.occupancy:key(destinationCandidate)
+  if entry.occupancy:reservationByKey(reservationKey) ~= nil then
     return false
   end
-  entry.reservations[reservationKey] = { actorId = actor.actorId, candidate = destinationCandidate }
+  entry.occupancy:reserve(actor.actorId, destinationCandidate)
   entry.autonomousActions[actor.actorId] =
     { reservationKey = reservationKey, progressTicks = 0, destination = destination }
   local ok, err = pcall(function()
@@ -1454,7 +1306,7 @@ function FieldActorManager:_beginAutonomousAction(entry, actor, direction, conte
   end)
   if not ok then
     entry.autonomousActions[actor.actorId] = nil
-    entry.reservations[reservationKey] = nil
+    entry.occupancy:cancelReservation(destinationCandidate, actor.actorId)
     error(err)
   end
   return true
@@ -1468,26 +1320,23 @@ function FieldActorManager:_advanceAutonomousAction(entry, actor, action)
     return
   end
   local destination = action.destination
-  local reservation = entry.reservations[action.reservationKey]
+  local reservation = entry.occupancy:reservationByKey(action.reservationKey)
   assert(reservation and reservation.actorId == actor.actorId, "autonomous reservation is missing at commit")
-  local oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
-  local newKey = occupancyKey(entry.runtimeMap, actor.mapId, reservation.candidate)
+  local oldKey = entry.occupancy:key(candidateForActor(actor))
+  local newKey = entry.occupancy:key(reservation.candidate)
   if actor.solid then
-    assert(occupancyWinner(entry, newKey) == nil, "autonomous destination became occupied")
-    assert(occupancyContains(entry, oldKey, actor), "autonomous departure occupancy is missing")
+    assert(entry.occupancy:winnerByKey(newKey) == nil, "autonomous destination became occupied")
+    assert(entry.occupancy:containsByKey(oldKey, actor), "autonomous departure occupancy is missing")
   end
-  assert(
-    occupancyKey(entry.runtimeMap, actor.mapId, destination --[[@as FieldOccupancyCandidate]]) == newKey,
-    "autonomous destination changed"
-  )
+  assert(entry.occupancy:key(destination --[[@as FieldOccupancyCandidate]]) == newKey, "autonomous destination changed")
   local resolvedDestination =
     assert(actor:commitAction() --[[@as FieldActorResolvedPosition]], "autonomous action destination is missing")
   assert(
-    occupancyKey(entry.runtimeMap, actor.mapId, resolvedDestination --[[@as FieldOccupancyCandidate]]) == newKey,
+    entry.occupancy:key(resolvedDestination --[[@as FieldOccupancyCandidate]]) == newKey,
     "autonomous action destination changed"
   )
   publishResolvedPosition(entry, actor, resolvedDestination)
-  entry.reservations[action.reservationKey] = nil
+  entry.occupancy:cancelReservation(reservation.candidate, actor.actorId)
   entry.autonomousActions[actor.actorId] = nil
   self.autonomy:applyPendingMovementType(actor.actorId)
   local autonomyState = self.autonomy:state(actor.actorId)
@@ -1529,7 +1378,7 @@ function FieldActorManager:step(tick, context)
   end
   for _, mapId in ipairs(sortedMapIds(self.maps)) do
     local entry = assert(self.maps[mapId])
-    for _, actor in ipairs(entry.order) do
+    for _, actor in ipairs(entry.store:orderedActors(entry.storeMap)) do
       actor:advancePresentationTick()
       local autonomousAction = entry.autonomousActions[actor.actorId]
       if autonomousAction then
@@ -1585,12 +1434,18 @@ end
 function FieldActorManager:reconcilePhysicalWorld()
   for _, entry in pairs(self.maps) do
     local staged = {}
-    local stagedOccupancy = {}
-    for _, actor in ipairs(entry.order) do
+    local function managerSlotForEntry(_, actor)
+      return managerSlot(entry, actor)
+    end
+    local stagedOccupancy = FieldActorOccupancy.new({
+      runtimeMap = entry.runtimeMap,
+      managerSlot = managerSlotForEntry,
+    })
+    for _, actor in ipairs(entry.store:orderedActors(entry.storeMap)) do
       if isResident(entry.runtimeMap, actor.fieldX, actor.fieldZ) then
         local projection = projectionFor(entry.runtimeMap, actor)
         local key = actor.solid
-            and occupancyKey(entry.runtimeMap, entry.runtimeMap.mapId, {
+            and stagedOccupancy:key({
               fieldX = actor.fieldX,
               fieldZ = actor.fieldZ,
               surfaceId = projection.surfaceId,
@@ -1599,14 +1454,20 @@ function FieldActorManager:reconcilePhysicalWorld()
             })
           or nil
         if key then
-          insertOccupant(entry, stagedOccupancy, key, actor)
+          stagedOccupancy:claim(actor, {
+            fieldX = actor.fieldX,
+            fieldZ = actor.fieldZ,
+            surfaceId = projection.surfaceId,
+            cellKey = projection.cellKey,
+            sourceSurfaceId = projection.sourceSurfaceId,
+          })
         end
         staged[#staged + 1] = { actor = actor, projection = projection }
       end
     end
 
     entry.occupancy = stagedOccupancy
-    for _, actor in ipairs(entry.order) do
+    for _, actor in ipairs(entry.store:orderedActors(entry.storeMap)) do
       actor.resident = false
     end
     for _, item in ipairs(staged) do
@@ -1642,7 +1503,7 @@ end
 function FieldActorManager:collectSpriteIds(out)
   assert(type(out) == "table", "collectSpriteIds requires a set table")
   for _, entry in pairs(self.maps) do
-    for _, actor in ipairs(entry.order) do
+    for _, actor in ipairs(entry.store:orderedActors(entry.storeMap)) do
       out[actor.spriteId] = true
     end
   end
@@ -1654,7 +1515,7 @@ function FieldActorManager:drawRecords()
   local records = self._drawRecords
   local count = 0
   for _, entry in pairs(self.maps) do
-    for _, actor in ipairs(entry.order) do
+    for _, actor in ipairs(entry.store:orderedActors(entry.storeMap)) do
       if not actor.resident then
         goto continue
       end
@@ -1706,7 +1567,7 @@ end
 ---@param self FieldActorManager
 function FieldActorManager:getById(actorId)
   for _, entry in pairs(self.maps) do
-    local actor = entry.actors[actorId]
+    local actor = entry.store:getActor(entry.storeMap, actorId)
     if actor then
       return actor
     end
@@ -1723,7 +1584,7 @@ function FieldActorManager:getAt(mapId, candidate)
   if not entry then
     return nil
   end
-  return occupancyWinner(entry, occupancyKey(entry.runtimeMap, mapId, candidate))
+  return entry.occupancy:winner(candidate)
 end
 
 -- Motion collision sees committed occupants and autonomous destinations. The
@@ -1736,14 +1597,14 @@ function FieldActorManager:getCollisionAt(mapId, candidate)
   if not entry then
     return nil
   end
-  local key = occupancyKey(entry.runtimeMap, mapId, candidate)
-  local actor = occupancyWinner(entry, key)
+  local key = entry.occupancy:key(candidate)
+  local actor = entry.occupancy:winnerByKey(key)
   if actor then
     return actor
   end
-  local reservation = entry.reservations[key]
+  local reservation = entry.occupancy:reservationByKey(key)
   if reservation then
-    return assert(entry.actors[reservation.actorId], "autonomous reservation actor is missing")
+    return assert(entry.store:getActor(entry.storeMap, reservation.actorId), "autonomous reservation actor is missing")
   end
   return nil
 end
@@ -1819,7 +1680,7 @@ end
 ---@param self FieldActorManager
 function FieldActorManager:actorsOf(mapId)
   local entry = self.maps[mapId]
-  return entry and entry.order or {}
+  return entry and self.store:orderedActors(entry.storeMap) or {}
 end
 
 -- --- Scripted actor API ------------------------------------------------------
@@ -1921,14 +1782,14 @@ function FieldActorManager:setPosition(actorId, position, options)
   if newCandidate and newCandidate.sourceSurfaceId ~= nil then
     assert(newCandidate.cellKey ~= nil, "actor destination source surface requires a cell key")
   end
-  local newKey = newCandidate and occupancyKey(entry.runtimeMap, actor.mapId, newCandidate) or nil
+  local newKey = newCandidate and entry.occupancy:key(newCandidate) or nil
   local oldKey
   if actor.resident and actor.solid then
-    oldKey = occupancyKey(entry.runtimeMap, actor.mapId, candidateForActor(actor))
+    oldKey = entry.occupancy:key(candidateForActor(actor))
   end
   local scripted = options ~= nil and options.scripted == true
   if resident and actor.solid and newKey and oldKey ~= newKey then
-    local occupant = occupancyWinner(entry, newKey)
+    local occupant = entry.occupancy:winnerByKey(newKey)
     if occupant ~= nil and not scripted then
       Errors.raise(
         FieldErrors.ACTOR_OCCUPANCY_CONFLICT,
@@ -2206,8 +2067,8 @@ function FieldActorManager:beginScriptedAction(actorId, action)
   entry.autonomousPresentationCarry[actorId] = nil
   local autonomousAction = entry.autonomousActions[actorId]
   if autonomousAction then
-    assert(entry.reservations[autonomousAction.reservationKey])
-    entry.reservations[autonomousAction.reservationKey] = nil
+    local reservation = assert(entry.occupancy:reservationByKey(autonomousAction.reservationKey))
+    entry.occupancy:cancelReservation(reservation.candidate, actorId)
     entry.autonomousActions[actorId] = nil
     actor:cancelAction()
     self.autonomy:applyPendingMovementType(actorId)
@@ -2375,7 +2236,7 @@ end
 ---@param self FieldActorManager
 function FieldActorManager:actorIdForMapIndex(index)
   local entry = self.currentMapId ~= nil and self.maps[self.currentMapId] or nil
-  return entry and entry.byIndex[index] or nil
+  return entry and self.store:getActorByIndex(entry.storeMap, index) or nil
 end
 
 -- The field camera target (pinned HGSS object id 241) of the current map;

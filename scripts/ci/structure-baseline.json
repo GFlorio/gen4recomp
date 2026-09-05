@@ -20,7 +20,7 @@
     "libs/assets/src/model/ModelAsset.lua": {"classification":"retained-schema-catalog","rationale":"cohesive generated asset schema and validator owner","maxCcn":24,"maxNloc":59,"physicalLines":999},
     "libs/assets/src/newgame/NewGameInitCache.lua": {"classification":"refactor","rationale":"production hotspot awaiting ownership split","maxCcn":26,"maxNloc":65,"physicalLines":185},
     "libs/assets/src/model/NsbmdSbcEvaluator.lua": {"classification":"refactor","rationale":"production hotspot awaiting ownership split","maxCcn":33,"maxNloc":127,"physicalLines":395},
-    "libs/hgss/src/actors/FieldActorManager.lua": {"classification":"refactor","rationale":"mixed field actor orchestration hotspot","maxCcn":32,"maxNloc":122,"physicalLines":2414},
+    "libs/hgss/src/actors/FieldActorManager.lua": {"classification":"refactor","rationale":"mixed field actor orchestration hotspot","maxCcn":30,"maxNloc":104,"physicalLines":2274},
     "libs/hgss/src/world/FieldCoverage.lua": {"classification":"retained-state-owner","rationale":"cohesive field coverage state owner","maxCcn":27,"maxNloc":101,"physicalLines":978},
     "libs/hgss/src/world/FieldMapLoader.lua": {"classification":"refactor","rationale":"production hotspot awaiting ownership split","maxCcn":25,"maxNloc":122,"physicalLines":633},
     "libs/hgss/src/interaction/FieldMessageProvider.lua": {"classification":"refactor","rationale":"production hotspot awaiting ownership split","maxCcn":26,"maxNloc":111,"physicalLines":404},

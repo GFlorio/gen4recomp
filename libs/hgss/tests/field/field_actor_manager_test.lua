@@ -6,7 +6,6 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldObjectActor = require("libs.hgss.src.actors.FieldObjectActor")
 local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
 local FieldRegion = require("libs.hgss.src.world.FieldRegion")
@@ -359,7 +358,7 @@ function T.nonresident_restore_is_explicit_and_not_replayed_on_reentry()
   end)
   Assert.isTrue(stepped, tostring(stepError))
   Assert.equal(mgr.autonomy:captureRng().calls, initialRngCalls, "a nonresident actor must not advance autonomy")
-  Assert.isNil(mgr.maps[61].autonomousActions[actorId], "a nonresident actor must not start an autonomous action")
+  Assert.isTrue(mgr:isPausable(actorId), "a nonresident actor must not start an autonomous action")
   Assert.isFalse(actor.resident)
   Assert.isNil(actor.surfaceId)
   Assert.equal(#mgr:drawRecords(), 0, "a nonresident actor must remain outside the physical projection")
@@ -789,31 +788,18 @@ function T.destroying_a_non_solid_actor_keeps_the_solid_occupant()
   Assert.equal(assets:total(), 1)
 end
 
-function T.stale_occupancy_cannot_be_removed_by_the_wrong_actor()
-  local mgr, _, assets = manager({ object({ objectEventId = 0 }) })
-  local entry = assert(mgr.maps[61])
-  -- A second solid actor whose cell coordinates match the occupant's, but
-  -- which never occupied the cell itself: destroying it must not clear the
-  -- occupant's entry.
-  local imposter = FieldObjectActor.new({
-    mapId = 61,
-    sourceEvent = object({ objectEventId = 5 }),
-    spriteId = 99,
-    fieldX = 2,
-    fieldZ = 3,
-    surfaceId = 0,
-    worldX = 0,
-    worldY = 0,
-    worldZ = 0,
-    visual = FieldActorFixture.visual(99),
-    idlePresentation = FieldActorFixture.visual(99).idlePresentation,
+function T.failed_public_move_preserves_the_existing_occupant()
+  local mgr = manager({
+    object({ objectEventId = 0, x = 2, z = 3 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
   })
-  ---@cast imposter FieldActorManager.Actor
-  assets:acquire(99)
-  entry.actors[imposter.actorId] = imposter
-  entry.order[#entry.order + 1] = imposter
-  mgr:_destroy(entry, imposter)
-  Assert.equal(assert(getAt(mgr, 61, 2, 3, 0), "the occupant entry survived").actorId, "map:61:object:0")
+  local occupant = assert(mgr:getById("map:61:object:1"))
+  throwsCode("ACTOR_OCCUPANCY_CONFLICT", function()
+    mgr:setPosition("map:61:object:0", { fieldX = 8, fieldZ = 3 })
+  end)
+  Assert.equal(mgr:getAt(61, candidate(8, 3, occupant.surfaceId)), occupant)
+  Assert.equal(mgr:getCollisionAt(61, candidate(8, 3, occupant.surfaceId)), occupant)
+  mgr:dispose()
 end
 
 function T.uncompiled_sprite_is_fatal()
@@ -1588,11 +1574,13 @@ function T.scripted_reposition_autonomous_reservation_and_destroy_keep_stable_ce
 
   forceAutonomy(mgr, "east")
   mgr:step(1)
-  local entry = assert(mgr.maps[61])
-  local action = assert(entry.autonomousActions[actorId])
   Assert.equal(actor.fieldX, 32, "an autonomous step keeps the scripted committed cell until completion")
-  Assert.equal(action.destination.fieldX, 33)
-  Assert.notNil(entry.reservations[action.reservationKey], "the autonomous destination must be reserved")
+  Assert.isFalse(mgr:isPausable(actorId))
+  Assert.equal(
+    mgr:getCollisionAt(61, stableCandidate(33, 3, 1, "1:0", 13)),
+    actor,
+    "the autonomous destination must be reserved"
+  )
 
   for tick = 2, 9 do
     mgr:step(tick)
@@ -1608,8 +1596,11 @@ function T.scripted_reposition_autonomous_reservation_and_destroy_keep_stable_ce
   mgr:step(10)
 
   Assert.isNil(mgr:getById(actorId), "destroying an actor cancels its active autonomous action")
-  Assert.isNil(entry.autonomousActions[actorId], "destroying an actor clears its autonomous action")
-  Assert.isNil(entry.reservations[action.reservationKey], "destroying an actor clears its destination reservation")
+  Assert.isTrue(mgr:isPausable(actorId), "destroying an actor clears its autonomous action")
+  Assert.isNil(
+    mgr:getCollisionAt(61, stableCandidate(33, 3, 1, "1:0", 13)),
+    "destroying an actor clears its destination reservation"
+  )
   Assert.isNil(
     mgr:getAt(61, stableCandidate(31, 3, 0, "0:0", 12)),
     "destroying an actor leaves its scripted departure cell free"
@@ -1632,27 +1623,25 @@ function T.autonomous_wander_settles_before_its_wait()
   )
   local actorId = "map:61:object:0"
   local actor = assert(mgr:getById(actorId))
-  local entry = assert(mgr.maps[61])
-
   mgr:step(1)
   Assert.equal(actor.pose, "walk")
-  Assert.notNil(entry.autonomousActions[actorId])
+  Assert.isFalse(mgr:isPausable(actorId))
   for tick = 2, 8 do
     mgr:step(tick)
     Assert.equal(actor.pose, "walk", "a wandering actor walks while its autonomous action is active")
-    Assert.notNil(entry.autonomousActions[actorId])
+    Assert.isFalse(mgr:isPausable(actorId))
   end
 
   mgr:step(9)
   Assert.equal(actor.fieldX, 3)
   Assert.equal(actor.fieldZ, 3)
-  Assert.isNil(entry.autonomousActions[actorId])
+  Assert.isTrue(mgr:isPausable(actorId))
   Assert.equal(actor.pose, "idle", "a completed wandering step settles before its wait")
   Assert.equal(actor.poseTick, 0, "settling restores the idle pose-clock baseline")
 
   mgr:step(10)
   mgr:step(11)
-  Assert.isNil(entry.autonomousActions[actorId])
+  Assert.isTrue(mgr:isPausable(actorId))
   Assert.equal(actor.pose, "idle", "the actor remains idle throughout its controller wait")
   mgr:dispose()
 end
@@ -1668,8 +1657,6 @@ function T.autonomous_pattern_continues_without_an_idle_boundary()
   })
   local actorId = "map:61:object:0"
   local actor = assert(mgr:getById(actorId))
-  local entry = assert(mgr.maps[61])
-
   mgr:step(1)
   for tick = 2, 8 do
     mgr:step(tick)
@@ -1678,13 +1665,12 @@ function T.autonomous_pattern_continues_without_an_idle_boundary()
   Assert.equal(actor.fieldX, 2)
   Assert.equal(actor.fieldZ, 2)
   Assert.equal(actor.pose, "idle", "a continuous step settles to the visual idle presentation at commit")
-  Assert.isNil(entry.autonomousActions[actorId])
+  Assert.isTrue(mgr:isPausable(actorId))
 
   mgr:step(10)
   Assert.equal(actor.pose, "walk", "a successful successor starts a new active presentation")
-  local successor = assert(entry.autonomousActions[actorId])
-  Assert.equal(successor.destination.fieldX, 3)
-  Assert.equal(successor.destination.fieldZ, 2)
+  Assert.isFalse(mgr:isPausable(actorId))
+  Assert.equal(mgr:getCollisionAt(61, candidate(3, 2, actor.surfaceId)), actor)
   mgr:dispose()
 end
 
@@ -1702,8 +1688,6 @@ function T.autonomous_pattern_settles_when_continuation_is_blocked()
   })
   local actorId = "map:61:object:0"
   local actor = assert(mgr:getById(actorId))
-  local entry = assert(mgr.maps[61])
-
   mgr:step(1)
   for tick = 2, 8 do
     mgr:step(tick)
@@ -1712,13 +1696,13 @@ function T.autonomous_pattern_settles_when_continuation_is_blocked()
   Assert.equal(actor.fieldX, 2)
   Assert.equal(actor.fieldZ, 2)
   Assert.equal(actor.pose, "idle")
-  Assert.isNil(entry.autonomousActions[actorId])
+  Assert.isTrue(mgr:isPausable(actorId))
 
   mgr:step(10)
   Assert.equal(actor.fieldX, 2, "a blocked successor leaves the actor on its committed tile")
   Assert.equal(actor.fieldZ, 2, "a blocked successor leaves the actor on its committed tile")
-  Assert.isNil(entry.autonomousActions[actorId])
-  Assert.isNil(next(entry.reservations))
+  Assert.isTrue(mgr:isPausable(actorId))
+  Assert.notNil(mgr:getAt(61, candidate(3, 2, actor.surfaceId)), "the blocking actor remains the committed occupant")
   Assert.equal(actor.pose, "idle", "a failed continuous successor settles the actor")
   Assert.equal(actor.poseTick, 0, "settling clears the static idle phase")
   mgr:dispose()
@@ -1739,7 +1723,6 @@ function T.destroying_a_carried_actor_clears_only_its_presentation_state()
   }, { eventState = eventState })
   local carriedActorId = "map:61:object:0"
   local otherActorId = "map:61:object:1"
-  local entry = assert(mgr.maps[61])
   local carriedActor = assert(mgr:getById(carriedActorId))
   local otherActor = assert(mgr:getById(otherActorId))
 
@@ -1748,16 +1731,21 @@ function T.destroying_a_carried_actor_clears_only_its_presentation_state()
     mgr:step(tick)
   end
   Assert.equal(carriedActor.pose, "idle")
-  Assert.isNil(entry.autonomousActions[carriedActorId])
-  Assert.isTrue(entry.autonomousPresentationCarry[carriedActorId])
+  Assert.isTrue(mgr:isPausable(carriedActorId))
 
   eventState:setFlag(401)
   mgr:step(10)
 
   Assert.isNil(mgr:getById(carriedActorId))
-  Assert.isNil(entry.autonomousActions[carriedActorId])
-  Assert.isNil(entry.autonomousPresentationCarry[carriedActorId])
-  Assert.isNil(next(entry.reservations))
+  Assert.isTrue(mgr:isPausable(carriedActorId))
+  Assert.isTrue(not (function()
+    for _, record in ipairs(mgr:drawRecords()) do
+      if record.actorId == carriedActorId then
+        return true
+      end
+    end
+    return false
+  end)())
   Assert.equal(assert(mgr:getById(otherActorId)), otherActor)
   Assert.equal(otherActor.pose, "idle")
   mgr:dispose()
@@ -1827,9 +1815,9 @@ function T.autonomous_range_uses_signed_source_origin_bounds()
       count = count + 1
     end)
     mgr:step(1)
-    local action = mgr.maps[61].autonomousActions[actor.actorId]
+    local action = not mgr:isPausable(actor.actorId)
     mgr:dispose()
-    return count, action ~= nil
+    return count, action
   end
 
   local _, xZeroAccepted = attempts({ movementType = "wander_around", xRange = 0, yRange = -1 }, "east")
@@ -1989,26 +1977,25 @@ function T.revealed_occupant_blocks_autonomous_reservation()
   Assert.equal(mgr:getAt(61, keyB), actorB, "B must be restored before autonomy probes the tile")
   Assert.equal(mgr:getCollisionAt(61, keyB), actorB)
 
-  local entry = assert(mgr.maps[61])
   forceAutonomy(mgr, "north")
   mgr:step(1)
-  local actionC = entry.autonomousActions[actorC.actorId]
-  Assert.isNil(actionC, "autonomous walk into the revealed occupant must not reserve")
+  Assert.isTrue(mgr:isPausable(actorC.actorId), "autonomous walk into the revealed occupant must not reserve")
   Assert.equal(mgr:getCollisionAt(61, keyB), actorB, "revealed occupant must remain collidable")
   Assert.notNil(mgr:getAt(61, keyB))
-  for actorId, _ in pairs(entry.actors) do
-    if actorId ~= actorC.actorId then
-      Assert.isNil(entry.autonomousActions[actorId], "no other actor should have been reserved")
+  for _, actor in ipairs(mgr:actorsOf(61)) do
+    if actor.actorId ~= actorC.actorId then
+      Assert.isTrue(mgr:isPausable(actor.actorId), "no other actor should have been reserved")
     end
   end
   mgr:dispose()
 end
 
 function T.destroy_buried_keeps_top()
+  local eventState = FieldEventState.new()
   local mgr = manager({
-    object({ objectEventId = 0, x = 2, z = 3 }),
-    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
-  })
+    object({ objectEventId = 0, x = 2, z = 3, eventFlag = 401 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34, eventFlag = 402 }),
+  }, { eventState = eventState })
   local actorA = assert(mgr:getById("map:61:object:0"))
   local actorB = assert(mgr:getById("map:61:object:1"))
   local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorB.surfaceId }
@@ -2018,8 +2005,8 @@ function T.destroy_buried_keeps_top()
   end
   mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
   Assert.equal(mgr:getAt(61, keyB), actorA)
-  local entry = assert(mgr.maps[61])
-  mgr:_destroy(entry, actorB)
+  eventState:setFlag(402)
+  mgr:step(1)
   Assert.isNil(mgr:getById(actorB.actorId))
   Assert.equal(mgr:getAt(61, keyB), actorA, "destroying a buried occupant must leave the top occupant indexed")
   Assert.equal(mgr:getCollisionAt(61, keyB), actorA)
@@ -2027,10 +2014,11 @@ function T.destroy_buried_keeps_top()
 end
 
 function T.destroy_top_reveals_next()
+  local eventState = FieldEventState.new()
   local mgr = manager({
-    object({ objectEventId = 0, x = 2, z = 3 }),
-    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34 }),
-  })
+    object({ objectEventId = 0, x = 2, z = 3, eventFlag = 401 }),
+    object({ objectEventId = 1, x = 8, z = 3, spriteId = 34, eventFlag = 402 }),
+  }, { eventState = eventState })
   local actorA = assert(mgr:getById("map:61:object:0"))
   local actorB = assert(mgr:getById("map:61:object:1"))
   local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorB.surfaceId }
@@ -2040,8 +2028,8 @@ function T.destroy_top_reveals_next()
   end
   mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
   Assert.equal(mgr:getAt(61, keyB), actorA)
-  local entry = assert(mgr.maps[61])
-  mgr:_destroy(entry, actorA)
+  eventState:setFlag(401)
+  mgr:step(1)
   Assert.isNil(mgr:getById(actorA.actorId))
   Assert.equal(mgr:getAt(61, keyB), actorB, "destroying the top must reveal the next occupant")
   Assert.equal(mgr:getCollisionAt(61, keyB), actorB)
@@ -2209,9 +2197,9 @@ function T.flag_recreation_follows_first_free_slot_priority()
   mgr:step(2)
   actorA = assert(mgr:getById("map:61:object:0"))
   actorB = assert(mgr:getById("map:61:object:1"))
-  local entry = assert(mgr.maps[61])
-  Assert.equal(entry.order[1].actorId, actorB.actorId)
-  Assert.equal(entry.order[2].actorId, actorA.actorId)
+  local actors = mgr:actorsOf(61)
+  Assert.equal(actors[1].actorId, actorB.actorId)
+  Assert.equal(actors[2].actorId, actorA.actorId)
   mgr:setPosition(actorA.actorId, { fieldX = 8, fieldZ = 3 }, { scripted = true })
   local keyB = { fieldX = 8, fieldZ = 3, surfaceId = actorA.surfaceId }
   if actorA.cellKey then
@@ -2264,8 +2252,8 @@ function T.reconcile_preserves_manager_slot_winner_after_flag_recreation()
     keyB.sourceSurfaceId = actorA.sourceSurfaceId
   end
   Assert.equal(mgr:getAt(61, keyB).actorId, actorA.actorId)
-  local entry = assert(mgr.maps[61])
-  Assert.equal(entry.order[1].actorId, actorB.actorId)
+  local actors = mgr:actorsOf(61)
+  Assert.equal(actors[1].actorId, actorB.actorId)
   mgr:reconcilePhysicalWorld()
   Assert.equal(
     mgr:getAt(61, keyB).actorId,

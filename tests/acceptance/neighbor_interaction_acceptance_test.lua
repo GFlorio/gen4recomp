@@ -38,6 +38,12 @@ function T.tests.resident_logical_world_supports_the_real_action_path()
     end
     game:moveTo({ fieldX = 683, fieldZ = 400 })
     game:face("north")
+    local blocked = game:moveUntilBlocked("north")
+    Assert.deepEqual(
+      { blocked.player.fieldX, blocked.player.fieldZ },
+      { 683, 400 },
+      "the solid neighboring actor must remain outside the player's committed position"
+    )
     game:pressAction()
     local interaction = game:interaction()
     Assert.equal(interaction.kind, "object")
@@ -45,6 +51,21 @@ function T.tests.resident_logical_world_supports_the_real_action_path()
       type(interaction.actorId) == "string" and interaction.actorId:match("^map:60:object:%d+$") ~= nil,
       "Action must resolve the resident map's real object identity"
     )
+    local actor = assert(game:actor(interaction.actorId), "the interacted object must remain a live actor")
+    Assert.equal(
+      game:snapshot().occupancy[actor.fieldX .. ":" .. actor.fieldZ],
+      interaction.actorId,
+      "interaction and the production occupancy view must identify the same actor"
+    )
+    local occupant = assert(
+      runtime.actors:getAt(runtime.runtimeMap.mapId, {
+        fieldX = actor.fieldX,
+        fieldZ = actor.fieldZ,
+        surfaceId = actor.surfaceId,
+      }),
+      "the interacted actor must be present in the committed occupancy index"
+    )
+    Assert.equal(occupant.actorId, interaction.actorId, "committed occupancy must resolve the interacted actor")
     Assert.equal(
       residency:status().synchronousLogicalFallbackLoads,
       before,

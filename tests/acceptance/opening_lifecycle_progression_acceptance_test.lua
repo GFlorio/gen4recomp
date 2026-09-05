@@ -227,6 +227,11 @@ function T.tests.new_bark_friend_and_marill_scene_follows_the_house_scene()
       end
     end
     Assert.equal(hiddenEventsChecked, 2, "New Bark must declare both hidden friend and Marill object events")
+    for actorId in pairs(hiddenFlags) do
+      for _, record in ipairs(game.runtime.actors:drawRecords()) do
+        Assert.isFalse(record.actorId == actorId, "a hidden actor must not remain in the production draw records")
+      end
+    end
     Assert.isNil(game.runtime.scripts.scheduler:foregroundEnvironmentId(), "ReleaseAll must return field ownership")
 
     -- The scene variable no longer satisfies the same one-shot trigger
