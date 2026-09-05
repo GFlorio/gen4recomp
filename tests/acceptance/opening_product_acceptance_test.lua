@@ -92,6 +92,50 @@ local function withDrawRecorder(trace, fn)
   end
 end
 
+local function inside(inner, outer)
+  return inner ~= nil
+    and outer ~= nil
+    and inner.x >= outer.x
+    and inner.y >= outer.y
+    and inner.x + inner.width <= outer.x + outer.width
+    and inner.y + inner.height <= outer.y + outer.height
+end
+
+local function assertProfileLayout(view, width, height)
+  local layout = assert(view.layout, "the production Oak state must publish a layout")
+  Assert.equal(layout.viewport.width, width)
+  Assert.equal(layout.viewport.height, height)
+  if view.phase == "gender_select" then
+    Assert.isTrue(inside(layout.subject, layout.oakRegion), "Oak must occupy the composed scene region")
+    Assert.isTrue(layout.selectorRegion ~= nil, "gender selection must publish a selector region")
+    for gender = 0, 1 do
+      local button = assert(layout.genderButtons and layout.genderButtons[gender])
+      Assert.isTrue(inside(button.rect, layout.selectorRegion), "gender button must stay inside the selector region")
+    end
+  elseif view.phase == "name_edit" then
+    local keyCount = 0
+    for _, key in pairs(layout.nameKeys or {}) do
+      keyCount = keyCount + 1
+      Assert.isTrue(inside(key.rect, layout.viewport), "name key must stay inside the viewport")
+    end
+    Assert.isTrue(keyCount > 0, "name editing must publish virtual keyboard geometry")
+    Assert.isTrue(inside(layout.namePreview, layout.viewport), "name editing must publish an in-viewport preview")
+  end
+end
+
+local function assertPhaseSubsequence(phases, expected)
+  local cursor = 1
+  for _, phase in ipairs(phases) do
+    if phase == expected[cursor] then
+      cursor = cursor + 1
+      if cursor > #expected then
+        return
+      end
+    end
+  end
+  error("Oak production phase trace stopped before " .. tostring(expected[cursor]), 0)
+end
+
 local function completeOak(onDraw)
   local interactive = {
     greeting = true,
@@ -277,7 +321,13 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
       end
       return original.oakCompose(input)
     end)
+    local finalizedRecord
+    local phases = {}
+    local seenPhases = {}
+    local checkedResponsiveProfileLayout = false
+    local initialWidth, initialHeight = love.graphics.getDimensions()
     FieldState.new = function(game, fieldOptions)
+      finalizedRecord = game
       local input = {}
       for key, value in pairs(fieldOptions or {}) do
         input[key] = value
@@ -297,7 +347,22 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
     press("a")
     withDrawRecorder(handoffDraws, function()
       completeOak(function()
-        local phase = App.state.state:view().phase
+        local state = assert(App.state and App.state.state)
+        local view = state:view()
+        if not seenPhases[view.phase] then
+          phases[#phases + 1] = view.phase
+          seenPhases[view.phase] = true
+        end
+        assertProfileLayout(view, initialWidth, initialHeight)
+        if view.phase == "gender_select" and not checkedResponsiveProfileLayout then
+          checkedResponsiveProfileLayout = true
+          for _, size in ipairs({ { 1024, 768 }, { 1920, 1080 }, { 390, 844 } }) do
+            App.resize(size[1], size[2])
+            assertProfileLayout(state:view(), size[1], size[2])
+          end
+          App.resize(initialWidth, initialHeight)
+        end
+        local phase = view.phase
         if
           phase == "final_dialogue"
           or phase == "final_fade_out"
@@ -311,6 +376,30 @@ function T.tests.opening_reaches_and_restores_the_first_manual_checkpoint()
         end
       end)
     end)
+    assertPhaseSubsequence(phases, {
+      "greeting",
+      "oak_welcome",
+      "oak_world_inhabited",
+      "oak_live_alongside",
+      "oak_tell_about_yourself",
+      "gender_question",
+      "gender_composition_transition",
+      "gender_select",
+      "gender_confirm",
+      "name_prompt",
+      "name_launch_wait",
+      "name_edit",
+      "name_confirm",
+      "final_dialogue",
+      "shrink_animation",
+      "shrink_handoff_cover",
+      "handoff_black",
+    })
+    Assert.notNil(finalizedRecord, "the real New Game route must hand a finalized record to FieldState")
+    local profile = assert(finalizedRecord.playerData and finalizedRecord.playerData.profile)
+    Assert.equal(profile.name, "GOLD")
+    Assert.equal(profile.gender, 0)
+    Assert.equal(profile.trainerId, 0x12345678)
     local fullArtImages = {}
     local shrinkImages = {}
     for _, draw in ipairs(handoffDraws) do
