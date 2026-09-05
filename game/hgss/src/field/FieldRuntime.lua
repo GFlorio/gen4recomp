@@ -4,16 +4,16 @@
 
 local CacheFs = require("libs.storage.src.CacheFs")
 local DialogueLayout = require("libs.hgss.src.ui.DialogueLayout")
-local FieldActorDefinitionProvider = require("libs.hgss.src.field.FieldActorDefinitionProvider")
+local FieldActorDefinitionProvider = require("libs.hgss.src.actors.FieldActorDefinitionProvider")
 local AuxiliaryFieldUi = require("libs.hgss.src.ui.AuxiliaryFieldUi")
-local ContextChoiceProvider = require("libs.hgss.src.field.ContextChoiceProvider")
-local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local ContextChoiceProvider = require("libs.hgss.src.interaction.ContextChoiceProvider")
+local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldApplicationHost = require("libs.hgss.src.field.FieldApplicationHost")
 local FieldApplicationIds = require("libs.hgss.src.field.FieldApplicationIds")
 local FieldApplicationRegistry = require("libs.hgss.src.field.FieldApplicationRegistry")
 local FieldCamera = require("libs.hgss.src.field.FieldCamera")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 local FieldDialogueController = require("libs.hgss.src.ui.FieldDialogueController")
 local FieldFontLoader = require("libs.hgss.src.ui.FieldFontLoader")
 local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
@@ -25,23 +25,23 @@ local FieldCameraCache = require("libs.assets.src.field.FieldCameraCache")
 local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
 local FieldInput = require("libs.hgss.src.field.FieldInput")
 local FieldMenuHost = require("libs.hgss.src.ui.FieldMenuHost")
-local FieldInteractionResolver = require("libs.hgss.src.field.FieldInteractionResolver")
-local FieldEventResolver = require("libs.hgss.src.field.FieldEventResolver")
+local FieldInteractionResolver = require("libs.hgss.src.interaction.FieldInteractionResolver")
+local FieldEventResolver = require("libs.hgss.src.interaction.FieldEventResolver")
 local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
-local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
-local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local FieldPlayerAvatarState = require("libs.hgss.src.field.FieldPlayerAvatarState")
-local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
-local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
+local FieldMapLoader = require("libs.hgss.src.world.FieldMapLoader")
+local FieldMessageProvider = require("libs.hgss.src.interaction.FieldMessageProvider")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local FieldPlayerAvatarState = require("libs.hgss.src.actors.FieldPlayerAvatarState")
+local FieldPlayerVisual = require("libs.hgss.src.actors.FieldPlayerVisual")
+local FieldZoneIdentity = require("libs.hgss.src.world.FieldZoneIdentity")
 local GameSave = require("libs.hgss.src.save.GameSave")
 local PlayTime = require("libs.hgss.src.save.PlayTime")
 local FieldScripts = require("game.hgss.src.field.FieldScripts")
-local FieldScriptScreenFade = require("libs.hgss.src.field.FieldScriptScreenFade")
+local FieldScriptScreenFade = require("libs.hgss.src.transition.FieldScriptScreenFade")
 local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
-local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
-local FieldTransition = require("libs.hgss.src.field.FieldTransition")
+local FieldSignpostController = require("libs.hgss.src.interaction.FieldSignpostController")
+local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
 local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 local FieldUiAssetCache = require("libs.assets.src.field.FieldUiAssetCache")
 local FieldWindowStyles = require("libs.hgss.src.field.FieldWindowStyles")
@@ -50,11 +50,11 @@ local FieldZoom = require("libs.hgss.src.presentation.FieldZoom")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local MapSceneLoader = require("libs.hgss.src.presentation.MapSceneLoader")
 local NeighborRing = require("libs.hgss.src.presentation.NeighborRing")
-local MapProps = require("libs.hgss.src.field.MapProps")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local MapProps = require("libs.hgss.src.world.MapProps")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 local ScriptSave = require("libs.script.src.ScriptSave")
 local FieldWeatherCache = require("libs.assets.src.field.FieldWeatherCache")
-local FieldWeatherResolver = require("libs.hgss.src.field.FieldWeatherResolver")
+local FieldWeatherResolver = require("libs.hgss.src.world.FieldWeatherResolver")
 local StartMenuController = require("libs.hgss.src.ui.StartMenuController")
 local StartMenuLayout = require("libs.hgss.src.field.StartMenuLayout")
 local StartMenuPolicy = require("libs.hgss.src.ui.StartMenuPolicy")
@@ -62,7 +62,7 @@ local TrainerCardController = require("libs.hgss.src.ui.TrainerCardController")
 local FieldAudio = require("game.hgss.src.audio.FieldAudio")
 local FieldEntranceIndicatorRuntime = require("game.hgss.src.field.FieldEntranceIndicatorRuntime")
 local FieldActorEmoteRuntime = require("game.hgss.src.field.FieldActorEmoteRuntime")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
 local FieldAudioSave = require("libs.hgss.src.audio.FieldAudioSave")
 local TimeOfDayProps = require("libs.hgss.src.presentation.TimeOfDayProps")
 local FieldPresentation = require("data.manifests.field_presentation")
@@ -632,7 +632,7 @@ function FieldRuntime:_load()
     self.fieldEntranceIndicatorAsset, self.fieldEntranceIndicator = FieldEntranceIndicatorRuntime.load(cacheFs)
     self.fieldEmoteModels = FieldActorEmoteRuntime.load(cacheFs)
     self.fieldEffectAssets = self.fieldEntranceIndicatorAsset
-    self.fieldTerrainEffectController = require("libs.hgss.src.field.FieldTerrainEffectController").new({
+    self.fieldTerrainEffectController = require("libs.hgss.src.world.FieldTerrainEffectController").new({
       effects = {
         tall_grass = self.fieldEntranceIndicatorAsset.effects.tall_grass,
         very_tall_grass = self.fieldEntranceIndicatorAsset.effects.very_tall_grass,
@@ -824,7 +824,7 @@ function FieldRuntime:_load()
           physical = ownership
           return composed
         end
-        return require("libs.hgss.src.field.WarpSystem").resolveDestination({
+        return require("libs.hgss.src.transition.WarpSystem").resolveDestination({
           load = loadDestination,
         }, sourceMap, warp)
       end)
@@ -1038,7 +1038,7 @@ function FieldRuntime:_load()
       self.scripts.worldState:restoreRng(loadedGame.world)
     end
 
-    local FieldZoneController = require("libs.hgss.src.field.FieldZoneController")
+    local FieldZoneController = require("libs.hgss.src.world.FieldZoneController")
     local function mapForId(mapId)
       return assert(self.residency):mapForId(mapId)
     end
@@ -1068,7 +1068,7 @@ function FieldRuntime:_load()
       onChange = onZoneChange,
     })
 
-    local FieldResidencyCoordinator = require("libs.hgss.src.field.FieldResidencyCoordinator")
+    local FieldResidencyCoordinator = require("libs.hgss.src.world.FieldResidencyCoordinator")
     local function coverageProvider()
       return self.physicalCoverage
     end
@@ -1124,7 +1124,7 @@ function FieldRuntime:_load()
       -- GameSound only; a recording script adapter is a script service, not
       -- a session collaborator.
       audio = self.audio,
-      navigationBoundary = require("libs.hgss.src.field.FieldNavigationBoundary").new({
+      navigationBoundary = require("libs.hgss.src.world.FieldNavigationBoundary").new({
         zoneController = self.zoneController,
         residencyCoordinator = self.residency,
         coverageProvider = coverageProvider,

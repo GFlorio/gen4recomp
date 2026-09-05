@@ -8,9 +8,9 @@ local WaitTicksTask = require("libs.script.src.tasks.WaitTicksTask")
 ---@cast WaitTicksTask TaskImplementation
 local FakeServices = require("tests.support.script.FakeServices")
 local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
-local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}

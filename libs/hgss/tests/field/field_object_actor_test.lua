@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
+local FieldObjectActor = require("libs.hgss.src.actors.FieldObjectActor")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}

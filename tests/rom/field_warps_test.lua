@@ -3,7 +3,7 @@
 
 local Assert = require("tests.support.Assert")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
 
 local T = {}
 

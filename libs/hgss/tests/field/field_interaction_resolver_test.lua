@@ -5,8 +5,8 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldInteractionResolver = require("libs.hgss.src.field.FieldInteractionResolver")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldInteractionResolver = require("libs.hgss.src.interaction.FieldInteractionResolver")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

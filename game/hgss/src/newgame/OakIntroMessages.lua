@@ -1,7 +1,7 @@
 -- Oak-specific message boundary. It keeps bank-219 templates immutable and
 -- resolves the source player-name field only when a message is opened.
 
-local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
+local FieldMessageProvider = require("libs.hgss.src.interaction.FieldMessageProvider")
 local FieldMessageText = require("libs.assets.src.field.FieldMessageText")
 
 local OakIntroMessages = {}

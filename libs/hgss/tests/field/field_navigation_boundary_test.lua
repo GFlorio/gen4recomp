@@ -2,10 +2,10 @@
 -- composed views; indoor/discontinuous maps keep their own transition path.
 
 local Assert = require("tests.support.Assert")
-local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
-local FieldNavigationBoundary = require("libs.hgss.src.field.FieldNavigationBoundary")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldCoverage = require("libs.hgss.src.world.FieldCoverage")
+local FieldNavigationBoundary = require("libs.hgss.src.world.FieldNavigationBoundary")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = { tests = {} }
 

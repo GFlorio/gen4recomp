@@ -2,7 +2,7 @@
 -- narrowly defined passive north-facing type-one background path.
 
 local Assert = require("tests.support.Assert")
-local FieldEventResolver = require("libs.hgss.src.field.FieldEventResolver")
+local FieldEventResolver = require("libs.hgss.src.interaction.FieldEventResolver")
 
 local T = {}
 

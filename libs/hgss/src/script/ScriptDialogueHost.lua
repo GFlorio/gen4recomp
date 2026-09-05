@@ -9,7 +9,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.script.src.errors")
-local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
+local FieldMessageProvider = require("libs.hgss.src.interaction.FieldMessageProvider")
 
 ---@class ScriptDialogueHost
 ---@field private _controller table<string, unknown> FieldDialogueController-shaped

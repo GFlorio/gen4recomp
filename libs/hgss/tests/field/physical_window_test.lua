@@ -4,7 +4,7 @@
 
 local Assert = require("tests.support.Assert")
 local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
-local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
+local FieldCoverage = require("libs.hgss.src.world.FieldCoverage")
 
 local T = {}
 local activeReleaseCounts

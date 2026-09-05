@@ -3,8 +3,8 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

@@ -4,8 +4,8 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
 
 local T = {}
 

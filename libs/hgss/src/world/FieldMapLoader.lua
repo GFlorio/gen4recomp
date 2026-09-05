@@ -4,16 +4,16 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local FieldRegion = require("libs.hgss.src.field.FieldRegion")
+local FieldRegion = require("libs.hgss.src.world.FieldRegion")
 local FieldMapDataCache = require("libs.assets.src.field.FieldMapDataCache")
 local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
-local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
+local CollisionGrid = require("libs.hgss.src.world.CollisionGrid")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
-local DoorTiles = require("libs.hgss.src.field.DoorTiles")
-local MapProps = require("libs.hgss.src.field.MapProps")
-local ModelDoorMetadata = require("libs.hgss.src.field.ModelDoorMetadata")
-local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
+local DoorTiles = require("libs.hgss.src.transition.DoorTiles")
+local MapProps = require("libs.hgss.src.world.MapProps")
+local ModelDoorMetadata = require("libs.hgss.src.world.ModelDoorMetadata")
+local FieldCoverage = require("libs.hgss.src.world.FieldCoverage")
 local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 
 ---@class FieldMapLoader

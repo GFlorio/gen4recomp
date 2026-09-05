@@ -25,7 +25,7 @@
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
 
 ---@class FieldInteractionResolver
 ---@field actorAt fun(mapId: integer, candidate: FieldOccupancyCandidate): table<string, unknown>|nil

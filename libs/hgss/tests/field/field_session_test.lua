@@ -4,14 +4,14 @@
 local Assert = require("tests.support.Assert")
 local FieldApplicationHost = require("libs.hgss.src.field.FieldApplicationHost")
 local FieldApplicationRegistry = require("libs.hgss.src.field.FieldApplicationRegistry")
-local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldInput = require("libs.hgss.src.field.FieldInput")
-local FieldPlayerModule = require("libs.hgss.src.field.FieldPlayer")
-local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
+local FieldPlayerModule = require("libs.hgss.src.actors.FieldPlayer")
+local FieldPlayerVisual = require("libs.hgss.src.actors.FieldPlayerVisual")
 local FieldSessionModule = require("libs.hgss.src.field.FieldSession")
 local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 local TilePermissions = require("tests.support.TilePermissions")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local S = require("gen4.script")
@@ -1298,7 +1298,7 @@ end
 -- The facing-tile door: warp tile (4,14) is a blocked DOOR ahead of the idle
 -- player at (4,13) facing south. Behavior bytes come from MetatileBehavior's
 -- TILE_BEHAVIOR_* table (pokeheartgold metatile_behavior.h).
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 local DOOR = MetatileBehavior.BEHAVIOR.DOOR
 local ENTRANCE_SOUTH = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_SOUTH
 local ENTRANCE_NORTH = MetatileBehavior.BEHAVIOR.WARP_ENTRANCE_NORTH

@@ -3,11 +3,11 @@
 -- repeat-safe for every committed owner.
 
 local Assert = require("tests.support.Assert")
-local FieldNavigationBoundary = require("libs.hgss.src.field.FieldNavigationBoundary")
-local FieldTransition = require("libs.hgss.src.field.FieldTransition")
+local FieldNavigationBoundary = require("libs.hgss.src.world.FieldNavigationBoundary")
+local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
 local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
 
 local T = {}
 

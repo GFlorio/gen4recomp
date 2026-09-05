@@ -2,8 +2,8 @@
 
 local Assert = require("tests.support.Assert")
 local TerrainFixture = require("tests.support.TerrainFixture")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
 
 local T = {}
 

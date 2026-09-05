@@ -16,7 +16,7 @@ local OPENING_IN = { direction = "in", color = "black", duration = 6, speed = 1 
 local ACTIVE_COEFFICIENTS = { 2, 5, 7, 10, 13, 16 }
 
 local function newFade()
-  local FieldScriptScreenFade = require("libs.hgss.src.field.FieldScriptScreenFade")
+  local FieldScriptScreenFade = require("libs.hgss.src.transition.FieldScriptScreenFade")
   return FieldScriptScreenFade.new()
 end
 

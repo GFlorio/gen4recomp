@@ -5,8 +5,8 @@
 -- fails loudly instead of silently inheriting the current zone.
 
 local Assert = require("tests.support.Assert")
-local FieldZoneController = require("libs.hgss.src.field.FieldZoneController")
-local FieldNavigationBoundary = require("libs.hgss.src.field.FieldNavigationBoundary")
+local FieldZoneController = require("libs.hgss.src.world.FieldZoneController")
+local FieldNavigationBoundary = require("libs.hgss.src.world.FieldNavigationBoundary")
 
 local T = {}
 

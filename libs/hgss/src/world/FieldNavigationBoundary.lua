@@ -1,7 +1,7 @@
 -- Settles physical coverage immediately after a committed player displacement.
 -- Logical map ownership and later field policies remain outside this boundary.
 
-local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
+local FieldZoneIdentity = require("libs.hgss.src.world.FieldZoneIdentity")
 
 local FieldNavigationBoundary = {}
 FieldNavigationBoundary.__index = FieldNavigationBoundary

@@ -6,9 +6,9 @@ local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorPose = require("libs.hgss.src.presentation.FieldActorPose")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local FieldPlayerVisual = require("libs.hgss.src.field.FieldPlayerVisual")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local FieldPlayerVisual = require("libs.hgss.src.actors.FieldPlayerVisual")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 ---@class TestPlayerStub : FieldPlayerVisual.Source
 ---@field motion string
@@ -554,7 +554,7 @@ function T.scripted_walk_family_still_advances_through_presentation_snapshot()
 end
 
 function T.avatar_offset_combines_with_gesture_offset_exactly_once()
-  local AvatarState = require("libs.hgss.src.field.FieldPlayerAvatarState")
+  local AvatarState = require("libs.hgss.src.actors.FieldPlayerAvatarState")
   local states = {
     walking = 1001,
     cycling = 1002,

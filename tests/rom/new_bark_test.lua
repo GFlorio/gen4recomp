@@ -22,11 +22,11 @@ local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local FieldCellCompiler = require("romdump.src.digest.field.FieldCellCompiler")
 local FieldCellCacheWriter = require("romdump.src.digest.field.FieldCellCacheWriter")
 local ModelAsset = require("libs.assets.src.model.ModelAsset")
-local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
+local CollisionGrid = require("libs.hgss.src.world.CollisionGrid")
 local MapCatalog = require("romdump.src.digest.map.MapCatalog")
 local NeighborPlan = require("romdump.src.digest.map.NeighborPlan")
 local NeighborChunkCompiler = require("romdump.src.digest.map.NeighborChunkCompiler")
-local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
+local FieldCoverage = require("libs.hgss.src.world.FieldCoverage")
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 
 local T = {}

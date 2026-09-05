@@ -3,7 +3,7 @@
 -- that semantic direction into a presentation-neutral world draw record.
 
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 ---@class FieldEntranceIndicator
 local FieldEntranceIndicator = {}

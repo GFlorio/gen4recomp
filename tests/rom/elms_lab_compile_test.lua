@@ -13,7 +13,7 @@ local MapCacheWriter = require("romdump.src.digest.map.MapCacheWriter")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local SceneMesh = require("libs.hgss.src.presentation.SceneMesh")
-local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
+local CollisionGrid = require("libs.hgss.src.world.CollisionGrid")
 
 local T = {}
 local SYMBOL = "MAP_NEW_BARK_ELMS_LAB_1F"

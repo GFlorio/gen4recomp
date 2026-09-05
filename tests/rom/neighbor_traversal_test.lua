@@ -2,14 +2,14 @@
 -- neighbors provide collision and BDHC data for real cross-boundary steps.
 
 local Assert = require("tests.support.Assert")
-local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
+local CollisionGrid = require("libs.hgss.src.world.CollisionGrid")
 local CacheFs = require("libs.storage.src.CacheFs")
-local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local FieldRegion = require("libs.hgss.src.field.FieldRegion")
+local FieldMapLoader = require("libs.hgss.src.world.FieldMapLoader")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local FieldRegion = require("libs.hgss.src.world.FieldRegion")
 local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

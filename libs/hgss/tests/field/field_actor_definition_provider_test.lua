@@ -6,7 +6,7 @@ local Errors = require("libs.errors.src.Errors")
 local CacheFs = require("libs.storage.src.CacheFs")
 local FakeCache = require("tests.support.FakeCache")
 local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
-local FieldActorDefinitionProvider = require("libs.hgss.src.field.FieldActorDefinitionProvider")
+local FieldActorDefinitionProvider = require("libs.hgss.src.actors.FieldActorDefinitionProvider")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}

@@ -20,9 +20,9 @@ local MovementBarrierTask = require("libs.hgss.src.script.tasks.MovementBarrierT
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
 local FakeServices = require("tests.support.script.FakeServices")
 local ScriptActorWorld = require("libs.hgss.src.script.ScriptActorWorld")
-local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 local FieldActorPose = require("libs.hgss.src.presentation.FieldActorPose")
 

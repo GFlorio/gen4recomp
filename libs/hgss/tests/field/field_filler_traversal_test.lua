@@ -5,11 +5,11 @@
 -- exactly once with one rebind of scripts/weather/audio.
 
 local Assert = require("tests.support.Assert")
-local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
-local FieldNavigationBoundary = require("libs.hgss.src.field.FieldNavigationBoundary")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local FieldZoneController = require("libs.hgss.src.field.FieldZoneController")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldCoverage = require("libs.hgss.src.world.FieldCoverage")
+local FieldNavigationBoundary = require("libs.hgss.src.world.FieldNavigationBoundary")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local FieldZoneController = require("libs.hgss.src.world.FieldZoneController")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

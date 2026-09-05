@@ -5,7 +5,7 @@
 -- standard text is two glyph lines (A, B of the fixture font) so goldens can
 -- paste the glyph colors independently.
 
-local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
+local FieldSignpostController = require("libs.hgss.src.interaction.FieldSignpostController")
 local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 local FieldWindowStyles = require("libs.hgss.src.field.FieldWindowStyles")
 local FieldUiFixture = require("tests.support.FieldUiFixture")

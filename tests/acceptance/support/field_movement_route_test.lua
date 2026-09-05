@@ -4,9 +4,9 @@
 -- model. A tiny flat map fixture keeps this a fast component test.
 
 local Assert = require("tests.support.Assert")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
 local FieldMovement = require("tests.acceptance.support.FieldMovement")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

@@ -1,7 +1,7 @@
 -- ContextChoiceProvider tests cover the distinct two-result HGSS provider.
 
 local Assert = require("tests.support.Assert")
-local ContextChoiceProvider = require("libs.hgss.src.field.ContextChoiceProvider")
+local ContextChoiceProvider = require("libs.hgss.src.interaction.ContextChoiceProvider")
 local ContextChoiceTask = require("libs.hgss.src.script.tasks.ContextChoiceTask")
 
 local T = {}

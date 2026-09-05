@@ -10,18 +10,18 @@
 -- layer.
 
 local Assert = require("tests.support.Assert")
-local DoorTiles = require("libs.hgss.src.field.DoorTiles")
+local DoorTiles = require("libs.hgss.src.transition.DoorTiles")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local FieldTransition = require("libs.hgss.src.field.FieldTransition")
-local FieldTransitionProfile = require("libs.hgss.src.field.FieldTransitionProfile")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
+local FieldTransitionProfile = require("libs.hgss.src.transition.FieldTransitionProfile")
 local MapAssetCompiler = require("romdump.src.digest.map.MapAssetCompiler")
-local MapProps = require("libs.hgss.src.field.MapProps")
+local MapProps = require("libs.hgss.src.world.MapProps")
 local ModelDefinition = require("libs.hgss.src.presentation.ModelDefinition")
 local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")
 local RomRuntimeMap = require("tests.support.RomRuntimeMap")
-local TransitionTrigger = require("libs.hgss.src.field.TransitionTrigger")
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
+local TransitionTrigger = require("libs.hgss.src.transition.TransitionTrigger")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
 
 local T = {}
 

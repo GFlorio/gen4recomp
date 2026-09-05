@@ -5,7 +5,7 @@
 -- stay with the collaborators that consume the returned result.
 
 local Assert = require("tests.support.Assert")
-local AvatarState = require("libs.hgss.src.field.FieldPlayerAvatarState")
+local AvatarState = require("libs.hgss.src.actors.FieldPlayerAvatarState")
 
 local T = {}
 

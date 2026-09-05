@@ -12,7 +12,7 @@ local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldActorCache = require("libs.assets.src.field.FieldActorCache")
 local FieldActorMesh = require("libs.hgss.src.presentation.FieldActorMesh")
-local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
+local BillboardTransform = require("libs.hgss.src.presentation.BillboardTransform")
 
 ---@class FieldActorAssetProvider: FieldActorAssets
 ---@field private _cacheFs CacheFs

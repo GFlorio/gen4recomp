@@ -1,5 +1,5 @@
 local Assert = require("tests.support.Assert")
-local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}
@@ -15,7 +15,7 @@ function T.cancelled_movement_must_settle_to_last_committed_anchor()
     release = function() end,
   }
   local policy = { variableSprites = { first = 101, last = 117, variableBase = 0x4020 } }
-  local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+  local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
   local FieldEventState = require("libs.hgss.src.field.FieldEventState")
   local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
   local function flatTerrain()

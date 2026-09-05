@@ -2,8 +2,8 @@
 -- presentation response without depending on runtime or presentation state.
 
 local Assert = require("tests.support.Assert")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
-local FieldTerrainResponse = require("libs.hgss.src.field.FieldTerrainResponse")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
+local FieldTerrainResponse = require("libs.hgss.src.world.FieldTerrainResponse")
 
 local T = { metadata = { capabilities = {} }, tests = {} }
 

@@ -9,9 +9,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
-local FieldTraversal = require("libs.hgss.src.field.FieldTraversal")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
+local FieldTraversal = require("libs.hgss.src.world.FieldTraversal")
 
 ---@class FieldPlayer : FieldPlayerVisual.Source
 ---@field currentMap RuntimeFieldMap

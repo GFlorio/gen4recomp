@@ -5,8 +5,8 @@
 -- space -- lives here once instead of being mirrored. Pure domain module
 -- (no love).
 
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local DoorTiles = {}
 

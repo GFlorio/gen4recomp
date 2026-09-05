@@ -2,7 +2,7 @@
 -- response. The resolver is pure and deliberately knows nothing about audio,
 -- encounters, cache assets, or LÖVE.
 
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local FieldTerrainResponse = {}
 

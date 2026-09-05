@@ -2,9 +2,9 @@
 -- independently from GPU rendering.
 
 local Assert = require("tests.support.Assert")
-local FieldTerrainEffectController = require("libs.hgss.src.field.FieldTerrainEffectController")
-local FieldTerrainResponse = require("libs.hgss.src.field.FieldTerrainResponse")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local FieldTerrainEffectController = require("libs.hgss.src.world.FieldTerrainEffectController")
+local FieldTerrainResponse = require("libs.hgss.src.world.FieldTerrainResponse")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 

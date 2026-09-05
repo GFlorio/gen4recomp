@@ -1,7 +1,7 @@
 -- FieldActorAutonomy tests cover semantic controller timing without field I/O.
 
 local Assert = require("tests.support.Assert")
-local FieldActorAutonomy = require("libs.hgss.src.field.FieldActorAutonomy")
+local FieldActorAutonomy = require("libs.hgss.src.actors.FieldActorAutonomy")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 
 local T = {}

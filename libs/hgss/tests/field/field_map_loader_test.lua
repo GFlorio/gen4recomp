@@ -6,9 +6,9 @@ local Errors = require("libs.errors.src.Errors")
 local CollisionFixture = require("tests.support.CollisionFixture")
 local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
-local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
+local FieldMapLoader = require("libs.hgss.src.world.FieldMapLoader")
 
 local T = {}
 

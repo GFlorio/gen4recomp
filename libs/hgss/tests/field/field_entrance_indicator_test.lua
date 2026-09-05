@@ -1,6 +1,6 @@
 local Assert = require("tests.support.Assert")
-local Indicator = require("libs.hgss.src.field.FieldEntranceIndicator")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local Indicator = require("libs.hgss.src.transition.FieldEntranceIndicator")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local T = { tests = {} }
 

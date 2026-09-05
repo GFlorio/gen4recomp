@@ -41,14 +41,14 @@
 -- Stair warps use the profile-owned locked source step and never use door
 -- animation or coordinate compensation.
 
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local FieldTransitionProfile = require("libs.hgss.src.field.FieldTransitionProfile")
-local FieldTransitionFade = require("libs.hgss.src.field.FieldTransitionFade")
+local FieldTransitionProfile = require("libs.hgss.src.transition.FieldTransitionProfile")
+local FieldTransitionFade = require("libs.hgss.src.transition.FieldTransitionFade")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
 
 ---@class FieldTransition
 ---@field loader FieldMapLoader

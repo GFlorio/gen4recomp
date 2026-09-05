@@ -21,10 +21,10 @@
 -- grid to classify the warp tile.
 
 local Assert = require("tests.support.Assert")
-local FieldTransition = require("libs.hgss.src.field.FieldTransition")
-local FieldTransitionFade = require("libs.hgss.src.field.FieldTransitionFade")
-local FieldTransitionProfile = require("libs.hgss.src.field.FieldTransitionProfile")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
+local FieldTransitionFade = require("libs.hgss.src.transition.FieldTransitionFade")
+local FieldTransitionProfile = require("libs.hgss.src.transition.FieldTransitionProfile")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

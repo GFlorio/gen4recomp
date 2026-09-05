@@ -9,8 +9,8 @@
 
 local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
-local TransitionTrigger = require("libs.hgss.src.field.TransitionTrigger")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local TransitionTrigger = require("libs.hgss.src.transition.TransitionTrigger")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local T = {}
 

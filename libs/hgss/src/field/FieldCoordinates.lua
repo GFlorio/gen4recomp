@@ -4,7 +4,7 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 
 local FieldCoordinates = {}
 

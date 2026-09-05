@@ -2,15 +2,15 @@
 -- recenter stages all missing cells and the composite region before replacing
 -- the active window, so acquisition failures cannot damage the current world.
 
-local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
-local FieldRegion = require("libs.hgss.src.field.FieldRegion")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
+local CollisionGrid = require("libs.hgss.src.world.CollisionGrid")
+local FieldRegion = require("libs.hgss.src.world.FieldRegion")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
 local CollisionGridAsset = require("libs.assets.src.field.CollisionGridAsset")
 local Matrix4 = require("libs.math.src.Matrix4")
-local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
+local BillboardTransform = require("libs.hgss.src.presentation.BillboardTransform")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 

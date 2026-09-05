@@ -11,7 +11,7 @@ local RomRuntimeMap = require("tests.support.RomRuntimeMap")
 local FieldActorCompiler = require("romdump.src.digest.actor.FieldActorCompiler")
 local FieldActorCacheWriter = require("romdump.src.digest.actor.FieldActorCacheWriter")
 local FieldActorAssetProvider = require("libs.hgss.src.presentation.FieldActorAssetProvider")
-local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
 local FieldScriptSymbols = require("libs.assets.src.field.FieldScriptSymbols")
 

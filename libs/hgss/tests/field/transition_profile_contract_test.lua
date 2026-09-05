@@ -2,8 +2,8 @@
 -- door audio and the asymmetric HGSS door movement from ROM loading.
 
 local Assert = require("tests.support.Assert")
-local FieldTransition = require("libs.hgss.src.field.FieldTransition")
-local FieldTransitionProfile = require("libs.hgss.src.field.FieldTransitionProfile")
+local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
+local FieldTransitionProfile = require("libs.hgss.src.transition.FieldTransitionProfile")
 
 local T = { tests = {} }
 

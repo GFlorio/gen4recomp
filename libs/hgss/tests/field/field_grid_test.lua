@@ -2,7 +2,7 @@
 -- centres run from -15.5 to +15.5, one unit per tile.
 
 local Assert = require("tests.support.Assert")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 
 return {
   tests = {

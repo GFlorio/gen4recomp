@@ -2,9 +2,9 @@
 -- the central cell plus cached neighbors, including a connected edge crossing.
 
 local Assert = require("tests.support.Assert")
-local FieldRegion = require("libs.hgss.src.field.FieldRegion")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldRegion = require("libs.hgss.src.world.FieldRegion")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

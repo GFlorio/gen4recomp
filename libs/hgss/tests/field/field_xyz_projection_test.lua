@@ -3,9 +3,9 @@
 
 local Assert = require("tests.support.Assert")
 local FieldCamera = require("libs.hgss.src.field.FieldCamera")
-local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldCoverage = require("libs.hgss.src.world.FieldCoverage")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local T = {}
 

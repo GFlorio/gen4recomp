@@ -8,9 +8,9 @@ local MapResolver = require("romdump.src.digest.map.MapResolver")
 local CacheFs = require("libs.storage.src.CacheFs")
 local MapAssetCache = require("libs.assets.src.MapAssetCache")
 local FieldCellCache = require("libs.assets.src.field.FieldCellCache")
-local FieldCoverage = require("libs.hgss.src.field.FieldCoverage")
-local FieldMapLoader = require("libs.hgss.src.field.FieldMapLoader")
-local FieldZoneController = require("libs.hgss.src.field.FieldZoneController")
+local FieldCoverage = require("libs.hgss.src.world.FieldCoverage")
+local FieldMapLoader = require("libs.hgss.src.world.FieldMapLoader")
+local FieldZoneController = require("libs.hgss.src.world.FieldZoneController")
 
 local T = {}
 

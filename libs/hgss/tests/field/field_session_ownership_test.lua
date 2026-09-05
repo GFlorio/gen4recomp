@@ -1,7 +1,7 @@
 local Assert = require("tests.support.Assert")
 local FieldSession = require("libs.hgss.src.field.FieldSession")
 local TilePermissions = require("tests.support.TilePermissions")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local function idleTransition()
   return {

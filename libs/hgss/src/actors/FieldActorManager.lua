@@ -12,13 +12,13 @@ local Errors = require("libs.errors.src.Errors")
 local ScriptErrors = require("libs.script.src.errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local FieldCoordinates = require("libs.hgss.src.field.FieldCoordinates")
-local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
-local FieldActorAutonomy = require("libs.hgss.src.field.FieldActorAutonomy")
+local FieldObjectActor = require("libs.hgss.src.actors.FieldObjectActor")
+local FieldActorAutonomy = require("libs.hgss.src.actors.FieldActorAutonomy")
 local FieldObjectMovement = require("libs.assets.src.field.FieldObjectMovement")
 local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
 local ScriptRng = require("libs.hgss.src.script.ScriptRng")
 local MovementCalibration = require("libs.hgss.src.script.tasks.MovementCalibration")
-local SurfaceResolver = require("libs.hgss.src.field.SurfaceResolver")
+local SurfaceResolver = require("libs.hgss.src.world.SurfaceResolver")
 
 -- Pinned HGSS special object ids: the field camera target and the walking
 -- partner (the object table pins these ids; see

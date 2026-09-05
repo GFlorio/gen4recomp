@@ -2,7 +2,7 @@
 -- coverage commits. Residency, protection, and actor ownership are external.
 
 local Assert = require("tests.support.Assert")
-local FieldZoneController = require("libs.hgss.src.field.FieldZoneController")
+local FieldZoneController = require("libs.hgss.src.world.FieldZoneController")
 
 local function newController(options)
   local ok, result = pcall(FieldZoneController.new, options)

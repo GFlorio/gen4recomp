@@ -59,13 +59,13 @@
 -- read the one retained per-tile playback slot -- there is no cross-instance
 -- census to keep in sync.
 
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
 local AnimationClip = require("libs.assets.src.model.AnimationClip")
-local DoorSound = require("libs.hgss.src.field.DoorSound")
+local DoorSound = require("libs.hgss.src.transition.DoorSound")
 
 local ANIMATION_CATEGORIES = { AnimationClip.CATEGORIES.joint, AnimationClip.CATEGORIES.material }
 

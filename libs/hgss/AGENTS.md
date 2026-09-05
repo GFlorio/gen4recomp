@@ -5,14 +5,24 @@ mechanisms and presents HGSS-facing seams to the application layer.
 
 ## Domain organization
 
-Keep reviewer-facing mechanisms in these domain subpackages:
+Keep reviewer-facing mechanisms in these shallow domain subpackages:
 
-- `field` — field simulation, world state, maps, actors, and field services.
+- `field` — deterministic session/application coordination, input, camera, field
+  applications, shared errors/IDs, and services that coordinate sibling domains.
+- `actors` — field actor/player identity, movement, autonomy, and actor definitions.
+- `world` — maps, cells, residency, collision, terrain, zones, weather, and world facts.
+- `interaction` — event, message, signpost, choice, and interaction resolution.
+- `transition` — warps, doors, fades, entrances, and field transition semantics.
 - `script` — HGSS value/reference semantics and field-shaped script adapters.
 - `audio` — HGSS audio policy composed over the NDS sound mechanisms.
 - `presentation` — field scene, camera, queue, and presentation composition.
 - `ui` — reusable HGSS runtime UI mechanisms; game-independent button primitives belong in `libs/ui`.
 - `save` — HGSS save semantics.
+
+These are semantic siblings inside `libs/hgss` because the mechanisms are HGSS-specific;
+do not create a generic `libs/field` package. Cross-domain coordination belongs in
+`field`, not in a new catch-all or technical-layer directory. Presentation renderers
+remain in `presentation` even when they draw actors or field effects.
 
 HGSS may consume `libs/nds`, `libs/script`, `libs/assets`, and foundation libraries when
 those mechanisms are part of a concrete runtime responsibility. It must not import

@@ -25,7 +25,7 @@ local DIAMOND_DUST_DATES = {
 }
 
 local function requireResolver()
-  local ok, mod = pcall(require, "libs.hgss.src.field.FieldWeatherResolver")
+  local ok, mod = pcall(require, "libs.hgss.src.world.FieldWeatherResolver")
   if not ok then
     error("FieldWeatherResolver is absent: calendar and weather rule resolution cannot be evaluated", 0)
   end

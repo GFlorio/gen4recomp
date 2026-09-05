@@ -14,7 +14,7 @@ local CacheFs = require("libs.storage.src.CacheFs")
 local DialogueLayout = require("libs.hgss.src.ui.DialogueLayout")
 local FakeCache = require("tests.support.FakeCache")
 local FieldDialogueTheme = require("libs.hgss.src.ui.FieldDialogueTheme")
-local FieldMessageProvider = require("libs.hgss.src.field.FieldMessageProvider")
+local FieldMessageProvider = require("libs.hgss.src.interaction.FieldMessageProvider")
 local FieldUiFixture = require("tests.support.FieldUiFixture")
 local FieldViewport = require("libs.hgss.src.presentation.FieldViewport")
 

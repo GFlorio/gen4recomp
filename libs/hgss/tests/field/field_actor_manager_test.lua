@@ -4,13 +4,13 @@
 
 local Assert = require("tests.support.Assert")
 local Errors = require("libs.errors.src.Errors")
-local FieldActorManager = require("libs.hgss.src.field.FieldActorManager")
+local FieldActorManager = require("libs.hgss.src.actors.FieldActorManager")
 local FieldEventState = require("libs.hgss.src.field.FieldEventState")
-local FieldObjectActor = require("libs.hgss.src.field.FieldObjectActor")
+local FieldObjectActor = require("libs.hgss.src.actors.FieldObjectActor")
 local FieldObjectSave = require("libs.hgss.src.save.FieldObjectSave")
-local FieldPlayer = require("libs.hgss.src.field.FieldPlayer")
-local FieldRegion = require("libs.hgss.src.field.FieldRegion")
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local FieldPlayer = require("libs.hgss.src.actors.FieldPlayer")
+local FieldRegion = require("libs.hgss.src.world.FieldRegion")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 local FieldActorFixture = require("tests.support.FieldActorFixture")
 
 local T = {}

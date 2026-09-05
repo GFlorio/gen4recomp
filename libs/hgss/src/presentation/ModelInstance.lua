@@ -37,7 +37,7 @@ local MaterialEvaluator = require("libs.hgss.src.presentation.MaterialEvaluator"
 local AlphaClassifier = require("libs.nds.src.gx.AlphaClassifier")
 local PolygonState = require("libs.assets.src.model.PolygonState")
 local AnimationClip = require("libs.assets.src.model.AnimationClip")
-local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
+local BillboardTransform = require("libs.hgss.src.presentation.BillboardTransform")
 
 ---@class MaterialRGB
 ---@field r integer

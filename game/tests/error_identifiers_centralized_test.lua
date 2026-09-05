@@ -264,7 +264,7 @@ function T.tests.misleading_names_are_renamed()
     violations[#violations + 1] = "romdump/src/source/RomImporter.lua still names its start guard _requireIdle"
   end
 
-  local warpSystem = readFile("libs/hgss/src/field/WarpSystem.lua")
+  local warpSystem = readFile("libs/hgss/src/transition/WarpSystem.lua")
   if warpSystem:find("resolutionRecord(sourceMap, warp, destinationMap, warp", 1, true) ~= nil then
     violations[#violations + 1] = "WarpSystem.lua direct branch aliases the trigger record as destinationWarp"
   end

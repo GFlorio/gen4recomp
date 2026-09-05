@@ -5,7 +5,7 @@
 
 local Assert = require("tests.support.Assert")
 local CollisionFixture = require("tests.support.CollisionFixture")
-local CollisionGrid = require("libs.hgss.src.field.CollisionGrid")
+local CollisionGrid = require("libs.hgss.src.world.CollisionGrid")
 
 return {
   tests = {

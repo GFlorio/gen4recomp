@@ -16,9 +16,9 @@
 
 local Errors = require("libs.errors.src.Errors")
 local FieldErrors = require("libs.hgss.src.field.FieldErrors")
-local FieldTransitionProfile = require("libs.hgss.src.field.FieldTransitionProfile")
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local FieldTransitionProfile = require("libs.hgss.src.transition.FieldTransitionProfile")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local DIRECTION_DELTAS = {
   north = { x = 0, z = -1 },

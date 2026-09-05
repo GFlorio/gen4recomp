@@ -11,9 +11,9 @@
 -- attached.
 
 local Assert = require("tests.support.Assert")
-local MapProps = require("libs.hgss.src.field.MapProps")
+local MapProps = require("libs.hgss.src.world.MapProps")
 local TilePermissions = require("tests.support.TilePermissions")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
 
 local T = {}
 

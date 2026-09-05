@@ -1,7 +1,7 @@
 -- Owns active logical field-map identity and the side effects of changing it.
 -- Residency and map protection belong to the coordinator.
 
-local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
+local FieldZoneIdentity = require("libs.hgss.src.world.FieldZoneIdentity")
 
 local FieldZoneController = {}
 FieldZoneController.__index = FieldZoneController

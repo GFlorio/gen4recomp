@@ -4,7 +4,7 @@
 -- discard the base rotation, and face the camera by undoing the view rotation.
 
 local Assert = require("tests.support.Assert")
-local BillboardTransform = require("libs.hgss.src.field.BillboardTransform")
+local BillboardTransform = require("libs.hgss.src.presentation.BillboardTransform")
 local Matrix3 = require("libs.math.src.Matrix3")
 local Matrix4 = require("libs.math.src.Matrix4")
 

@@ -2,7 +2,7 @@
 -- to player-input movement. It has no terrain, actor, progression, or host
 -- dependencies; FieldPlayer owns all stateful validation and motion timing.
 
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local FieldTraversal = {}
 

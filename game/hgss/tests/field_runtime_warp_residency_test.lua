@@ -3,7 +3,7 @@
 -- through the real residency coordinator and the runtime commit boundary.
 
 local Assert = require("tests.support.Assert")
-local FieldResidencyCoordinator = require("libs.hgss.src.field.FieldResidencyCoordinator")
+local FieldResidencyCoordinator = require("libs.hgss.src.world.FieldResidencyCoordinator")
 local FieldRuntime = require("game.hgss.src.field.FieldRuntime")
 
 local T = {}

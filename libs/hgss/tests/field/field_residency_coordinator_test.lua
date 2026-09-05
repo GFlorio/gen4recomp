@@ -7,7 +7,7 @@ local Assert = require("tests.support.Assert")
 local FieldAudioController = require("libs.hgss.src.audio.FieldAudioController")
 
 local function coordinatorClass()
-  local ok, loaded = pcall(require, "libs.hgss.src.field.FieldResidencyCoordinator")
+  local ok, loaded = pcall(require, "libs.hgss.src.world.FieldResidencyCoordinator")
   Assert.isTrue(ok, "field residency coordinator production boundary is required")
   return assert(loaded)
 end

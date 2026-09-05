@@ -2,7 +2,7 @@
 -- collision and terrain view. Coordinates remain local to the central cell;
 -- neighboring BDHC planes are translated in all three axes.
 
-local TerrainSurface = require("libs.hgss.src.field.TerrainSurface")
+local TerrainSurface = require("libs.hgss.src.world.TerrainSurface")
 
 local FieldRegion = {}
 

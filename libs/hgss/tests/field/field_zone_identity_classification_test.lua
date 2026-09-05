@@ -4,7 +4,7 @@
 -- identity input fails loudly instead of resolving to a plausible map.
 
 local Assert = require("tests.support.Assert")
-local FieldZoneIdentity = require("libs.hgss.src.field.FieldZoneIdentity")
+local FieldZoneIdentity = require("libs.hgss.src.world.FieldZoneIdentity")
 
 local T = {}
 

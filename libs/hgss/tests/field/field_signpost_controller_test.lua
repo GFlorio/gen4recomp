@@ -6,7 +6,7 @@
 -- reveal, instant fill). No render-frame timing.
 
 local Assert = require("tests.support.Assert")
-local FieldSignpostController = require("libs.hgss.src.field.FieldSignpostController")
+local FieldSignpostController = require("libs.hgss.src.interaction.FieldSignpostController")
 local TextSpeedPolicy = require("libs.hgss.src.ui.TextSpeedPolicy")
 
 local T = {}

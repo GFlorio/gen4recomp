@@ -2,8 +2,8 @@
 -- decisions without terrain, actors, progression, or host dependencies.
 
 local Assert = require("tests.support.Assert")
-local FieldTraversal = require("libs.hgss.src.field.FieldTraversal")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local FieldTraversal = require("libs.hgss.src.world.FieldTraversal")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 
 local T = {}
 local BEHAVIOR = MetatileBehavior.BEHAVIOR

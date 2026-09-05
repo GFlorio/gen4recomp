@@ -28,11 +28,11 @@
 local Assert = require("tests.support.Assert")
 local TilePermissions = require("tests.support.TilePermissions")
 local Matrix4 = require("libs.math.src.Matrix4")
-local FieldGrid = require("libs.hgss.src.field.FieldGrid")
-local MetatileBehavior = require("libs.hgss.src.field.MetatileBehavior")
+local FieldGrid = require("libs.hgss.src.world.FieldGrid")
+local MetatileBehavior = require("libs.hgss.src.world.MetatileBehavior")
 local NitroModelFixture = require("tests.support.NitroModelFixture")
 local ModelInstance = require("libs.hgss.src.presentation.ModelInstance")
-local MapPropsModule = require("libs.hgss.src.field.MapProps")
+local MapPropsModule = require("libs.hgss.src.world.MapProps")
 
 local T = {}
 

@@ -24,10 +24,10 @@
 -- semantic effects from field traversal. FieldRuntime composes global sound
 -- frame work after each fixed field tick.
 
-local TransitionTrigger = require("libs.hgss.src.field.TransitionTrigger")
-local WarpSystem = require("libs.hgss.src.field.WarpSystem")
+local TransitionTrigger = require("libs.hgss.src.transition.TransitionTrigger")
+local WarpSystem = require("libs.hgss.src.transition.WarpSystem")
 local ScriptInteractionClient = require("libs.hgss.src.script.ScriptInteractionClient")
-local FieldTransition = require("libs.hgss.src.field.FieldTransition")
+local FieldTransition = require("libs.hgss.src.transition.FieldTransition")
 
 ---@class FieldSessionOptions
 ---@field versionId string
@@ -417,7 +417,7 @@ function FieldSession:_emitTerrainResponse()
   local origin = assert(self.currentMap.coordinateOrigin, "terrain response map origin is required")
   local localX, localZ = self.player.fieldX - origin.x, self.player.fieldZ - origin.z
   local cell = self.currentMap.collision:getLocal(localX, localZ)
-  local responses = require("libs.hgss.src.field.FieldTerrainResponse").resolve({
+  local responses = require("libs.hgss.src.world.FieldTerrainResponse").resolve({
     committed = true,
     destination = {
       behavior = cell.behavior,
